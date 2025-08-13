@@ -1,63 +1,50 @@
-function create_2d_solver(nx::Int, ny::Int, Lx::Float64, Ly::Float64,
+function create_2d_solver(nx::Int, nz::Int, Lx::Float64, Lz::Float64,
                          fluid::FluidProperties, bc::BoundaryConditions;
                          grid_type::GridType=TwoDimensional,
                          time_scheme::TimeSteppingScheme=RungeKutta3(),
                          use_mpi::Bool=false,
-                         origin_x::Float64=0.0, origin_y::Float64=0.0)
+                         origin_x::Float64=0.0, origin_z::Float64=0.0)
     
     if grid_type == TwoDimensional
-        grid = StaggeredGrid2D(nx, ny, Lx, Ly; origin_x=origin_x, origin_y=origin_y)
-    elseif grid_type == TwoDimensionalXZ
-        grid = StaggeredGrid2DXZ(nx, ny, Lx, Ly; origin_x=origin_x, origin_z=origin_y)  # ny is nz here
+        grid = StaggeredGrid2D(nx, nz, Lx, Lz; origin_x=origin_x, origin_z=origin_z)
     else
         error("Invalid grid type for 2D solver: $grid_type")
     end
     
     if use_mpi
-        return MPINavierStokesSolver2D(nx, ny, Lx, Ly, fluid, bc, time_scheme)
+        return MPINavierStokesSolver2D(nx, nz, Lx, Lz, fluid, bc, time_scheme)
     else
         return NavierStokesSolver2D(grid, fluid, bc, time_scheme)
     end
 end
 
-function create_uniform_2d_grid(nx::Int, ny::Int, Lx::Float64, Ly::Float64;
+function create_uniform_2d_grid(nx::Int, nz::Int, Lx::Float64, Lz::Float64;
                                grid_type::GridType=TwoDimensional,
-                               origin_x::Float64=0.0, origin_y::Float64=0.0)
+                               origin_x::Float64=0.0, origin_z::Float64=0.0)
     if grid_type == TwoDimensional
-        return StaggeredGrid2D(nx, ny, Lx, Ly; origin_x=origin_x, origin_y=origin_y)
-    elseif grid_type == TwoDimensionalXZ
-        return StaggeredGrid2DXZ(nx, ny, Lx, Ly; origin_x=origin_x, origin_z=origin_y)
+        return StaggeredGrid2D(nx, nz, Lx, Lz; origin_x=origin_x, origin_z=origin_z)
     else
         error("Invalid grid type for 2D: $grid_type")
     end
 end
 
-function create_stretched_2d_grid(x_points::Vector{Float64}, y_points::Vector{Float64};
+function create_stretched_2d_grid(x_points::Vector{Float64}, z_points::Vector{Float64};
                                  grid_type::GridType=TwoDimensional)
-    # Create non-uniform grid with specified grid points
+    # Create non-uniform grid with specified grid points (XZ plane)
     nx = length(x_points) - 1
-    ny = length(y_points) - 1
+    nz = length(z_points) - 1
     
     Lx = x_points[end] - x_points[1]
-    Ly = y_points[end] - y_points[1]
+    Lz = z_points[end] - z_points[1]
     
     if grid_type == TwoDimensional
-        grid = StaggeredGrid2D(nx, ny, Lx, Ly; origin_x=x_points[1], origin_y=y_points[1])
+        grid = StaggeredGrid2D(nx, nz, Lx, Lz; origin_x=x_points[1], origin_z=z_points[1])
         
         # Override with custom spacing
         grid.x .= 0.5 .* (x_points[1:end-1] .+ x_points[2:end])  # Cell centers
-        grid.y .= 0.5 .* (y_points[1:end-1] .+ y_points[2:end])
+        grid.z .= 0.5 .* (z_points[1:end-1] .+ z_points[2:end])
         grid.xu .= x_points  # Face centers for u-velocity
-        grid.yv .= y_points  # Face centers for v-velocity
-        
-        return grid
-    elseif grid_type == TwoDimensionalXZ
-        grid = StaggeredGrid2DXZ(nx, ny, Lx, Ly; origin_x=x_points[1], origin_z=y_points[1])
-        
-        grid.x .= 0.5 .* (x_points[1:end-1] .+ x_points[2:end])
-        grid.z .= 0.5 .* (y_points[1:end-1] .+ y_points[2:end])
-        grid.xu .= x_points
-        grid.zw .= y_points
+        grid.zw .= z_points  # Face centers for w-velocity
         
         return grid
     else
@@ -71,21 +58,21 @@ function refine_2d_grid_near_bodies(base_grid::StaggeredGrid, bodies::Union{Rigi
     refined_grid = RefinedGrid(base_grid)
     
     # Mark cells for refinement based on distance to bodies
-    for j = 1:base_grid.ny, i = 1:base_grid.nx
+    for j = 1:base_grid.nz, i = 1:base_grid.nx
         x = base_grid.x[i]
-        y = base_grid.y[j]
+        z = base_grid.z[j]
         
         min_distance = Inf
         
         if bodies isa RigidBodyCollection
             for body in bodies.bodies
-                dist = abs(distance_to_surface(body, x, y))
+                dist = abs(distance_to_surface(body, x, z))
                 min_distance = min(min_distance, dist)
             end
         elseif bodies isa FlexibleBodyCollection
             for body in bodies.bodies
                 for k = 1:body.n_points
-                    dist = sqrt((x - body.X[k, 1])^2 + (y - body.X[k, 2])^2)
+                    dist = sqrt((x - body.X[k, 1])^2 + (z - body.X[k, 2])^2)  # X[k,2] is z-coordinate
                     min_distance = min(min_distance, dist)
                 end
             end
@@ -105,15 +92,15 @@ function compute_grid_metrics_2d(grid::StaggeredGrid)
     metrics = Dict{String, Any}()
     metrics["grid_type"] = string(grid.grid_type)
     metrics["nx"] = grid.nx
-    metrics["ny"] = grid.ny
+    metrics["nz"] = grid.nz
     metrics["Lx"] = grid.Lx
-    metrics["Ly"] = grid.Ly
+    metrics["Lz"] = grid.Lz
     metrics["dx_min"] = minimum([grid.dx])
-    metrics["dy_min"] = minimum([grid.dy])
+    metrics["dz_min"] = minimum([grid.dz])
     metrics["dx_max"] = maximum([grid.dx])
-    metrics["dy_max"] = maximum([grid.dy])
-    metrics["aspect_ratio"] = grid.Lx / grid.Ly
-    metrics["total_cells"] = grid.nx * grid.ny
+    metrics["dz_max"] = maximum([grid.dz])
+    metrics["aspect_ratio"] = grid.Lx / grid.Lz
+    metrics["total_cells"] = grid.nx * grid.nz
     
     return metrics
 end
@@ -121,39 +108,39 @@ end
 function print_grid_info_2d(grid::StaggeredGrid)
     println("2D Grid Information:")
     println("  Type: $(grid.grid_type)")
-    println("  Dimensions: $(grid.nx) × $(grid.ny)")
-    println("  Domain size: $(grid.Lx) × $(grid.Ly)")
-    println("  Grid spacing: Δx = $(grid.dx), Δy = $(grid.dy)")
-    println("  Total cells: $(grid.nx * grid.ny)")
-    println("  Aspect ratio: $(grid.Lx / grid.Ly)")
+    println("  Dimensions: $(grid.nx) × $(grid.nz) (XZ plane)")
+    println("  Domain size: $(grid.Lx) × $(grid.Lz)")
+    println("  Grid spacing: Δx = $(grid.dx), Δz = $(grid.dz)")
+    println("  Total cells: $(grid.nx * grid.nz)")
+    println("  Aspect ratio: $(grid.Lx / grid.Lz)")
 end
 
 function validate_2d_grid(grid::StaggeredGrid)
     # Perform basic validation checks
     checks_passed = true
     
-    if grid.nx <= 0 || grid.ny <= 0
+    if grid.nx <= 0 || grid.nz <= 0
         println("ERROR: Grid dimensions must be positive")
         checks_passed = false
     end
     
-    if grid.Lx <= 0 || grid.Ly <= 0
+    if grid.Lx <= 0 || grid.Lz <= 0
         println("ERROR: Domain size must be positive")
         checks_passed = false
     end
     
-    if grid.dx <= 0 || grid.dy <= 0
+    if grid.dx <= 0 || grid.dz <= 0
         println("ERROR: Grid spacing must be positive")
         checks_passed = false
     end
     
     # Check array dimensions
-    if length(grid.x) != grid.nx || length(grid.y) != grid.ny
+    if length(grid.x) != grid.nx || length(grid.z) != grid.nz
         println("ERROR: Coordinate array dimensions don't match grid size")
         checks_passed = false
     end
     
-    if length(grid.xu) != grid.nx + 1 || length(grid.yv) != grid.ny + 1
+    if length(grid.xu) != grid.nx + 1 || length(grid.zw) != grid.nz + 1
         println("ERROR: Staggered grid array dimensions incorrect")
         checks_passed = false
     end
@@ -176,15 +163,15 @@ function export_2d_grid_vtk(grid::StaggeredGrid, filename::String)
         println(file, "2D Staggered Grid")
         println(file, "ASCII")
         println(file, "DATASET STRUCTURED_GRID")
-        println(file, "DIMENSIONS $(grid.nx+1) $(grid.ny+1) 1")
-        println(file, "POINTS $((grid.nx+1)*(grid.ny+1)) float")
+        println(file, "DIMENSIONS $(grid.nx+1) $(grid.nz+1) 1")
+        println(file, "POINTS $((grid.nx+1)*(grid.nz+1)) float")
         
-        # Write grid points
-        for j = 0:grid.ny
+        # Write grid points (XZ plane)
+        for k = 0:grid.nz
             for i = 0:grid.nx
                 x = i * grid.dx + (grid.x[1] - grid.dx/2)
-                y = j * grid.dy + (grid.y[1] - grid.dy/2)
-                println(file, "$x $y 0.0")
+                z = k * grid.dz + (grid.z[1] - grid.dz/2)
+                println(file, "$x 0.0 $z")  # y=0 for XZ plane
             end
         end
     end

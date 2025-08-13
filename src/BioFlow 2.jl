@@ -16,9 +16,6 @@ include("common/boundary_conditions.jl")
 include("common/time_stepping.jl")
 include("common/multigrid_solver.jl")
 include("common/adaptive_refinement.jl")
-include("common/adaptive_refinement_v2.jl")
-include("common/adaptive_refinement_mpi.jl")
-include("common/boundary_layer_amr.jl")
 include("common/immersed_boundary.jl")
 
 include("2D/grid_2d.jl")
@@ -73,24 +70,11 @@ export time_step!
 export BoundaryConditions, BoundaryConditions2D, BoundaryConditions3D
 export InletBC, PressureOutletBC, VelocityOutletBC, NoSlipBC, FreeSlipBC, PeriodicBC
 
-# Adaptive refinement exports (original)
+# Adaptive refinement exports
 export AdaptiveRefinementCriteria, RefinedGrid, adapt_grid!
-
-# Advanced adaptive refinement exports (v2)
-export AMRLevel, AMRHierarchy, MPIAMRHierarchy
-export compute_refinement_indicators_amr, conservative_restriction_2d, bilinear_prolongation_2d
-export refine_amr_level!, estimate_truncation_error, coordinate_global_refinement!
-
-# Boundary layer AMR exports
-export BoundaryLayerAMRCriteria, compute_boundary_layer_indicators
-export compute_wall_distance_field, compute_y_plus_field
-export refine_for_boundary_layers!, apply_anisotropic_refinement!
 
 # Output exports
 export NetCDFConfig, NetCDFWriter, write_solution!, close!
-export save_body_force_coefficients!, save_complete_snapshot!, setup_netcdf_output
-export save_flexible_body_positions!, create_position_only_writer
-export save_body_kinematics_snapshot!, save_body_positions_only!
 
 # Differential operator exports
 export ddx, ddy, ddz, d2dx2, d2dy2, d2dz2
@@ -113,9 +97,6 @@ export compute_local_surface_properties, compute_adaptive_stiffness, compute_loc
 
 # Flag-specific constructor functions
 export create_flag, create_vertical_flag, create_curved_flag, create_angled_flag, create_flag_collection
-
-# Force coefficient calculation functions  
-export compute_drag_lift_coefficients, compute_body_coefficients_collection, compute_instantaneous_power
 
 # WaterLily.jl-style multigrid solver exports
 export MultiLevelPoisson, StaggeredMultiLevelPoisson, MPIMultiLevelPoisson
