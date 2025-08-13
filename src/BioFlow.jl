@@ -90,4 +90,9 @@ export divergence_3d!, gradient_3d!, laplacian_3d!, advection_3d!
 # Solver step functions
 export solve_step_2d!, solve_step_3d!
 
+# Advanced force calculation exports
+export compute_flexible_body_forces, compute_stress_force_accurate, compute_penalty_force_accurate
+export compute_constraint_force_accurate, regularized_delta_2d, interpolate_with_delta_function
+export compute_local_surface_properties, compute_adaptive_stiffness, compute_local_reynolds
+
 end
