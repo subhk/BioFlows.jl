@@ -130,9 +130,9 @@ function minmod(a::T, b::T) where T<:Real
     end
 end
 
-function diffusion_2d!(diff_u::Matrix{T}, diff_v::Matrix{T},
-                      u::Matrix{T}, v::Matrix{T}, 
-                      fluid::FluidProperties, grid::StaggeredGrid{T}) where T<:Real
+function compute_diffusion_2d!(diff_u::Matrix{T}, diff_v::Matrix{T},
+                              u::Matrix{T}, v::Matrix{T}, 
+                              fluid::FluidProperties, grid::StaggeredGrid{T}) where T<:Real
     nx, ny = grid.nx, grid.ny
     dx, dy = grid.dx, grid.dy
     μ = fluid.μ

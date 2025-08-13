@@ -73,18 +73,19 @@ function compute_velocity_gradient_indicator(grid::StaggeredGrid, state::Solutio
     nx, ny = grid.nx, grid.ny
     indicator = zeros(nx, ny)
     
-    # Interpolate velocities to cell centers first
-    u_cc, v_cc = interpolate_to_cell_center_2d(state.u, state.v, grid)
+    # Use proper staggered grid interpolation from differential operators
+    u_cc = interpolate_u_to_cell_center(state.u, grid)
+    v_cc = interpolate_v_to_cell_center(state.v, grid)
     
-    # Compute velocity gradients
-    for j = 2:ny-1, i = 2:nx-1
-        dudx = (u_cc[i+1, j] - u_cc[i-1, j]) / (2 * grid.dx)
-        dudy = (u_cc[i, j+1] - u_cc[i, j-1]) / (2 * grid.dy)
-        dvdx = (v_cc[i+1, j] - v_cc[i-1, j]) / (2 * grid.dx)
-        dvdy = (v_cc[i, j+1] - v_cc[i, j-1]) / (2 * grid.dy)
-        
-        # Magnitude of velocity gradient tensor
-        indicator[i, j] = sqrt(dudx^2 + dudy^2 + dvdx^2 + dvdy^2)
+    # Use proper 2nd order differential operators for velocity gradients
+    dudx = ddx(u_cc, grid)
+    dudy = ddy(u_cc, grid)
+    dvdx = ddx(v_cc, grid)
+    dvdy = ddy(v_cc, grid)
+    
+    # Magnitude of velocity gradient tensor
+    for j = 1:ny, i = 1:nx
+        indicator[i, j] = sqrt(dudx[i, j]^2 + dudy[i, j]^2 + dvdx[i, j]^2 + dvdy[i, j]^2)
     end
     
     return indicator
@@ -94,11 +95,12 @@ function compute_pressure_gradient_indicator(grid::StaggeredGrid, state::Solutio
     nx, ny = grid.nx, grid.ny
     indicator = zeros(nx, ny)
     
-    for j = 2:ny-1, i = 2:nx-1
-        dpdx = (state.p[i+1, j] - state.p[i-1, j]) / (2 * grid.dx)
-        dpdy = (state.p[i, j+1] - state.p[i, j-1]) / (2 * grid.dy)
-        
-        indicator[i, j] = sqrt(dpdx^2 + dpdy^2)
+    # Use proper differential operators for pressure gradients
+    dpdx = ddx(state.p, grid)
+    dpdy = ddy(state.p, grid)
+    
+    for j = 1:ny, i = 1:nx
+        indicator[i, j] = sqrt(dpdx[i, j]^2 + dpdy[i, j]^2)
     end
     
     return indicator
@@ -108,15 +110,17 @@ function compute_vorticity_indicator(grid::StaggeredGrid, state::SolutionState)
     nx, ny = grid.nx, grid.ny
     indicator = zeros(nx, ny)
     
-    # Compute vorticity ω = ∂v/∂x - ∂u/∂y
-    for j = 2:ny-1, i = 2:nx-1
-        # Interpolate derivatives at cell center
-        dvdx = (0.25 * (state.v[i+1, j] + state.v[i+1, j+1]) - 
-                0.25 * (state.v[i-1, j] + state.v[i-1, j+1])) / (2 * grid.dx)
-        dudy = (0.25 * (state.u[i, j+1] + state.u[i+1, j+1]) - 
-                0.25 * (state.u[i, j-1] + state.u[i+1, j-1])) / (2 * grid.dy)
-        
-        indicator[i, j] = abs(dvdx - dudy)
+    # Compute vorticity ω = ∂v/∂x - ∂u/∂y using proper staggered grid operators
+    # First interpolate to cell centers
+    u_cc = interpolate_u_to_cell_center(state.u, grid)
+    v_cc = interpolate_v_to_cell_center(state.v, grid)
+    
+    # Then compute derivatives
+    dvdx = ddx(v_cc, grid)
+    dudy = ddy(u_cc, grid)
+    
+    for j = 1:ny, i = 1:nx
+        indicator[i, j] = abs(dvdx[i, j] - dudy[i, j])
     end
     
     return indicator

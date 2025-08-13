@@ -24,7 +24,7 @@ function navier_stokes_rhs_3d(state::SolutionState, grid::StaggeredGrid,
     advection_3d!(adv_u, adv_v, adv_w, state.u, state.v, state.w, grid)
     
     # Compute diffusion terms
-    diffusion_3d!(diff_u, diff_v, diff_w, state.u, state.v, state.w, fluid, grid)
+    compute_diffusion_3d!(diff_u, diff_v, diff_w, state.u, state.v, state.w, fluid, grid)
     
     # Density
     if fluid.ρ isa ConstantDensity
@@ -136,7 +136,7 @@ function compute_predictor_rhs_3d(state::SolutionState, grid::StaggeredGrid,
     diff_w = zeros(nx, ny, nz+1)
     
     advection_3d!(adv_u, adv_v, adv_w, state.u, state.v, state.w, grid)
-    diffusion_3d!(diff_u, diff_v, diff_w, state.u, state.v, state.w, fluid, grid)
+    compute_diffusion_3d!(diff_u, diff_v, diff_w, state.u, state.v, state.w, fluid, grid)
     
     rhs_u = -adv_u + diff_u
     rhs_v = -adv_v + diff_v
@@ -183,29 +183,16 @@ end
 function correct_velocity_3d!(state_new::SolutionState, state_predictor::SolutionState,
                              phi::Array{Float64,3}, dt::Float64, grid::StaggeredGrid)
     nx, ny, nz = grid.nx, grid.ny, grid.nz
-    dx, dy, dz = grid.dx, grid.dy, grid.dz
     
-    # u correction
-    for k = 1:nz, j = 1:ny, i = 2:nx
-        dphidx = (phi[i, j, k] - phi[i-1, j, k]) / dx
-        state_new.u[i, j, k] = state_predictor.u[i, j, k] - dt * dphidx
-    end
-    state_new.u[1, :, :] = state_predictor.u[1, :, :]
-    state_new.u[nx+1, :, :] = state_predictor.u[nx+1, :, :]
+    # Use proper staggered grid differential operators
+    dpdx_faces, dpdy_faces, dpdz_faces = grad(phi, grid)
     
-    # v correction
-    for k = 1:nz, j = 2:ny, i = 1:nx
-        dphidy = (phi[i, j, k] - phi[i, j-1, k]) / dy
-        state_new.v[i, j, k] = state_predictor.v[i, j, k] - dt * dphidy
-    end
-    state_new.v[:, 1, :] = state_predictor.v[:, 1, :]
-    state_new.v[:, ny+1, :] = state_predictor.v[:, ny+1, :]
+    # u correction: u = u* - dt * ∂φ/∂x (at u-velocity locations)
+    state_new.u .= state_predictor.u .- dt .* dpdx_faces
     
-    # w correction
-    for k = 2:nz, j = 1:ny, i = 1:nx
-        dphidz = (phi[i, j, k] - phi[i, j, k-1]) / dz
-        state_new.w[i, j, k] = state_predictor.w[i, j, k] - dt * dphidz
-    end
-    state_new.w[:, :, 1] = state_predictor.w[:, :, 1]
-    state_new.w[:, :, nz+1] = state_predictor.w[:, :, nz+1]
+    # v correction: v = v* - dt * ∂φ/∂y (at v-velocity locations)
+    state_new.v .= state_predictor.v .- dt .* dpdy_faces
+    
+    # w correction: w = w* - dt * ∂φ/∂z (at w-velocity locations)
+    state_new.w .= state_predictor.w .- dt .* dpdz_faces
 end

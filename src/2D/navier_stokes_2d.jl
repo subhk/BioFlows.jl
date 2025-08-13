@@ -20,8 +20,8 @@ function navier_stokes_rhs_2d(state::SolutionState, grid::StaggeredGrid,
     # Compute advection terms
     advection_2d!(adv_u, adv_v, state.u, state.v, grid)
     
-    # Compute diffusion terms
-    diffusion_2d!(diff_u, diff_v, state.u, state.v, fluid, grid)
+    # Compute diffusion terms using proper staggered grid operators
+    compute_diffusion_2d!(diff_u, diff_v, state.u, state.v, fluid, grid)
     
     # Density
     if fluid.ρ isa ConstantDensity
@@ -137,7 +137,7 @@ function compute_predictor_rhs_2d(state::SolutionState, grid::StaggeredGrid,
     
     # Compute advection and diffusion terms (no pressure)
     advection_2d!(adv_u, adv_v, state.u, state.v, grid)
-    diffusion_2d!(diff_u, diff_v, state.u, state.v, fluid, grid)
+    compute_diffusion_2d!(diff_u, diff_v, state.u, state.v, fluid, grid)
     
     rhs_u = -adv_u + diff_u
     rhs_v = -adv_v + diff_v
@@ -147,60 +147,21 @@ end
 
 function solve_pressure_poisson_2d!(phi::Matrix{Float64}, rhs::Matrix{Float64}, 
                                    grid::StaggeredGrid, bc::BoundaryConditions)
-    # This is a placeholder for the multigrid solver
-    # In practice, this would call the GeometricMultigrid.jl solver
-    nx, ny = grid.nx, grid.ny
-    dx, dy = grid.dx, grid.dy
-    
-    # Simple iterative solver (placeholder)
-    # In the real implementation, use GeometricMultigrid.jl
-    phi .= 0.0
-    
-    for iter = 1:1000
-        phi_old = copy(phi)
-        
-        for j = 2:ny-1, i = 2:nx-1
-            phi[i,j] = 0.25 * (
-                (phi[i+1,j] + phi[i-1,j]) / dx^2 + 
-                (phi[i,j+1] + phi[i,j-1]) / dy^2 - 
-                rhs[i,j]
-            ) / (1/dx^2 + 1/dy^2)
-        end
-        
-        # Apply boundary conditions for pressure (homogeneous Neumann typically)
-        phi[1, :] .= phi[2, :]      # ∂φ/∂x = 0 at left
-        phi[nx, :] .= phi[nx-1, :]  # ∂φ/∂x = 0 at right
-        phi[:, 1] .= phi[:, 2]      # ∂φ/∂y = 0 at bottom
-        phi[:, ny] .= phi[:, ny-1]  # ∂φ/∂y = 0 at top
-        
-        if maximum(abs.(phi - phi_old)) < 1e-10
-            break
-        end
-    end
+    # Use staggered-aware multigrid solver for optimal performance
+    solver = MultigridPoissonSolver(grid; solver_type=:staggered, tolerance=1e-8)
+    solve_poisson!(solver, phi, rhs, grid, bc)
 end
 
 function correct_velocity_2d!(state_new::SolutionState, state_predictor::SolutionState,
                              phi::Matrix{Float64}, dt::Float64, grid::StaggeredGrid)
     nx, ny = grid.nx, grid.ny
-    dx, dy = grid.dx, grid.dy
     
-    # u correction: u = u* - dt * ∂φ/∂x
-    for j = 1:ny, i = 2:nx
-        dphidx = (phi[i, j] - phi[i-1, j]) / dx
-        state_new.u[i, j] = state_predictor.u[i, j] - dt * dphidx
-    end
+    # Use proper staggered grid differential operators
+    dpdx_faces, dpdy_faces = grad(phi, grid)
     
-    # Boundary velocities
-    state_new.u[1, :] = state_predictor.u[1, :]
-    state_new.u[nx+1, :] = state_predictor.u[nx+1, :]
+    # u correction: u = u* - dt * ∂φ/∂x (at u-velocity locations)
+    state_new.u .= state_predictor.u .- dt .* dpdx_faces
     
-    # v correction: v = v* - dt * ∂φ/∂y  
-    for j = 2:ny, i = 1:nx
-        dphidy = (phi[i, j] - phi[i, j-1]) / dy
-        state_new.v[i, j] = state_predictor.v[i, j] - dt * dphidy
-    end
-    
-    # Boundary velocities
-    state_new.v[:, 1] = state_predictor.v[:, 1]
-    state_new.v[:, ny+1] = state_predictor.v[:, ny+1]
+    # v correction: v = v* - dt * ∂φ/∂y (at v-velocity locations)
+    state_new.v .= state_predictor.v .- dt .* dpdy_faces
 end

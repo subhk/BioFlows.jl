@@ -127,9 +127,9 @@ function advection_3d!(adv_u::Array{T,3}, adv_v::Array{T,3}, adv_w::Array{T,3},
     end
 end
 
-function diffusion_3d!(diff_u::Array{T,3}, diff_v::Array{T,3}, diff_w::Array{T,3},
-                      u::Array{T,3}, v::Array{T,3}, w::Array{T,3},
-                      fluid::FluidProperties, grid::StaggeredGrid{T}) where T<:Real
+function compute_diffusion_3d!(diff_u::Array{T,3}, diff_v::Array{T,3}, diff_w::Array{T,3},
+                              u::Array{T,3}, v::Array{T,3}, w::Array{T,3},
+                              fluid::FluidProperties, grid::StaggeredGrid{T}) where T<:Real
     nx, ny, nz = grid.nx, grid.ny, grid.nz
     dx, dy, dz = grid.dx, grid.dy, grid.dz
     μ = fluid.μ

@@ -84,8 +84,8 @@ export interpolate_u_to_cell_center, interpolate_v_to_cell_center, interpolate_t
 export verify_operator_accuracy, check_staggered_grid_consistency
 
 # Discretization exports  
-export divergence_2d!, gradient_2d!, laplacian_2d!, advection_2d!
-export divergence_3d!, gradient_3d!, laplacian_3d!, advection_3d!
+export divergence_2d!, gradient_pressure_2d!, advection_2d!, compute_diffusion_2d!
+export divergence_3d!, gradient_pressure_3d!, advection_3d!, compute_diffusion_3d!
 
 # Solver step functions
 export solve_step_2d!, solve_step_3d!
@@ -96,7 +96,9 @@ export compute_constraint_force_accurate, regularized_delta_2d, interpolate_with
 export compute_local_surface_properties, compute_adaptive_stiffness, compute_local_reynolds
 
 # WaterLily.jl-style multigrid solver exports
-export MultiLevelPoisson, MPIMultiLevelPoisson, solve_poisson!, solve_poisson_mpi!
-export v_cycle!, v_cycle_mpi!, MultigridPoissonSolver
+export MultiLevelPoisson, StaggeredMultiLevelPoisson, MPIMultiLevelPoisson
+export solve_poisson!, solve_staggered_poisson!, solve_poisson_mpi!
+export v_cycle!, staggered_v_cycle!, v_cycle_mpi!, MultigridPoissonSolver
+export compute_pressure_gradient_to_faces!, compute_velocity_divergence_from_faces!
 
 end
