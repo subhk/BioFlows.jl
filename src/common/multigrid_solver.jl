@@ -41,7 +41,7 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
     # Choose solver implementation
     if solver_type == :staggered
         # Use staggered grid-aware multigrid (RECOMMENDED for CFD)
-        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+        if grid.grid_type == TwoDimensional
             mg_solver = StaggeredMultiLevelPoisson(grid, levels; n_smooth=3, tol=tolerance)
         elseif grid.grid_type == ThreeDimensional
             # 3D staggered not yet implemented, fall back
@@ -55,7 +55,7 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
             error("MPI WaterLily multigrid requires a Pencil configuration")
         end
         
-        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+        if grid.grid_type == TwoDimensional
             mg_solver = MPIMultiLevelPoisson{Float64,typeof(pencil)}(
                 pencil, grid.nx, grid.ny, grid.dx, grid.dy, levels; 
                 n_smooth=3, tol=tolerance)
@@ -67,7 +67,7 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
             error("Multigrid not implemented for grid type: $(grid.grid_type)")
         end
     elseif solver_type == :waterlily
-        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+        if grid.grid_type == TwoDimensional
             mg_solver = MultiLevelPoisson(grid.nx, grid.ny, grid.dx, grid.dy, levels; 
                                         n_smooth=3, tol=tolerance)
         elseif grid.grid_type == ThreeDimensional
@@ -79,7 +79,7 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
         end
     else
         # Fallback to GeometricMultigrid.jl
-        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+        if grid.grid_type == TwoDimensional
             mg_solver = setup_multigrid_2d(grid, levels, smoother, cycle_type)
         elseif grid.grid_type == ThreeDimensional
             mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
@@ -202,28 +202,28 @@ function solve_poisson!(solver::MultigridPoissonSolver, phi::Array, rhs::Array,
     
     if solver.solver_type == :staggered
         # Use staggered grid-aware solver
-        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+        if grid.grid_type == TwoDimensional
             solve_poisson_2d_staggered!(solver, phi, rhs, grid, bc)
         else
             error("Staggered 3D solver not yet implemented")
         end
     elseif solver.solver_type == :mpi_waterlily
         # Use MPI WaterLily.jl-style solver
-        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+        if grid.grid_type == TwoDimensional
             solve_poisson_2d_mpi_waterlily!(solver, phi, rhs, grid, bc)
         else
             error("MPI WaterLily.jl-style 3D solver not yet implemented")
         end
     elseif solver.solver_type == :waterlily
         # Use single-node WaterLily.jl-style solver
-        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+        if grid.grid_type == TwoDimensional
             solve_poisson_2d_waterlily!(solver, phi, rhs, grid, bc)
         else
             error("WaterLily.jl-style 3D solver not yet implemented")
         end
     else
         # Use GeometricMultigrid.jl solver
-        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+        if grid.grid_type == TwoDimensional
             solve_poisson_2d_mg!(solver, phi, rhs, grid, bc)
         elseif grid.grid_type == ThreeDimensional
             solve_poisson_3d_mg!(solver, phi, rhs, grid, bc)

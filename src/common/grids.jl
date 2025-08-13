@@ -19,41 +19,16 @@ struct StaggeredGrid{T<:Real} <: AbstractGrid
     refinement_level::Matrix{Int}
 end
 
-function StaggeredGrid2D(nx::Int, ny::Int, Lx::T, Ly::T; 
-                        origin_x::T=zero(T), origin_y::T=zero(T)) where T<:Real
-    dx = Lx / nx
-    dy = Ly / ny
-    
-    # Cell centers
-    x = origin_x .+ (0.5:nx-0.5) * dx
-    y = origin_y .+ (0.5:ny-0.5) * dy
-    
-    # Staggered grids for velocities
-    xu = origin_x .+ (0:nx) * dx      # u-velocity points
-    yv = origin_y .+ (0:ny) * dy      # v-velocity points
-    
-    StaggeredGrid{T}(
-        nx, ny, 0,
-        Lx, Ly, zero(T),
-        dx, dy, zero(T),
-        collect(x), collect(y), T[],
-        collect(xu), collect(yv), T[],
-        TwoDimensional,
-        Tuple{Int,Int}[],
-        ones(Int, nx, ny)
-    )
-end
-
-function StaggeredGrid2DXZ(nx::Int, nz::Int, Lx::T, Lz::T; 
-                          origin_x::T=zero(T), origin_z::T=zero(T)) where T<:Real
+function StaggeredGrid2D(nx::Int, nz::Int, Lx::T, Lz::T; 
+                        origin_x::T=zero(T), origin_z::T=zero(T)) where T<:Real
     dx = Lx / nx
     dz = Lz / nz
     
-    # Cell centers
+    # Cell centers (XZ plane: x-horizontal, z-vertical)
     x = origin_x .+ (0.5:nx-0.5) * dx
     z = origin_z .+ (0.5:nz-0.5) * dz
     
-    # Staggered grids for velocities
+    # Staggered grids for velocities (u: x-direction, w: z-direction)
     xu = origin_x .+ (0:nx) * dx      # u-velocity points
     zw = origin_z .+ (0:nz) * dz      # w-velocity points
     
@@ -63,7 +38,7 @@ function StaggeredGrid2DXZ(nx::Int, nz::Int, Lx::T, Lz::T;
         dx, zero(T), dz,
         collect(x), T[], collect(z),
         collect(xu), T[], collect(zw),
-        TwoDimensionalXZ,
+        TwoDimensional,
         Tuple{Int,Int}[],
         ones(Int, nx, nz)
     )
@@ -98,7 +73,7 @@ function StaggeredGrid3D(nx::Int, ny::Int, nz::Int, Lx::T, Ly::T, Lz::T;
 end
 
 function is_2d(grid::StaggeredGrid)
-    return grid.grid_type in [TwoDimensional, TwoDimensionalXZ]
+    return grid.grid_type == TwoDimensional
 end
 
 function is_3d(grid::StaggeredGrid)
@@ -107,9 +82,7 @@ end
 
 function grid_size(grid::StaggeredGrid)
     if grid.grid_type == TwoDimensional
-        return (grid.nx, grid.ny)
-    elseif grid.grid_type == TwoDimensionalXZ
-        return (grid.nx, grid.nz)
+        return (grid.nx, grid.nz)  # XZ plane
     else
         return (grid.nx, grid.ny, grid.nz)
     end

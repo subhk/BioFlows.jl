@@ -30,9 +30,7 @@ end
 function apply_boundary_conditions!(grid::StaggeredGrid, state::SolutionState, 
                                   bc::BoundaryConditions, t::Float64)
     if grid.grid_type == TwoDimensional
-        apply_2d_boundaries!(grid, state, bc, t)
-    elseif grid.grid_type == TwoDimensionalXZ
-        apply_2d_xz_boundaries!(grid, state, bc, t)
+        apply_2d_boundaries!(grid, state, bc, t)  # Now uses XZ plane
     else
         apply_3d_boundaries!(grid, state, bc, t)
     end
@@ -40,47 +38,13 @@ end
 
 function apply_2d_boundaries!(grid::StaggeredGrid, state::SolutionState,
                              bc::BoundaryConditions, t::Float64)
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz  # XZ plane
     
     # Left boundary (x=0)
     if haskey(bc.conditions, (:x, :left))
         condition = bc.conditions[(:x, :left)]
         apply_u_boundary!(state.u, condition, 1, :, t, :left)
-        apply_v_boundary!(state.v, condition, 1, :, t, :left)
-    end
-    
-    # Right boundary (x=Lx)
-    if haskey(bc.conditions, (:x, :right))
-        condition = bc.conditions[(:x, :right)]
-        apply_u_boundary!(state.u, condition, nx+1, :, t, :right)
-        apply_v_boundary!(state.v, condition, nx, :, t, :right)
-    end
-    
-    # Bottom boundary (y=0)
-    if haskey(bc.conditions, (:y, :bottom))
-        condition = bc.conditions[(:y, :bottom)]
-        apply_u_boundary!(state.u, condition, :, 1, t, :bottom)
-        apply_v_boundary!(state.v, condition, :, 1, t, :bottom)
-    end
-    
-    # Top boundary (y=Ly)
-    if haskey(bc.conditions, (:y, :top))
-        condition = bc.conditions[(:y, :top)]
-        apply_u_boundary!(state.u, condition, :, ny, t, :top)
-        apply_v_boundary!(state.v, condition, :, ny+1, t, :top)
-    end
-end
-
-function apply_2d_xz_boundaries!(grid::StaggeredGrid, state::SolutionState,
-                                bc::BoundaryConditions, t::Float64)
-    nx, nz = grid.nx, grid.nz
-    
-    # Similar implementation for x-z plane
-    # Left boundary (x=0)
-    if haskey(bc.conditions, (:x, :left))
-        condition = bc.conditions[(:x, :left)]
-        apply_u_boundary!(state.u, condition, 1, :, t, :left)
-        apply_w_boundary!(state.w, condition, 1, :, t, :left)
+        apply_w_boundary!(state.w, condition, 1, :, t, :left)  # w instead of v
     end
     
     # Right boundary (x=Lx)
@@ -104,6 +68,7 @@ function apply_2d_xz_boundaries!(grid::StaggeredGrid, state::SolutionState,
         apply_w_boundary!(state.w, condition, :, nz+1, t, :top)
     end
 end
+
 
 function apply_3d_boundaries!(grid::StaggeredGrid, state::SolutionState,
                              bc::BoundaryConditions, t::Float64)
@@ -188,4 +153,68 @@ function apply_w_boundary!(w::Array, condition::BoundaryCondition,
             w[idx1, idx2] .= w[idx1, idx2-1]
         end
     end
+end
+
+# Convenience constructor functions for boundary conditions
+function InletBC(direction::Symbol, location::Symbol, value::Union{Float64, Function})
+    BoundaryCondition(Inlet, value, direction, location)
+end
+
+function PressureOutletBC(direction::Symbol, location::Symbol, value::Float64=0.0)
+    BoundaryCondition(Outlet, value, direction, location)
+end
+
+function VelocityOutletBC(direction::Symbol, location::Symbol, value::Union{Float64, Function}=0.0)
+    BoundaryCondition(Outlet, value, direction, location)
+end
+
+function NoSlipBC(direction::Symbol, location::Symbol)
+    BoundaryCondition(NoSlip, nothing, direction, location)
+end
+
+function FreeSlipBC(direction::Symbol, location::Symbol)
+    BoundaryCondition(FreeSlip, nothing, direction, location)
+end
+
+function PeriodicBC(direction::Symbol, location::Symbol)
+    BoundaryCondition(Periodic, nothing, direction, location)
+end
+
+# Convenience constructors for 2D boundary conditions (XZ plane)
+function BoundaryConditions2D(;
+    left::Union{BoundaryCondition, Nothing}=nothing,   # x-direction left
+    right::Union{BoundaryCondition, Nothing}=nothing,  # x-direction right
+    bottom::Union{BoundaryCondition, Nothing}=nothing, # z-direction bottom
+    top::Union{BoundaryCondition, Nothing}=nothing)    # z-direction top
+    
+    bc = BoundaryConditions()
+    
+    left !== nothing && add_boundary!(bc, left)
+    right !== nothing && add_boundary!(bc, right)
+    bottom !== nothing && add_boundary!(bc, bottom)
+    top !== nothing && add_boundary!(bc, top)
+    
+    return bc
+end
+
+
+# Convenience constructors for 3D boundary conditions
+function BoundaryConditions3D(;
+    left::Union{BoundaryCondition, Nothing}=nothing,   # x-direction
+    right::Union{BoundaryCondition, Nothing}=nothing,  # x-direction
+    bottom::Union{BoundaryCondition, Nothing}=nothing, # y-direction
+    top::Union{BoundaryCondition, Nothing}=nothing,    # y-direction
+    front::Union{BoundaryCondition, Nothing}=nothing,  # z-direction
+    back::Union{BoundaryCondition, Nothing}=nothing)   # z-direction
+    
+    bc = BoundaryConditions()
+    
+    left !== nothing && add_boundary!(bc, left)
+    right !== nothing && add_boundary!(bc, right)
+    bottom !== nothing && add_boundary!(bc, bottom)
+    top !== nothing && add_boundary!(bc, top)
+    front !== nothing && add_boundary!(bc, front)
+    back !== nothing && add_boundary!(bc, back)
+    
+    return bc
 end

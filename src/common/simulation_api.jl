@@ -51,7 +51,7 @@ Create configuration for 2D biological flow simulation.
 - `ny::Int`: Number of grid points in y-direction  
 - `Lx::Float64`: Domain length in x-direction
 - `Ly::Float64`: Domain length in y-direction
-- `grid_type::GridType = TwoDimensional`: Choose between TwoDimensional or TwoDimensionalXZ
+- `grid_type::GridType = TwoDimensional`: 2D flow in XZ plane (z is vertical)
 - `origin::Vector{Float64} = [0.0, 0.0]`: Domain origin coordinates
 - `Reynolds::Float64 = 100.0`: Reynolds number
 - `density_type::Symbol = :constant`: Density type (:constant or :variable)
@@ -70,9 +70,9 @@ Create configuration for 2D biological flow simulation.
 """
 function create_2d_simulation_config(;
     nx::Int,
-    ny::Int,
+    nz::Int,
     Lx::Float64,
-    Ly::Float64,
+    Lz::Float64,
     grid_type::GridType = TwoDimensional,
     origin::Vector{Float64} = [0.0, 0.0],
     Reynolds::Float64 = 100.0,
@@ -118,11 +118,13 @@ function create_2d_simulation_config(;
         error("Unknown wall type: $wall_type")
     end
     
-    if grid_type == TwoDimensional
-        bc = BoundaryConditions2D(inlet_bc, outlet_bc, wall_bc, wall_bc)  # left, right, bottom, top
-    else  # TwoDimensionalXZ
-        bc = BoundaryConditions2DXZ(inlet_bc, outlet_bc, wall_bc)  # x, x, z
-    end
+    # 2D uses XZ plane: x-horizontal, z-vertical
+    bc = BoundaryConditions2D(
+        left=inlet_bc,    # x-direction inlet
+        right=outlet_bc,  # x-direction outlet  
+        bottom=wall_bc,   # z-direction bottom wall
+        top=wall_bc       # z-direction top wall
+    )
     
     # Create time stepping scheme
     if time_scheme == :adams_bashforth
@@ -149,7 +151,7 @@ function create_2d_simulation_config(;
     refinement_criteria = adaptive_refinement ? AdaptiveRefinementCriteria() : nothing
     
     return SimulationConfig(
-        grid_type, nx, ny, 0, Lx, Ly, 0.0, origin,
+        grid_type, nx, 0, nz, Lx, 0.0, Lz, origin,  # XZ plane: ny=0, Ly=0.0
         fluid, bc, time_scheme_obj, dt, final_time,
         nothing, nothing,  # No bodies by default
         use_mpi, adaptive_refinement, refinement_criteria,

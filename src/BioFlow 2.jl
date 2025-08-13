@@ -75,9 +75,6 @@ export AdaptiveRefinementCriteria, RefinedGrid, adapt_grid!
 
 # Output exports
 export NetCDFConfig, NetCDFWriter, write_solution!, close!
-export save_body_force_coefficients!, save_complete_snapshot!, setup_netcdf_output
-export save_flexible_body_positions!, create_position_only_writer
-export save_body_kinematics_snapshot!, save_body_positions_only!
 
 # Differential operator exports
 export ddx, ddy, ddz, d2dx2, d2dy2, d2dz2
@@ -100,9 +97,6 @@ export compute_local_surface_properties, compute_adaptive_stiffness, compute_loc
 
 # Flag-specific constructor functions
 export create_flag, create_vertical_flag, create_curved_flag, create_angled_flag, create_flag_collection
-
-# Force coefficient calculation functions  
-export compute_drag_lift_coefficients, compute_body_coefficients_collection, compute_instantaneous_power
 
 # WaterLily.jl-style multigrid solver exports
 export MultiLevelPoisson, StaggeredMultiLevelPoisson, MPIMultiLevelPoisson

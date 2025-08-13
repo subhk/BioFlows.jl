@@ -13,7 +13,7 @@ struct VariableDensity <: DensityModel
     ρ_func::Function
 end
 
-@enum GridType TwoDimensional ThreeDimensional TwoDimensionalXZ
+@enum GridType TwoDimensional ThreeDimensional
 
 @enum BoundaryType NoSlip FreeSlip Periodic Inlet Outlet
 
