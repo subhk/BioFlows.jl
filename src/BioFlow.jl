@@ -95,4 +95,8 @@ export compute_flexible_body_forces, compute_stress_force_accurate, compute_pena
 export compute_constraint_force_accurate, regularized_delta_2d, interpolate_with_delta_function
 export compute_local_surface_properties, compute_adaptive_stiffness, compute_local_reynolds
 
+# WaterLily.jl-style multigrid solver exports
+export MultiLevelPoisson, MPIMultiLevelPoisson, solve_poisson!, solve_poisson_mpi!
+export v_cycle!, v_cycle_mpi!, MultigridPoissonSolver
+
 end

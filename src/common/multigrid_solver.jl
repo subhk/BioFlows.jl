@@ -1,7 +1,17 @@
+"""
+High-Performance Multigrid Solver for Pressure Poisson Equation
+
+This module provides both WaterLily.jl-style multigrid solver and fallback
+to GeometricMultigrid.jl for maximum performance and compatibility.
+"""
+
 using GeometricMultigrid
+include("waterlily_multigrid.jl")
+include("mpi_waterlily_multigrid.jl")
 
 struct MultigridPoissonSolver
-    mg_solver::GeometricMultigrid.Multigrid
+    mg_solver::Union{GeometricMultigrid.Multigrid, MultiLevelPoisson, MPIMultiLevelPoisson}
+    solver_type::Symbol  # :waterlily, :mpi_waterlily, or :geometric
     levels::Int
     max_iterations::Int
     tolerance::Float64
@@ -14,18 +24,60 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
                                max_iterations::Int=100,
                                tolerance::Float64=1e-10,
                                smoother::Symbol=:gauss_seidel,
-                               cycle_type::Symbol=:V)
+                               cycle_type::Symbol=:V,
+                               solver_type::Symbol=:auto,
+                               pencil::Union{Nothing,Pencil}=nothing)
     
-    # Set up multigrid hierarchy based on grid
-    if grid.grid_type == TwoDimensional
-        mg_solver = setup_multigrid_2d(grid, levels, smoother, cycle_type)
-    elseif grid.grid_type == ThreeDimensional
-        mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
-    else
-        error("Multigrid not implemented for grid type: $(grid.grid_type)")
+    # Auto-detect solver type based on grid and availability
+    if solver_type == :auto
+        if pencil !== nothing
+            solver_type = :mpi_waterlily  # Use MPI version for PencilArrays
+        else
+            solver_type = :waterlily  # Use single-node version
+        end
     end
     
-    MultigridPoissonSolver(mg_solver, levels, max_iterations, tolerance, smoother, cycle_type)
+    # Choose solver implementation
+    if solver_type == :mpi_waterlily
+        if pencil === nothing
+            error("MPI WaterLily multigrid requires a Pencil configuration")
+        end
+        
+        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+            mg_solver = MPIMultiLevelPoisson{Float64,typeof(pencil)}(
+                pencil, grid.nx, grid.ny, grid.dx, grid.dy, levels; 
+                n_smooth=3, tol=tolerance)
+        elseif grid.grid_type == ThreeDimensional
+            # 3D MPI WaterLily not yet implemented, fall back
+            mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
+            solver_type = :geometric
+        else
+            error("Multigrid not implemented for grid type: $(grid.grid_type)")
+        end
+    elseif solver_type == :waterlily
+        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+            mg_solver = MultiLevelPoisson(grid.nx, grid.ny, grid.dx, grid.dy, levels; 
+                                        n_smooth=3, tol=tolerance)
+        elseif grid.grid_type == ThreeDimensional
+            # For 3D, fall back to GeometricMultigrid.jl for now
+            mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
+            solver_type = :geometric
+        else
+            error("Multigrid not implemented for grid type: $(grid.grid_type)")
+        end
+    else
+        # Fallback to GeometricMultigrid.jl
+        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+            mg_solver = setup_multigrid_2d(grid, levels, smoother, cycle_type)
+        elseif grid.grid_type == ThreeDimensional
+            mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
+        else
+            error("Multigrid not implemented for grid type: $(grid.grid_type)")
+        end
+        solver_type = :geometric
+    end
+    
+    MultigridPoissonSolver(mg_solver, solver_type, levels, max_iterations, tolerance, smoother, cycle_type)
 end
 
 function setup_multigrid_2d(grid::StaggeredGrid, levels::Int, smoother::Symbol, cycle_type::Symbol)
@@ -136,13 +188,67 @@ end
 function solve_poisson!(solver::MultigridPoissonSolver, phi::Array, rhs::Array, 
                        grid::StaggeredGrid, bc::BoundaryConditions)
     
-    if grid.grid_type == TwoDimensional
-        solve_poisson_2d_mg!(solver, phi, rhs, grid, bc)
-    elseif grid.grid_type == ThreeDimensional
-        solve_poisson_3d_mg!(solver, phi, rhs, grid, bc)
+    if solver.solver_type == :mpi_waterlily
+        # Use MPI WaterLily.jl-style solver
+        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+            solve_poisson_2d_mpi_waterlily!(solver, phi, rhs, grid, bc)
+        else
+            error("MPI WaterLily.jl-style 3D solver not yet implemented")
+        end
+    elseif solver.solver_type == :waterlily
+        # Use single-node WaterLily.jl-style solver
+        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+            solve_poisson_2d_waterlily!(solver, phi, rhs, grid, bc)
+        else
+            error("WaterLily.jl-style 3D solver not yet implemented")
+        end
     else
-        error("Unsupported grid type for multigrid: $(grid.grid_type)")
+        # Use GeometricMultigrid.jl solver
+        if grid.grid_type == TwoDimensional || grid.grid_type == TwoDimensionalXZ
+            solve_poisson_2d_mg!(solver, phi, rhs, grid, bc)
+        elseif grid.grid_type == ThreeDimensional
+            solve_poisson_3d_mg!(solver, phi, rhs, grid, bc)
+        else
+            error("Unsupported grid type for multigrid: $(grid.grid_type)")
+        end
     end
+end
+
+function solve_poisson_2d_mpi_waterlily!(solver::MultigridPoissonSolver, phi::PencilArray, rhs::PencilArray,
+                                        grid::StaggeredGrid, bc::BoundaryConditions)
+    
+    # Apply boundary conditions and ensure compatibility
+    rhs_bc = similar(rhs)
+    copyto!(rhs_bc, rhs)
+    apply_poisson_rhs_bc_2d_mpi!(rhs_bc, bc, grid)
+    
+    # Solve using MPI WaterLily.jl-style multigrid
+    mg = solver.mg_solver::MPIMultiLevelPoisson
+    residual, iterations = solve_poisson_mpi!(phi, rhs_bc, mg; max_iter=solver.max_iterations)
+    
+    # Apply boundary conditions to solution
+    apply_poisson_bc_2d_mpi!(phi, bc, grid)
+    
+    if mg.rank == 0
+        println("MPI WaterLily.jl multigrid converged in $iterations iterations, residual = $residual")
+    end
+end
+
+function solve_poisson_2d_waterlily!(solver::MultigridPoissonSolver, phi::Matrix, rhs::Matrix,
+                                    grid::StaggeredGrid, bc::BoundaryConditions)
+    
+    # Apply boundary conditions and ensure compatibility
+    rhs_bc = copy(rhs)
+    apply_poisson_rhs_bc_2d!(rhs_bc, bc, grid)
+    
+    # Solve using WaterLily.jl-style multigrid
+    mg = solver.mg_solver::MultiLevelPoisson
+    residual, iterations = solve_poisson!(phi, rhs_bc, mg; max_iter=solver.max_iterations)
+    
+    # Apply boundary conditions to solution
+    apply_poisson_bc_2d!(phi, bc, grid)
+    
+    println("WaterLily.jl multigrid converged in $iterations iterations, residual = $residual")
 end
 
 function solve_poisson_2d_mg!(solver::MultigridPoissonSolver, phi::Matrix, rhs::Matrix,
@@ -359,4 +465,24 @@ function apply_poisson_bc_3d!(phi::Array{T,3}, bc::BoundaryConditions, grid::Sta
     phi[:, ny, :] .= phi[:, ny-1, :]
     phi[:, :, 1] .= phi[:, :, 2]
     phi[:, :, nz] .= phi[:, :, nz-1]
+end
+
+# MPI-specific boundary condition functions
+function apply_poisson_rhs_bc_2d_mpi!(rhs::PencilArray{T,2}, bc::BoundaryConditions, grid::StaggeredGrid) where T
+    # Modify RHS to incorporate boundary conditions for MPI case
+    # For homogeneous Neumann BC (∂φ/∂n = 0), ensure compatibility condition: ∫rhs dV = 0
+    
+    # Compute global sum using MPI reduction
+    local_sum = sum(rhs.data)
+    global_sum = MPI.Allreduce(local_sum, MPI.SUM, rhs.decomp.comm)
+    global_cells = grid.nx * grid.ny
+    rhs_mean = global_sum / global_cells
+    
+    # Subtract mean from local data
+    rhs.data .-= rhs_mean
+end
+
+function apply_poisson_bc_2d_mpi!(phi::PencilArray{T,2}, bc::BoundaryConditions, grid::StaggeredGrid) where T
+    # Apply boundary conditions only on domain boundaries using the helper function
+    apply_boundary_conditions_mpi!(phi, phi.decomp, grid.nx, grid.ny)
 end
