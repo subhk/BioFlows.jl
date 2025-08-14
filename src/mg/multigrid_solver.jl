@@ -57,7 +57,7 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
         
         if grid.grid_type == TwoDimensional
             mg_solver = MPIMultiLevelPoisson{Float64,typeof(pencil)}(
-                pencil, grid.nx, grid.ny, grid.dx, grid.dy, levels; 
+                pencil, grid.nx, grid.nz, grid.dx, grid.dz, levels;  # Use XZ plane for 2D
                 n_smooth=3, tol=tolerance)
         elseif grid.grid_type == ThreeDimensional
             # 3D MPI WaterLily not yet implemented, fall back
@@ -68,7 +68,7 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
         end
     elseif solver_type == :waterlily
         if grid.grid_type == TwoDimensional
-            mg_solver = MultiLevelPoisson(grid.nx, grid.ny, grid.dx, grid.dy, levels; 
+            mg_solver = MultiLevelPoisson(grid.nx, grid.nz, grid.dx, grid.dz, levels;  # Use XZ plane for 2D
                                         n_smooth=3, tol=tolerance)
         elseif grid.grid_type == ThreeDimensional
             # For 3D, fall back to GeometricMultigrid.jl for now
@@ -160,12 +160,12 @@ function setup_multigrid_3d(grid::StaggeredGrid, levels::Int, smoother::Symbol, 
         end
         
         # Apply homogeneous Neumann boundary conditions
-        result[1, :, :] = result[2, :, :] - result[1, :, :]
-        result[nx, :, :] = result[nx-1, :, :] - result[nx, :, :]
-        result[:, 1, :] = result[:, 2, :] - result[:, 1, :]
-        result[:, ny, :] = result[:, ny-1, :] - result[:, ny, :]
-        result[:, :, 1] = result[:, :, 2] - result[:, :, 1]
-        result[:, :, nz] = result[:, :, nz-1] - result[:, :, nz]
+        result[1,  :, :]  = result[2, :, :]    - result[1, :, :]
+        result[nx, :, :]  = result[nx-1, :, :] - result[nx, :, :]
+        result[:,  1, :]  = result[:, 2, :]    - result[:, 1, :]
+        result[:, ny, :]  = result[:, ny-1, :] - result[:, ny, :]
+        result[:,  :, 1]  = result[:, :, 2]    - result[:, :, 1]
+        result[:,  :, nz] = result[:, :, nz-1] - result[:, :, nz]
         
         return vec(result)
     end

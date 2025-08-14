@@ -1,21 +1,21 @@
 function navier_stokes_rhs_2d(state::SolutionState, grid::StaggeredGrid, 
                               fluid::FluidProperties, bc::BoundaryConditions)
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
     
     # Allocate temporary arrays
-    div_u = zeros(nx, ny)
-    adv_u = zeros(nx+1, ny)
-    adv_v = zeros(nx, ny+1)
-    diff_u = zeros(nx+1, ny)
-    diff_v = zeros(nx, ny+1)
-    dpdx = zeros(nx+1, ny)
-    dpdy = zeros(nx, ny+1)
+    div_u = zeros(nx, nz)
+    adv_u = zeros(nx+1, nz)
+    adv_v = zeros(nx, nz+1)
+    diff_u = zeros(nx+1, nz)
+    diff_v = zeros(nx, nz+1)
+    dpdx = zeros(nx+1, nz)
+    dpdz = zeros(nx, nz+1)  # dpdy -> dpdz for XZ plane
     
     # Compute divergence of velocity
     divergence_2d!(div_u, state.u, state.v, grid)
     
     # Compute pressure gradients
-    gradient_pressure_2d!(dpdx, dpdy, state.p, grid)
+    gradient_pressure_2d!(dpdx, dpdz, state.p, grid)  # dpdz for XZ plane
     
     # Compute advection terms
     advection_2d!(adv_u, adv_v, state.u, state.v, grid)
@@ -32,7 +32,7 @@ function navier_stokes_rhs_2d(state::SolutionState, grid::StaggeredGrid,
     
     # Assemble momentum equations: ∂u/∂t = -∇⋅(uu) + ν∇²u - (1/ρ)∇p
     rhs_u = -adv_u + diff_u - dpdx ./ ρ
-    rhs_v = -adv_v + diff_v - dpdy ./ ρ
+    rhs_v = -adv_v + diff_v - dpdz ./ ρ  # dpdz for XZ plane
     
     return (u = rhs_u, v = rhs_v, div = div_u)
 end
@@ -55,13 +55,13 @@ end
 function NavierStokesSolver2D(grid::StaggeredGrid, fluid::FluidProperties, 
                              bc::BoundaryConditions, time_scheme::TimeSteppingScheme;
                              pressure_correction::Bool=true)
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
     
     # Initialize work arrays
-    u_star = zeros(nx+1, ny)
-    v_star = zeros(nx, ny+1)
-    phi = zeros(nx, ny)
-    rhs_p = zeros(nx, ny)
+    u_star = zeros(nx+1, nz)
+    v_star = zeros(nx, nz+1)
+    phi = zeros(nx, nz)
+    rhs_p = zeros(nx, nz)
     
     NavierStokesSolver2D(grid, fluid, bc, time_scheme, nothing, pressure_correction,
                         u_star, v_star, phi, rhs_p)
@@ -84,7 +84,7 @@ function solve_projection_step_2d!(solver::NavierStokesSolver2D, state_new::Solu
     grid = solver.grid
     fluid = solver.fluid
     bc = solver.bc
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
     
     # Step 1: Predictor step (without pressure gradient)
     # Solve: (u* - u^n)/dt = -∇⋅(uu) + ν∇²u
@@ -128,12 +128,12 @@ end
 
 function compute_predictor_rhs_2d(state::SolutionState, grid::StaggeredGrid, 
                                  fluid::FluidProperties)
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
     
-    adv_u = zeros(nx+1, ny)
-    adv_v = zeros(nx, ny+1)
-    diff_u = zeros(nx+1, ny)
-    diff_v = zeros(nx, ny+1)
+    adv_u = zeros(nx+1, nz)
+    adv_v = zeros(nx, nz+1)
+    diff_u = zeros(nx+1, nz)
+    diff_v = zeros(nx, nz+1)
     
     # Compute advection and diffusion terms (no pressure)
     advection_2d!(adv_u, adv_v, state.u, state.v, grid)
@@ -154,14 +154,14 @@ end
 
 function correct_velocity_2d!(state_new::SolutionState, state_predictor::SolutionState,
                              phi::Matrix{Float64}, dt::Float64, grid::StaggeredGrid)
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
     
     # Use proper staggered grid differential operators
-    dpdx_faces, dpdy_faces = grad(phi, grid)
+    dpdx_faces, dpdz_faces = grad(phi, grid)  # dpdz for XZ plane
     
     # u correction: u = u* - dt * ∂φ/∂x (at u-velocity locations)
     state_new.u .= state_predictor.u .- dt .* dpdx_faces
     
     # v correction: v = v* - dt * ∂φ/∂y (at v-velocity locations)
-    state_new.v .= state_predictor.v .- dt .* dpdy_faces
+    state_new.v .= state_predictor.v .- dt .* dpdz_faces  # dpdz for XZ plane
 end

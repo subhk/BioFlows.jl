@@ -135,8 +135,8 @@ function solve_poisson_simple!(φ::Matrix{T}, rhs::Matrix{T}, grid::StaggeredGri
     println("    Solving ∇²φ = rhs with simple iterations...")
     
     φ_new = copy(φ)
-    dx, dy = grid.dx, grid.dy
-    factor = 1.0 / (2.0/dx^2 + 2.0/dy^2)
+    dx, dz = grid.dx, grid.dz  # Use dz for XZ plane
+    factor = 1.0 / (2.0/dx^2 + 2.0/dz^2)  # Use dz for XZ plane
     
     for iter = 1:max_iter
         φ_old = copy(φ_new)
@@ -219,7 +219,7 @@ function demonstrate_clean_vs_traditional()
     div_u_trad = zeros(grid.nx, grid.nz)
     for j = 1:grid.nz, i = 1:grid.nx
         div_u_trad[i, j] = (state.u[i+1, j] - state.u[i, j]) / grid.dx + 
-                           (state.v[i, j+1] - state.v[i, j]) / grid.dy
+                           (state.v[i, j+1] - state.v[i, j]) / grid.dz  # Use dz for XZ plane
     end
     println("Result: max|∇·u| = $(maximum(abs.(div_u_trad)))")
     

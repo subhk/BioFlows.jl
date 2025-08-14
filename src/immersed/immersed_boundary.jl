@@ -7,7 +7,7 @@ struct ImmersedBoundaryData
 end
 
 function ImmersedBoundaryData2D(bodies::RigidBodyCollection, grid::StaggeredGrid)
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
     
     body_mask = bodies_mask_2d(bodies, grid)
     distance_function = compute_distance_function_2d(bodies, grid)
@@ -33,12 +33,12 @@ function ImmersedBoundaryData3D(bodies::RigidBodyCollection, grid::StaggeredGrid
 end
 
 function bodies_mask_2d(bodies::RigidBodyCollection, grid::StaggeredGrid)
-    nx, ny = grid.nx, grid.ny
-    body_mask = falses(nx, ny)
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
+    body_mask = falses(nx, nz)
     
-    for j = 1:ny, i = 1:nx
+    for j = 1:nz, i = 1:nx
         x = grid.x[i]
-        y = grid.y[j]
+        z = grid.z[j]  # Use z coordinate for XZ plane
         
         for body in bodies.bodies
             if is_inside(body, x, y)
@@ -75,9 +75,9 @@ function compute_distance_function_2d(bodies::RigidBodyCollection, grid::Stagger
     nx, ny = grid.nx, grid.ny
     distance_function = fill(Inf, nx, ny)
     
-    for j = 1:ny, i = 1:nx
+    for j = 1:nz, i = 1:nx
         x = grid.x[i]
-        y = grid.y[j]
+        z = grid.z[j]  # Use z coordinate for XZ plane
         
         min_distance = Inf
         for body in bodies.bodies
@@ -120,9 +120,9 @@ function compute_normal_vectors_2d(bodies::RigidBodyCollection, grid::StaggeredG
     nx, ny = grid.nx, grid.ny
     normal_vectors = Array{Vector{Float64}}(undef, nx, ny)
     
-    for j = 1:ny, i = 1:nx
+    for j = 1:nz, i = 1:nx
         x = grid.x[i]
-        y = grid.y[j]
+        z = grid.z[j]  # Use z coordinate for XZ plane
         
         # Find closest body and compute normal
         closest_body = nothing

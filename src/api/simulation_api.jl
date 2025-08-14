@@ -471,8 +471,8 @@ Run the complete simulation.
 """
 function run_simulation(config::SimulationConfig, solver, initial_state::SolutionState)
     println("Starting BioFlows simulation...")
-    println("  Grid: $(config.nx) × $(config.ny)" * (config.grid_type == ThreeDimensional ? " × $(config.nz)" : ""))
-    println("  Domain: $(config.Lx) × $(config.Ly)" * (config.grid_type == ThreeDimensional ? " × $(config.Lz)" : ""))
+    println("  Grid: $(config.nx) × $(config.grid_type == ThreeDimensional ? config.ny : config.nz)" * (config.grid_type == ThreeDimensional ? " × $(config.nz)" : ""))
+    println("  Domain: $(config.Lx) × $(config.grid_type == ThreeDimensional ? config.Ly : config.Lz)" * (config.grid_type == ThreeDimensional ? " × $(config.Lz)" : ""))
     println("  Time: 0.0 → $(config.final_time), dt = $(config.dt)")
     println("  MPI: $(config.use_mpi ? "enabled" : "disabled")")
     println("  Adaptive refinement: $(config.adaptive_refinement ? "enabled" : "disabled")")

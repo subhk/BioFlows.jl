@@ -707,7 +707,7 @@ function mpi_solve_poisson_2d!(decomp::MPI2DDecomposition, phi::Matrix{Float64},
     # Parallel iterative solver for pressure Poisson equation
     # Using Jacobi iterations with MPI communication
     
-    dx, dy = grid.dx, grid.dy
+    dx, dz = grid.dx, grid.dz  # Use dz for XZ plane
     nx_local, ny_local = decomp.nx_local, decomp.ny_local
     
     phi_new = copy(phi)
