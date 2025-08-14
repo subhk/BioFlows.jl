@@ -28,16 +28,21 @@ mutable struct RefinedGrid
 end
 
 function RefinedGrid(base_grid::StaggeredGrid)
-    RefinedGrid(base_grid, Dict{Tuple{Int,Int}, Int}(), 
-               Dict{Tuple{Int,Int}, StaggeredGrid}(),
-               Dict{Tuple{Int,Int}, Vector{Tuple{Tuple{Int,Int}, Float64}}}())
+    RefinedGrid(base_grid, Dict{Any, Int}(), 
+               Dict{Any, StaggeredGrid}(),
+               Dict{Any, Vector{Tuple{Any, Float64}}}())
 end
 
 function compute_refinement_indicators(grid::StaggeredGrid, state::SolutionState, 
                                      bodies::Union{RigidBodyCollection, FlexibleBodyCollection, Nothing},
                                      criteria::AdaptiveRefinementCriteria)
-    nx, ny = grid.nx, grid.ny
-    indicators = zeros(nx, ny)
+    if grid.grid_type == TwoDimensional
+        nx, nz = grid.nx, grid.nz
+        indicators = zeros(nx, nz)
+    else
+        nx, ny, nz = grid.nx, grid.ny, grid.nz
+        indicators = zeros(nx, ny, nz)
+    end
     
     # Velocity gradient indicator
     velocity_indicator = compute_velocity_gradient_indicator(grid, state)
@@ -49,20 +54,38 @@ function compute_refinement_indicators(grid::StaggeredGrid, state::SolutionState
     vorticity_indicator = compute_vorticity_indicator(grid, state)
     
     # Body proximity indicator
-    body_indicator = zeros(nx, ny)
+    if grid.grid_type == TwoDimensional
+        body_indicator = zeros(nx, nz)
+    else
+        body_indicator = zeros(nx, ny, nz)
+    end
+    
     if bodies !== nothing
         body_indicator = compute_body_proximity_indicator(grid, bodies, criteria.body_distance_threshold)
     end
     
     # Combine indicators
-    for j = 1:ny, i = 1:nx
-        vel_flag = velocity_indicator[i, j] > criteria.velocity_gradient_threshold
-        press_flag = pressure_indicator[i, j] > criteria.pressure_gradient_threshold
-        vort_flag = vorticity_indicator[i, j] > criteria.vorticity_threshold
-        body_flag = body_indicator[i, j] > 0.5
-        
-        if vel_flag || press_flag || vort_flag || body_flag
-            indicators[i, j] = 1.0
+    if grid.grid_type == TwoDimensional
+        for j = 1:nz, i = 1:nx
+            vel_flag = velocity_indicator[i, j] > criteria.velocity_gradient_threshold
+            press_flag = pressure_indicator[i, j] > criteria.pressure_gradient_threshold
+            vort_flag = vorticity_indicator[i, j] > criteria.vorticity_threshold
+            body_flag = body_indicator[i, j] > 0.5
+            
+            if vel_flag || press_flag || vort_flag || body_flag
+                indicators[i, j] = 1.0
+            end
+        end
+    else  # 3D case
+        for k = 1:nz, j = 1:ny, i = 1:nx
+            vel_flag = velocity_indicator[i, j, k] > criteria.velocity_gradient_threshold
+            press_flag = pressure_indicator[i, j, k] > criteria.pressure_gradient_threshold
+            vort_flag = vorticity_indicator[i, j, k] > criteria.vorticity_threshold
+            body_flag = body_indicator[i, j, k] > 0.5
+            
+            if vel_flag || press_flag || vort_flag || body_flag
+                indicators[i, j, k] = 1.0
+            end
         end
     end
     

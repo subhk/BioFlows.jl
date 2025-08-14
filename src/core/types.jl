@@ -77,7 +77,7 @@ end
 
 function MPISolutionState2D(decomp, T=Float64)
     nx_g = decomp.nx_local_with_ghosts
-    nz_g = decomp.ny_local_with_ghosts  # ny_local actually represents nz for XZ plane
+    nz_g = decomp.nz_local_with_ghosts  # nz_local for XZ plane
     
     MPISolutionState2D{T}(
         zeros(T, nx_g + 1, nz_g),  # u (staggered in x)

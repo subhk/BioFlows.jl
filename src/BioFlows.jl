@@ -144,6 +144,7 @@ export compute_drag_lift_coefficients, compute_body_coefficients_collection, com
 export MultiLevelPoisson, StaggeredMultiLevelPoisson, MPIMultiLevelPoisson
 export solve_poisson!, solve_staggered_poisson!, solve_poisson_mpi!
 export v_cycle!, staggered_v_cycle!, v_cycle_mpi!, MultigridPoissonSolver
+export create_mpi_multigrid_solver, show_solver_info  # Convenience functions for MPI multigrid
 export compute_pressure_gradient_to_faces!, compute_velocity_divergence_from_faces!
 
 end

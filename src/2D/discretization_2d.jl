@@ -1,17 +1,17 @@
 function divergence_2d!(div::Matrix{T}, u::Matrix{T}, v::Matrix{T}, 
                         grid::StaggeredGrid{T}) where T<:Real
     nx, nz = grid.nx, grid.nz
-    dx, dy = grid.dx, grid.dy
+    dx, dz = grid.dx, grid.dz  # Use dz for XZ plane
     
     @inbounds for j = 1:nz, i = 1:nx
-        div[i, j] = (u[i+1, j] - u[i, j]) / dx + (v[i, j+1] - v[i, j]) / dy
+        div[i, j] = (u[i+1, j] - u[i, j]) / dx + (v[i, j+1] - v[i, j]) / dz  # Use dz for z-direction
     end
 end
 
-function gradient_pressure_2d!(dpdx::Matrix{T}, dpdy::Matrix{T}, p::Matrix{T},
+function gradient_pressure_2d!(dpdx::Matrix{T}, dpdz::Matrix{T}, p::Matrix{T},
                                grid::StaggeredGrid{T}) where T<:Real
     nx, nz = grid.nx, grid.nz
-    dx, dy = grid.dx, grid.dy
+    dx, dz = grid.dx, grid.dz  # Use dz for XZ plane
     
     # 2nd order accurate pressure gradient at u-velocity points (x-faces)
     @inbounds for j = 1:nz, i = 1:nx+1
@@ -27,17 +27,17 @@ function gradient_pressure_2d!(dpdx::Matrix{T}, dpdy::Matrix{T}, p::Matrix{T},
         end
     end
     
-    # 2nd order accurate pressure gradient at v-velocity points (y-faces)
+    # 2nd order accurate pressure gradient at w-velocity points (z-faces, XZ plane)
     @inbounds for j = 1:nz+1, i = 1:nx
         if j == 1
             # Bottom boundary: 2nd order one-sided difference
-            dpdy[i, j] = (-3*p[i, 1] + 4*p[i, 2] - p[i, 3]) / (2*dy)
+            dpdz[i, j] = (-3*p[i, 1] + 4*p[i, 2] - p[i, 3]) / (2*dz)
         elseif j == nz+1
             # Top boundary: 2nd order one-sided difference
-            dpdy[i, j] = (3*p[i, nz] - 4*p[i, nz-1] + p[i, nz-2]) / (2*dy)
+            dpdz[i, j] = (3*p[i, nz] - 4*p[i, nz-1] + p[i, nz-2]) / (2*dz)
         else
             # Interior: 2nd order central difference
-            dpdy[i, j] = (p[i, j] - p[i, j-1]) / dy
+            dpdz[i, j] = (p[i, j] - p[i, j-1]) / dz
         end
     end
 end
@@ -46,7 +46,7 @@ function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T},
                       u::Matrix{T}, v::Matrix{T}, 
                       grid::StaggeredGrid{T}) where T<:Real
     nx, nz = grid.nx, grid.nz
-    dx, dy = grid.dx, grid.dy
+    dx, dz = grid.dx, grid.dz
     
     # 2nd order accurate advection using conservative finite volume method
     # Based on MAC staggered grid discretization
@@ -80,9 +80,9 @@ function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T},
         
         flux_uv_north = u_north * v_north
         flux_uv_south = u_south * v_south
-        d_uv_dy = (flux_uv_north - flux_uv_south) / dy
+        d_uv_dz = (flux_uv_north - flux_uv_south) / dz
         
-        adv_u[i, j] = d_uu_dx + d_uv_dy
+        adv_u[i, j] = d_uu_dx + d_uv_dz
     end
     
     # Advection term for v-momentum: ∇·(v⊗u) = ∂(uv)/∂x + ∂(v²)/∂y
@@ -113,9 +113,9 @@ function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T},
         
         flux_v_north = v_north^2
         flux_v_south = v_south^2
-        d_vv_dy = (flux_v_north - flux_v_south) / dy
+        d_vv_dz = (flux_v_north - flux_v_south) / dz
         
-        adv_v[i, j] = d_uv_dx + d_vv_dy
+        adv_v[i, j] = d_uv_dx + d_vv_dz
     end
 end
 
@@ -134,7 +134,7 @@ function compute_diffusion_2d!(diff_u::Matrix{T}, diff_v::Matrix{T},
                             u::Matrix{T}, v::Matrix{T}, 
                             fluid::FluidProperties, grid::StaggeredGrid{T}) where T<:Real
     nx, nz = grid.nx, grid.nz
-    dx, dy = grid.dx, grid.dy
+    dx, dz = grid.dx, grid.dz
     μ = fluid.μ
     
     if fluid.ρ isa ConstantDensity
@@ -152,9 +152,9 @@ function compute_diffusion_2d!(diff_u::Matrix{T}, diff_v::Matrix{T},
         d2udx2 = (u[i+1, j] - 2*u[i, j] + u[i-1, j]) / dx^2
         
         # ∂²u/∂y²: 2nd order accurate 
-        d2udy2 = (u[i, j+1] - 2*u[i, j] + u[i, j-1]) / dy^2
+        d2udz2 = (u[i, j+1] - 2*u[i, j] + u[i, j-1]) / dz^2
         
-        diff_u[i, j] = ν * (d2udx2 + d2udy2)
+        diff_u[i, j] = ν * (d2udx2 + d2udz2)
     end
     
     # 2nd order accurate viscous terms for v-momentum
@@ -163,9 +163,9 @@ function compute_diffusion_2d!(diff_u::Matrix{T}, diff_v::Matrix{T},
         d2vdx2 = (v[i+1, j] - 2*v[i, j] + v[i-1, j]) / dx^2
         
         # ∂²v/∂y²: 2nd order accurate
-        d2vdy2 = (v[i, j+1] - 2*v[i, j] + v[i, j-1]) / dy^2
+        d2vdz2 = (v[i, j+1] - 2*v[i, j] + v[i, j-1]) / dz^2
         
-        diff_v[i, j] = ν * (d2vdx2 + d2vdy2)
+        diff_v[i, j] = ν * (d2vdx2 + d2vdz2)
     end
 end
 
@@ -179,7 +179,7 @@ function viscous_stress_2d!(visc_u::Matrix{T}, visc_v::Matrix{T},
     Since ∇·u = 0, this reduces to μ∇²u, but this function computes the full tensor.
     """
     nx, nz = grid.nx, grid.nz
-    dx, dy = grid.dx, grid.dy
+    dx, dz = grid.dx, grid.dz
     μ = fluid.μ
     
     if fluid.ρ isa ConstantDensity
@@ -194,10 +194,10 @@ function viscous_stress_2d!(visc_u::Matrix{T}, visc_v::Matrix{T},
         d2udx2 = (u[i+1, j] - 2*u[i, j] + u[i-1, j]) / dx^2
         
         # ∂/∂y(μ ∂u/∂y) = μ ∂²u/∂y²  
-        d2udy2 = (u[i, j+1] - 2*u[i, j] + u[i, j-1]) / dy^2
+        d2udz2 = (u[i, j+1] - 2*u[i, j] + u[i, j-1]) / dz^2
         
         # For incompressible flow, additional terms from ∇(∇·u) = 0
-        visc_u[i, j] = (μ/ρ) * (d2udx2 + d2udy2)
+        visc_u[i, j] = (μ/ρ) * (d2udx2 + d2udz2)
     end
     
     # v-momentum viscous terms
@@ -206,9 +206,9 @@ function viscous_stress_2d!(visc_u::Matrix{T}, visc_v::Matrix{T},
         d2vdx2 = (v[i+1, j] - 2*v[i, j] + v[i-1, j]) / dx^2
         
         # ∂/∂y(μ ∂v/∂y) = μ ∂²v/∂y²
-        d2vdy2 = (v[i, j+1] - 2*v[i, j] + v[i, j-1]) / dy^2
+        d2vdz2 = (v[i, j+1] - 2*v[i, j] + v[i, j-1]) / dz^2
         
-        visc_v[i, j] = (μ/ρ) * (d2vdx2 + d2vdy2)
+        visc_v[i, j] = (μ/ρ) * (d2vdx2 + d2vdz2)
     end
 end
 
@@ -246,7 +246,7 @@ function compute_cfl_2d(u::Matrix{T}, v::Matrix{T},
     max_v = maximum(abs.(v))
     
     cfl_x = max_u * dt / grid.dx
-    cfl_y = max_v * dt / grid.dy
+    cfl_y = max_v * dt / grid.dz
     
     return max(cfl_x, cfl_y)
 end

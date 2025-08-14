@@ -27,14 +27,32 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
                                smoother::Symbol=:gauss_seidel,
                                cycle_type::Symbol=:V,
                                solver_type::Symbol=:auto,
-                               pencil::Union{Nothing,Pencil}=nothing)
+                               pencil::Union{Nothing,Pencil}=nothing,
+                               use_mpi::Bool=false,
+                               mpi_comm::MPI.Comm=MPI.COMM_WORLD)
     
-    # Auto-detect solver type based on grid and availability
+    # Auto-detect solver type based on MPI availability and grid type
     if solver_type == :auto
-        if pencil !== nothing
-            solver_type = :mpi_waterlily  # Use MPI version for PencilArrays
+        # Check if MPI is initialized and has multiple processes
+        mpi_available = false
+        try
+            if MPI.Initialized() && MPI.Comm_size(mpi_comm) > 1
+                mpi_available = true
+            end
+        catch
+            # MPI not available or not initialized
+            mpi_available = false
+        end
+        
+        # Override with explicit use_mpi flag
+        if use_mpi
+            mpi_available = true
+        end
+        
+        if mpi_available || pencil !== nothing
+            solver_type = :mpi_waterlily  # PREFER MPI version when available
         else
-            solver_type = :staggered  # Use staggered grid-aware version (BEST for CFD)
+            solver_type = :staggered  # Use staggered grid-aware version for single process
         end
     end
     
@@ -51,8 +69,17 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
             error("Multigrid not implemented for grid type: $(grid.grid_type)")
         end
     elseif solver_type == :mpi_waterlily
+        # Auto-create pencil if not provided
         if pencil === nothing
-            error("MPI WaterLily multigrid requires a Pencil configuration")
+            if grid.grid_type == TwoDimensional
+                # Create 2D pencil for XZ plane
+                pencil = Pencil(mpi_comm, (grid.nx, grid.nz))
+            elseif grid.grid_type == ThreeDimensional
+                # Create 3D pencil
+                pencil = Pencil(mpi_comm, (grid.nx, grid.ny, grid.nz))
+            else
+                error("Cannot create pencil for grid type: $(grid.grid_type)")
+            end
         end
         
         if grid.grid_type == TwoDimensional
@@ -60,7 +87,9 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
                 pencil, grid.nx, grid.nz, grid.dx, grid.dz, levels;  # Use XZ plane for 2D
                 n_smooth=3, tol=tolerance)
         elseif grid.grid_type == ThreeDimensional
-            # 3D MPI WaterLily not yet implemented, fall back
+            # TODO: Implement 3D MPI WaterLily multigrid
+            # For now, fall back to GeometricMultigrid.jl
+            @warn "3D MPI multigrid not yet implemented, falling back to single-process GeometricMultigrid.jl"
             mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
             solver_type = :geometric
         else
@@ -90,6 +119,61 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
     end
     
     MultigridPoissonSolver(mg_solver, solver_type, levels, max_iterations, tolerance, smoother, cycle_type)
+end
+
+"""
+    create_mpi_multigrid_solver(grid::StaggeredGrid; kwargs...)
+
+Create an MPI-enabled multigrid solver, prioritizing MPIMultiLevelPoisson.
+
+This is a convenience function that automatically:
+1. Detects MPI availability
+2. Creates appropriate pencil decomposition
+3. Uses MPIMultiLevelPoisson as the default solver
+
+# Arguments
+- `grid::StaggeredGrid`: The computational grid
+- `levels::Int=4`: Number of multigrid levels
+- `use_mpi::Bool=true`: Force MPI usage (default: true)
+- Other keyword arguments passed to MultigridPoissonSolver
+
+# Returns
+- `MultigridPoissonSolver`: Configured with MPIMultiLevelPoisson when MPI is available
+"""
+function create_mpi_multigrid_solver(grid::StaggeredGrid; 
+                                   levels::Int=4,
+                                   use_mpi::Bool=true,
+                                   mpi_comm::MPI.Comm=MPI.COMM_WORLD,
+                                   kwargs...)
+    return MultigridPoissonSolver(grid; 
+                                levels=levels,
+                                solver_type=:mpi_waterlily,  # Explicitly request MPI solver
+                                use_mpi=use_mpi,
+                                mpi_comm=mpi_comm,
+                                kwargs...)
+end
+
+"""
+    show_solver_info(solver::MultigridPoissonSolver)
+
+Display information about the current multigrid solver configuration.
+"""
+function show_solver_info(solver::MultigridPoissonSolver)
+    println("Multigrid Poisson Solver Configuration:")
+    println("  Solver Type: $(solver.solver_type)")
+    println("  Levels: $(solver.levels)")
+    println("  Max Iterations: $(solver.max_iterations)")
+    println("  Tolerance: $(solver.tolerance)")
+    println("  Smoother: $(solver.smoother)")
+    println("  Cycle Type: $(solver.cycle_type)")
+    
+    if solver.solver_type == :mpi_waterlily
+        println("  ✅ Using MPIMultiLevelPoisson (MPI-enabled, high performance)")
+    elseif solver.solver_type == :staggered
+        println("  ⚡ Using StaggeredMultiLevelPoisson (CFD-optimized, single process)")
+    elseif solver.solver_type == :geometric
+        println("  📐 Using GeometricMultigrid.jl (single process fallback)")
+    end
 end
 
 function setup_multigrid_2d(grid::StaggeredGrid, levels::Int, smoother::Symbol, cycle_type::Symbol)

@@ -422,6 +422,7 @@ struct MPINavierStokesSolver3D <: AbstractSolver
     fluid::FluidProperties
     bc::BoundaryConditions
     time_scheme::TimeSteppingScheme
+    multigrid_solver::Union{MultigridPoissonSolver, Nothing}  # Use MPI multigrid solver
     
     # Local work arrays
     local_u_star::Array{Float64,3}
