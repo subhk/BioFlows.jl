@@ -46,7 +46,7 @@ mutable struct NavierStokesSolver3D <: AbstractSolver
     fluid::FluidProperties
     bc::BoundaryConditions
     time_scheme::TimeSteppingScheme
-    multigrid_solver::Any
+    multigrid_solver::Union{MultigridPoissonSolver, Any, Nothing}
     pressure_correction::Bool
     
     # Work arrays
