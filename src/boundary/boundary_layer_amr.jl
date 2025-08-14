@@ -511,10 +511,10 @@ end
 # Helper functions for boundary layer AMR
 function create_base_staggered_grid(hierarchy::AMRHierarchy)
     base = hierarchy.base_level
-    return StaggeredGrid2D(base.nx, base.ny, 
+    return StaggeredGrid2D(base.nx, base.ny,  # base.ny maps to nz in XZ plane
                           base.x_max - base.x_min,
-                          base.y_max - base.y_min;
-                          origin_x=base.x_min, origin_y=base.y_min)
+                          base.y_max - base.y_min;  # y dimensions map to z in XZ plane
+                          origin_x=base.x_min, origin_z=base.y_min)
 end
 
 function get_bodies_from_hierarchy(hierarchy::AMRHierarchy)

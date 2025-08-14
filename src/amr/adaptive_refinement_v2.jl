@@ -143,11 +143,11 @@ Creates multigrid solvers for each AMR level.
 function initialize_multigrid_solvers!(hierarchy::AMRHierarchy)
     function create_mg_solver_for_level(amr_level::AMRLevel)
         # Create staggered grid for this AMR level
-        local_grid = StaggeredGrid2D(amr_level.nx, amr_level.ny,
+        local_grid = StaggeredGrid2D(amr_level.nx, amr_level.ny,  # ny maps to nz in XZ plane
                                     amr_level.x_max - amr_level.x_min,
-                                    amr_level.y_max - amr_level.y_min;
+                                    amr_level.y_max - amr_level.y_min;  # y maps to z in XZ plane
                                     origin_x=amr_level.x_min,
-                                    origin_y=amr_level.y_min)
+                                    origin_z=amr_level.y_min)  # y_min maps to z_min in XZ plane
         
         # Create staggered-aware multigrid solver
         return MultigridPoissonSolver(local_grid; solver_type=:staggered, tolerance=1e-8)
@@ -170,9 +170,9 @@ function compute_refinement_indicators_amr(amr_level::AMRLevel,
     indicators = zeros(nx, ny)
     
     # Create temporary staggered grid for differential operators
-    local_grid = StaggeredGrid2D(nx, ny, amr_level.x_max - amr_level.x_min,
-                                amr_level.y_max - amr_level.y_min;
-                                origin_x=amr_level.x_min, origin_y=amr_level.y_min)
+    local_grid = StaggeredGrid2D(nx, ny, amr_level.x_max - amr_level.x_min,  # ny maps to nz in XZ plane
+                                amr_level.y_max - amr_level.y_min;  # y maps to z in XZ plane
+                                origin_x=amr_level.x_min, origin_z=amr_level.y_min)
     
     # 1. Velocity gradient indicator (using proper staggered operators)
     u_cc = interpolate_u_to_cell_center(state.u, local_grid)

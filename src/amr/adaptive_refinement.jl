@@ -213,8 +213,8 @@ function refine_cells!(refined_grid::RefinedGrid, cells_to_refine::Vector{Tuple{
         Lx_local = x_max - x_min
         Ly_local = y_max - y_min
         
-        local_grid = StaggeredGrid2D(local_nx, local_ny, Lx_local, Ly_local;
-                                   origin_x=x_min, origin_y=y_min)
+        local_grid = StaggeredGrid2D(local_nx, local_ny, Lx_local, Ly_local;  # local_ny maps to nz, Ly_local to Lz
+                                   origin_x=x_min, origin_z=y_min)  # y_min maps to z_min in XZ plane
         
         refined_grid.refined_grids[(i, j)] = local_grid
         
