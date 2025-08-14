@@ -100,7 +100,7 @@ function refine_3d_grid_near_bodies(base_grid::StaggeredGrid, bodies::Union{Rigi
         
         if min_distance < refinement_radius
             level = min(3, Int(ceil(log2(refinement_radius / min_distance))))
-            refined_grid.refined_cells[(i, j)] = level  # Note: simplified indexing for 3D
+            refined_grid.refined_cells[(i, j, k)] = level  # Correct 3D indexing
         end
     end
     
@@ -238,9 +238,9 @@ function create_wake_refined_3d_grid(nx::Int, ny::Int, nz::Int,
             # Distance-based refinement level
             distance_from_body = sqrt((x - x_body)^2 + (y - y_body)^2 + (z - z_body)^2)
             if distance_from_body < wake_width/4
-                refined_grid.refined_cells[(i, j)] = 2  # High refinement near body
+                refined_grid.refined_cells[(i, j, k)] = 2  # High refinement near body
             elseif distance_from_body < wake_width/2
-                refined_grid.refined_cells[(i, j)] = 1  # Moderate refinement in wake
+                refined_grid.refined_cells[(i, j, k)] = 1  # Moderate refinement in wake
             end
         end
     end

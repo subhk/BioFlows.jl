@@ -52,8 +52,11 @@ function create_stretched_2d_grid(x_points::Vector{Float64}, z_points::Vector{Fl
     end
 end
 
-function refine_2d_grid_near_bodies(base_grid::StaggeredGrid, bodies::Union{RigidBodyCollection, FlexibleBodyCollection},
-                                   refinement_factor::Int=2, refinement_radius::Float64=0.5)
+function refine_2d_grid_near_bodies(base_grid::StaggeredGrid, 
+                                bodies::Union{RigidBodyCollection, FlexibleBodyCollection},
+                                refinement_factor::Int=2, 
+                                refinement_radius::Float64=0.5)
+
     # Create locally refined grid near immersed bodies
     refined_grid = RefinedGrid(base_grid)
     
@@ -146,9 +149,9 @@ function validate_2d_grid(grid::StaggeredGrid)
     end
     
     if checks_passed
-        println("Grid validation passed ✓")
+        println("Grid validation passed!")
     else
-        error("Grid validation failed")
+        error("Grid validation failed!")
     end
     
     return checks_passed

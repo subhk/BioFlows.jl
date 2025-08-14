@@ -68,7 +68,7 @@ function StaggeredGrid3D(nx::Int, ny::Int, nz::Int, Lx::T, Ly::T, Lz::T;
         collect(xu), collect(yv), collect(zw),
         ThreeDimensional,
         Tuple{Int,Int}[],
-        ones(Int, nx, ny)
+        ones(Int, nx, ny, nz)
     )
 end
 
