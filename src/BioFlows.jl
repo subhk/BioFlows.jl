@@ -76,6 +76,7 @@ export time_step!
 # Boundary condition exports
 export BoundaryConditions, BoundaryConditions2D, BoundaryConditions3D
 export InletBC, PressureOutletBC, VelocityOutletBC, NoSlipBC, FreeSlipBC, PeriodicBC
+export apply_immersed_boundary_forcing!
 
 # Adaptive refinement exports (original)
 export AdaptiveRefinementCriteria, RefinedGrid, adapt_grid!
@@ -106,6 +107,7 @@ export verify_operator_accuracy, check_staggered_grid_consistency
 # Discretization exports  
 export divergence_2d!, gradient_pressure_2d!, advection_2d!, compute_diffusion_2d!
 export divergence_3d!, gradient_pressure_3d!, advection_3d!, compute_diffusion_3d!
+export compute_cfl_2d, compute_cfl_3d
 
 # Solver step functions
 export solve_step_2d!, solve_step_3d!

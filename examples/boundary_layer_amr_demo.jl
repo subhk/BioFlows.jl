@@ -45,25 +45,25 @@ function test_cylinder_boundary_layer(reynolds_number::Float64)
     # Domain size based on Reynolds number (larger domains for higher Re)
     domain_factor = max(10.0, 5.0 * log10(reynolds_number))
     Lx = domain_factor * cylinder_diameter
-    Ly = domain_factor * cylinder_diameter
+    Lz = domain_factor * cylinder_diameter
     
     # Base grid resolution
     base_resolution = max(32, Int(round(16 * sqrt(reynolds_number / 100))))
     nx_base = base_resolution
-    ny_base = base_resolution
+    nz_base = base_resolution
     
     println("Problem Setup:")
     println("  Cylinder diameter: $cylinder_diameter")
-    println("  Domain size: $(Lx) × $(Ly)")
+    println("  Domain size: $(Lx) × $(Lz)")
     println("  Base grid: $(nx_base) × $(ny_base)")
     println("  Reynolds number: $(@sprintf(\"%.0f\", reynolds_number))")
     
     # Create base grid
-    base_grid = StaggeredGrid2D(nx_base, ny_base, Lx, Ly)
+    base_grid = StaggeredGrid2D(nx_base, nz_base, Lx, Lz)
     
     # Create cylinder
     circle = Circle(cylinder_radius)
-    cylinder = RigidBody(circle, [Lx/3, Ly/2], 0.0, StationaryMotion())
+    cylinder = RigidBody(circle, [Lx/3, Lz/2], 0.0, StationaryMotion())
     bodies = RigidBodyCollection()
     push!(bodies, cylinder)
     
@@ -217,7 +217,7 @@ function create_cylinder_initial_solution(grid::StaggeredGrid, cylinder::RigidBo
     """Create initial potential flow solution around cylinder."""
     
     nx, ny = grid.nx, grid.ny
-    state = SolutionState2D(nx, ny)
+    state = SolutionState2D(nx, nz)
     
     cylinder_center = cylinder.position
     cylinder_radius = cylinder.geometry.radius
@@ -398,7 +398,7 @@ function compare_with_uniform_grid(base_grid::StaggeredGrid,
     required_wall_spacing = target_y_plus * 1e-5  # Rough estimate
     
     # Domain size
-    domain_area = (base_grid.Lx) * (base_grid.Ly)
+    domain_area = (base_grid.Lx) * (base_grid.Lz)
     current_cells = base_grid.nx * base_grid.ny
     
     # Uniform grid requirement

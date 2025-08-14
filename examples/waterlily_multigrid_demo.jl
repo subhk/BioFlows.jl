@@ -12,39 +12,39 @@ function demo_waterlily_multigrid()
     println("=" * 50)
     
     # Create test grid
-    nx, ny = 128, 96
-    Lx, Ly = 2.0, 1.5
-    grid = StaggeredGrid2D(nx, ny, Lx, Ly)
+    nx, nz = 128, 96
+    Lx, Lz = 2.0, 1.5
+    grid = StaggeredGrid2D(nx, nz, Lx, Lz)
     
-    println("Grid: $(nx) × $(ny)")
-    println("Domain: $(Lx) × $(Ly)")
-    println("Grid spacing: dx = $(grid.dx), dy = $(grid.dy)")
+    println("Grid: $(nx) × $(nz)")
+    println("Domain: $(Lx) × $(Lz)")
+    println("Grid spacing: dx = $(grid.dx), dz = $(grid.dz)")
     println()
     
     # Create test RHS with known analytical solution
     # Let φ_exact = sin(πx/Lx) * cos(πy/Ly)
     # Then ∇²φ = -(π²/Lx² + π²/Ly²) * sin(πx/Lx) * cos(πy/Ly)
-    rhs = zeros(nx, ny)
-    φ_exact = zeros(nx, ny)
+    rhs = zeros(nx, nz)
+    φ_exact = zeros(nx, nz)
     
-    for j = 1:ny, i = 1:nx
-        x, y = grid.x[i], grid.y[j]
-        φ_exact[i, j] = sin(π * x / Lx) * cos(π * y / Ly)
-        rhs[i, j] = -(π^2/Lx^2 + π^2/Ly^2) * φ_exact[i, j]
+    for j = 1:nz, i = 1:nx
+        x, z = grid.x[i], grid.z[j]
+        φ_exact[i, j] = sin(π * x / Lx) * cos(π * z / Lz)
+        rhs[i, j] = -(π^2/Lx^2 + π^2/Lz^2) * φ_exact[i, j]
     end
     
     println("Test problem: ∇²φ = rhs with analytical solution")
-    println("φ_exact = sin(πx/Lx) * cos(πy/Ly)")
+    println("φ_exact = sin(πx/Lx) * cos(πz/Lz)")
     println()
     
     # Test WaterLily.jl-style solver
     println("1. WaterLily.jl-style Multigrid Solver")
     println("-" * 40)
     
-    φ_waterlily = zeros(nx, ny)
+    φ_waterlily = zeros(nx, nz)
     
     # Create WaterLily.jl-style solver
-    mg_waterlily = MultiLevelPoisson(nx, ny, grid.dx, grid.dy, 4; n_smooth=3, tol=1e-8)
+    mg_waterlily = MultiLevelPoisson(nx, nz, grid.dx, grid.dz, 4; n_smooth=3, tol=1e-8)
     
     # Time the solution
     start_time = time()
@@ -53,7 +53,7 @@ function demo_waterlily_multigrid()
     
     # Compute error
     error_wl = maximum(abs.(φ_waterlily - φ_exact))
-    l2_error_wl = sqrt(sum((φ_waterlily - φ_exact).^2) / (nx * ny))
+    l2_error_wl = sqrt(sum((φ_waterlily - φ_exact).^2) / (nx * nz))
     
     println("  Iterations: $iterations_wl")
     println("  Final residual: $residual_wl")
@@ -66,7 +66,7 @@ function demo_waterlily_multigrid()
     println("2. GeometricMultigrid.jl Solver")
     println("-" * 40)
     
-    φ_geometric = zeros(nx, ny)
+    φ_geometric = zeros(nx, nz)
     bc = BoundaryConditions2D()  # Default homogeneous Neumann
     
     # Create GeometricMultigrid.jl-style solver
@@ -79,7 +79,7 @@ function demo_waterlily_multigrid()
     
     # Compute error
     error_geom = maximum(abs.(φ_geometric - φ_exact))
-    l2_error_geom = sqrt(sum((φ_geometric - φ_exact).^2) / (nx * ny))
+    l2_error_geom = sqrt(sum((φ_geometric - φ_exact).^2) / (nx * nz))
     
     println("  Max error: $error_geom")
     println("  L2 error: $l2_error_geom")
@@ -131,12 +131,12 @@ end
 function test_convergence_rates(grid::StaggeredGrid)
     """Test convergence rates for different tolerances."""
     
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz
     Lx, Ly = grid.Lx, grid.Ly
     
     # Create test problem
-    rhs = zeros(nx, ny)
-    for j = 1:ny, i = 1:nx
+    rhs = zeros(nx, nz)
+    for j = 1:nz, i = 1:nx
         x, y = grid.x[i], grid.y[j]
         rhs[i, j] = -(π^2/Lx^2 + π^2/Ly^2) * sin(π * x / Lx) * cos(π * y / Ly)
     end
@@ -147,8 +147,8 @@ function test_convergence_rates(grid::StaggeredGrid)
     println("  ----------|------------|----------")
     
     for tol in tolerances
-        φ = zeros(nx, ny)
-        mg = MultiLevelPoisson(nx, ny, grid.dx, grid.dy, 4; n_smooth=3, tol=tol)
+        φ = zeros(nx, nz)
+        mg = MultiLevelPoisson(nx, nz, grid.dx, grid.dz, 4; n_smooth=3, tol=tol)
         
         start_time = time()
         residual, iterations = solve_poisson!(φ, rhs, mg; max_iter=200)
@@ -166,28 +166,28 @@ function test_scalability()
     println("  Grid Size | Levels | Time (ms) | Time/DOF (μs)")
     println("  ----------|--------|-----------|---------------")
     
-    for (nx, ny) in grid_sizes
-        grid = StaggeredGrid2D(nx, ny, 2.0, 1.5)
+    for (nx, nz) in grid_sizes
+        grid = StaggeredGrid2D(nx, nz, 2.0, 1.5)
         
         # Create test RHS
-        rhs = zeros(nx, ny)
-        for j = 1:ny, i = 1:nx
+        rhs = zeros(nx, nz)
+        for j = 1:nz, i = 1:nx
             x, y = grid.x[i], grid.y[j]
             rhs[i, j] = -(π^2/4 + π^2/2.25) * sin(π * x / 2.0) * cos(π * y / 1.5)
         end
         
-        φ = zeros(nx, ny)
-        levels = min(4, Int(floor(log2(min(nx, ny)))) - 1)
-        mg = MultiLevelPoisson(nx, ny, grid.dx, grid.dy, levels; n_smooth=3, tol=1e-6)
+        φ = zeros(nx, nz)
+        levels = min(4, Int(floor(log2(min(nx, nz)))) - 1)
+        mg = MultiLevelPoisson(nx, nz, grid.dx, grid.dz, levels; n_smooth=3, tol=1e-6)
         
         start_time = time()
         residual, iterations = solve_poisson!(φ, rhs, mg; max_iter=100)
         elapsed_time = (time() - start_time) * 1000
         
-        time_per_dof = elapsed_time * 1000 / (nx * ny)  # μs per DOF
+        time_per_dof = elapsed_time * 1000 / (nx * nz)  # μs per DOF
         
         @printf("  %3d × %3d |   %4d | %9.2f | %13.3f\n", 
-                nx, ny, levels, elapsed_time, time_per_dof)
+                nx, nz, levels, elapsed_time, time_per_dof)
     end
     
     println()
@@ -201,15 +201,15 @@ function demo_v_cycle_efficiency()
     println("-" * 35)
     
     # Create test case
-    nx, ny = 128, 128
-    grid = StaggeredGrid2D(nx, ny, 1.0, 1.0)
+    nx, nz = 128, 128
+    grid = StaggeredGrid2D(nx, nz, 1.0, 1.0)
     
     # Random RHS
-    rhs = randn(nx, ny)
-    rhs .-= sum(rhs) / (nx * ny)  # Ensure compatibility
+    rhs = randn(nx, nz)
+    rhs .-= sum(rhs) / (nx * nz)  # Ensure compatibility
     
-    φ = zeros(nx, ny)
-    mg = MultiLevelPoisson(nx, ny, grid.dx, grid.dy, 5; n_smooth=2, tol=1e-10)
+    φ = zeros(nx, nz)
+    mg = MultiLevelPoisson(nx, nz, grid.dx, grid.dz, 5; n_smooth=2, tol=1e-10)
     
     println("Tracking residual reduction per V-cycle...")
     

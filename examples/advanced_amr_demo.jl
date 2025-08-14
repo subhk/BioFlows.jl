@@ -18,14 +18,14 @@ function demo_advanced_amr()
     println("="^60)
     
     # Create base grid
-    nx_base, ny_base = 32, 24
-    Lx, Ly = 4.0, 3.0
-    base_grid = StaggeredGrid2D(nx_base, ny_base, Lx, Ly)
+    nx_base, nz_base = 32, 24
+    Lx, Lz = 4.0, 3.0
+    base_grid = StaggeredGrid2D(nx_base, nz_base, Lx, Lz)
     
     println("Base Grid Configuration:")
     println("  Cells: $(nx_base) × $(ny_base)")
-    println("  Domain: $(Lx) × $(Ly)")
-    println("  Base spacing: dx = $(base_grid.dx), dy = $(base_grid.dy)")
+    println("  Domain: $(Lx) × $(Lz)")
+    println("  Base spacing: dx = $(base_grid.dx), dz = $(base_grid.dz)")
     println()
     
     # Create AMR hierarchy
@@ -151,11 +151,11 @@ end
 function create_complex_test_solution(grid::StaggeredGrid)
     """Create a solution with multiple challenging features for AMR."""
     
-    nx, ny = grid.nx, grid.ny
-    state = SolutionState2D(nx, ny)
+    nx, nz = grid.nx, grid.nz
+    state = SolutionState2D(nx, nz)
     
     # Create complex velocity field with multiple scales
-    for j = 1:ny, i = 1:nx+1
+    for j = 1:nz, i = 1:nx+1
         x = grid.xu[i]
         y_center = grid.y[j]
         
@@ -176,7 +176,7 @@ function create_complex_test_solution(grid::StaggeredGrid)
         state.u[i, j] = vortex1 + vortex2 + shear
     end
     
-    for j = 1:ny+1, i = 1:nx
+    for j = 1:nz+1, i = 1:nx
         x_center = grid.x[i]
         y = grid.yv[j]
         
@@ -193,7 +193,7 @@ function create_complex_test_solution(grid::StaggeredGrid)
     end
     
     # Create pressure field with steep gradients
-    for j = 1:ny, i = 1:nx
+    for j = 1:nz, i = 1:nx
         x = grid.x[i]
         y = grid.y[j]
         
@@ -257,11 +257,11 @@ function test_conservative_operations(grid::StaggeredGrid)
     println("  Testing Conservative Operators:")
     
     # Create test field with known properties
-    nx, ny = grid.nx, grid.ny
-    fine_field = zeros(nx, ny)
+    nx, nz = grid.nx, grid.nz
+    fine_field = zeros(nx, nz)
     
     # Create a checkerboard pattern for testing conservation
-    for j = 1:ny, i = 1:nx
+    for j = 1:nz, i = 1:nx
         fine_field[i, j] = ((i + j) % 2 == 0) ? 1.0 : -1.0
     end
     
@@ -410,10 +410,10 @@ end
 function create_base_staggered_grid(hierarchy::AMRHierarchy)
     # Create StaggeredGrid from AMRHierarchy base level
     base = hierarchy.base_level
-    return StaggeredGrid2D(base.nx, base.ny, 
+    return StaggeredGrid2D(base.nx, base.nz, 
                           base.x_max - base.x_min,
-                          base.y_max - base.y_min;
-                          origin_x=base.x_min, origin_y=base.y_min)
+                          base.z_max - base.z_min;
+                          origin_x=base.x_min, origin_z=base.z_min)
 end
 
 function get_effective_grid_size_simple(hierarchy::AMRHierarchy, base_cells::Int)

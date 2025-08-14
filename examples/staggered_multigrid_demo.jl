@@ -15,14 +15,14 @@ function demo_staggered_multigrid()
     println("=" * 50)
     
     # Create staggered grid
-    nx, ny = 64, 48
-    Lx, Ly = 2.0, 1.5
-    grid = StaggeredGrid2D(nx, ny, Lx, Ly)
+    nx, nz = 64, 48
+    Lx, Lz = 2.0, 1.5
+    grid = StaggeredGrid2D(nx, nz, Lx, Lz)
     
     println("Grid Configuration:")
-    println("  Cells: $(nx) × $(ny)")
-    println("  Domain: $(Lx) × $(Ly)")  
-    println("  Cell spacing: dx = $(grid.dx), dy = $(grid.dy)")
+    println("  Cells: $(nx) × $(nz)")
+    println("  Domain: $(Lx) × $(Lz)")  
+    println("  Cell spacing: dx = $(grid.dx), dz = $(grid.dz)")
     println()
     
     # Display grid layout
@@ -46,11 +46,11 @@ function demo_staggered_multigrid()
     println("-" * 30)
     
     # Create velocity field on faces that represents some flow
-    u_faces = zeros(nx + 1, ny)      # u at x-faces
-    v_faces = zeros(nx, ny + 1)      # v at y-faces
+    u_faces = zeros(nx + 1, nz)      # u at x-faces
+    v_faces = zeros(nx, nz + 1)      # v at z-faces
     
     # Create a simple vortex-like flow
-    for j = 1:ny, i = 1:nx+1
+    for j = 1:nz, i = 1:nx+1
         x_face = grid.xu[i]
         y_center = grid.y[j]
         
@@ -62,7 +62,7 @@ function demo_staggered_multigrid()
         end
     end
     
-    for j = 1:ny+1, i = 1:nx
+    for j = 1:nz+1, i = 1:nx
         x_center = grid.x[i]
         y_face = grid.yv[j]
         
@@ -78,7 +78,7 @@ function demo_staggered_multigrid()
     println("    v-velocity range: [$(minimum(v_faces)), $(maximum(v_faces))]")
     
     # Compute divergence at cell centers (RHS for pressure Poisson)
-    div_u = zeros(nx, ny)
+    div_u = zeros(nx, nz)
     compute_velocity_divergence_from_faces!(div_u, u_faces, v_faces, grid)
     
     max_div = maximum(abs.(div_u))
@@ -90,7 +90,7 @@ function demo_staggered_multigrid()
     println("-" * 30)
     
     # Initialize pressure at cell centers
-    φ = zeros(nx, ny)  # Pressure correction at cell centers
+    φ = zeros(nx, nz)  # Pressure correction at cell centers
     
     # Create staggered-aware multigrid solver
     solver = MultigridPoissonSolver(grid; solver_type=:staggered, levels=4, tolerance=1e-8)
@@ -112,8 +112,8 @@ function demo_staggered_multigrid()
     println("-" * 30)
     
     # Compute pressure gradient at faces (for velocity correction)
-    dpdx_faces = zeros(nx + 1, ny)   # Pressure gradient at x-faces
-    dpdy_faces = zeros(nx, ny + 1)   # Pressure gradient at y-faces
+    dpdx_faces = zeros(nx + 1, nz)   # Pressure gradient at x-faces
+    dpdz_faces = zeros(nx, nz + 1)   # Pressure gradient at z-faces
     
     compute_pressure_gradient_to_faces!(dpdx_faces, dpdy_faces, φ, grid)
     
@@ -137,7 +137,7 @@ function demo_staggered_multigrid()
     v_corrected = v_faces - dt * dpdy_faces
     
     # Check divergence of corrected velocity
-    div_u_corrected = zeros(nx, ny)
+    div_u_corrected = zeros(nx, nz)
     compute_velocity_divergence_from_faces!(div_u_corrected, u_corrected, v_corrected, grid)
     
     max_div_corrected = maximum(abs.(div_u_corrected))
@@ -162,7 +162,7 @@ function demo_staggered_multigrid()
     println("-" * 40)
     
     # Test same problem with regular WaterLily-style solver
-    φ_regular = zeros(nx, ny)
+    φ_regular = zeros(nx, nz)
     solver_regular = MultigridPoissonSolver(grid; solver_type=:waterlily, levels=4, tolerance=1e-8)
     
     start_time = time()
@@ -203,7 +203,7 @@ end
 function verify_staggered_layout(grid::StaggeredGrid)
     """Verify that the staggered grid has the correct layout."""
     
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz
     dx, dy = grid.dx, grid.dy
     
     # Check cell centers
@@ -233,9 +233,9 @@ function verify_staggered_layout(grid::StaggeredGrid)
     
     # Check array dimensions
     println("  Array dimension verification:")
-    println("    Pressure arrays: $(nx) × $(ny)")
-    println("    u-velocity arrays: $(nx+1) × $(ny)")  
-    println("    v-velocity arrays: $(nx) × $(ny+1)")
+    println("    Pressure arrays: $(nx) × $(nz)")
+    println("    u-velocity arrays: $(nx+1) × $(nz)")  
+    println("    v-velocity arrays: $(nx) × $(nz+1)")
     println("    ✓ Array dimensions match staggered grid requirements")
 end
 
@@ -247,30 +247,30 @@ function test_grid_refinement()
     println("  Grid Size | Max Div Before | Max Div After | Reduction | Time (ms)")
     println("  ----------|----------------|---------------|-----------|----------")
     
-    for (nx, ny) in grid_sizes
-        grid = StaggeredGrid2D(nx, ny, 2.0, 1.5)
+    for (nx, nz) in grid_sizes
+        grid = StaggeredGrid2D(nx, nz, 2.0, 1.5)
         
         # Create simple test flow
-        u_faces = zeros(nx + 1, ny)
-        v_faces = zeros(nx, ny + 1)
+        u_faces = zeros(nx + 1, nz)
+        v_faces = zeros(nx, nz + 1)
         
         # Simple divergent flow
-        for j = 1:ny, i = 1:nx+1
+        for j = 1:nz, i = 1:nx+1
             x = grid.xu[i] - 1.0
             u_faces[i, j] = x * 0.1
         end
-        for j = 1:ny+1, i = 1:nx
+        for j = 1:nz+1, i = 1:nx
             y = grid.yv[j] - 0.75
             v_faces[i, j] = y * 0.1
         end
         
         # Compute initial divergence
-        div_u = zeros(nx, ny)
+        div_u = zeros(nx, nz)
         compute_velocity_divergence_from_faces!(div_u, u_faces, v_faces, grid)
         max_div_before = maximum(abs.(div_u))
         
         # Solve pressure Poisson
-        φ = zeros(nx, ny)
+        φ = zeros(nx, nz)
         solver = MultigridPoissonSolver(grid; solver_type=:staggered, levels=3, tolerance=1e-6)
         bc = BoundaryConditions2D()
         
@@ -279,22 +279,22 @@ function test_grid_refinement()
         elapsed_time = (time() - start_time) * 1000
         
         # Compute corrected divergence
-        dpdx = zeros(nx + 1, ny)
-        dpdy = zeros(nx, ny + 1)
+        dpdx = zeros(nx + 1, nz)
+        dpdz = zeros(nx, nz + 1)
         compute_pressure_gradient_to_faces!(dpdx, dpdy, φ, grid)
         
         dt = 0.01
         u_corrected = u_faces - dt * dpdx
         v_corrected = v_faces - dt * dpdy
         
-        div_corrected = zeros(nx, ny)
+        div_corrected = zeros(nx, nz)
         compute_velocity_divergence_from_faces!(div_corrected, u_corrected, v_corrected, grid)
         max_div_after = maximum(abs.(div_corrected))
         
         reduction = max_div_after / max_div_before
         
         @printf("  %3d × %3d | %14.6e | %13.6e | %9.2e | %8.2f\n", 
-                nx, ny, max_div_before, max_div_after, reduction, elapsed_time)
+                nx, nz, max_div_before, max_div_after, reduction, elapsed_time)
     end
     
     println("  Note: Reduction factor should improve with finer grids")

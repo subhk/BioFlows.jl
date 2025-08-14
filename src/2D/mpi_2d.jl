@@ -9,7 +9,7 @@ struct MPI2DDecomposition
     
     # Grid decomposition (interior cells only)
     nx_global::Int
-    ny_global::Int
+    nz_global::Int
     nx_local::Int
     ny_local::Int
     
@@ -47,7 +47,7 @@ struct MPI2DDecomposition
     recv_buffers::Dict{Symbol, Vector{Float64}}
 end
 
-function MPI2DDecomposition(nx_global::Int, ny_global::Int, comm::MPI.Comm=MPI.COMM_WORLD; n_ghost::Int=1)
+function MPI2DDecomposition(nx_global::Int, nz_global::Int, comm::MPI.Comm=MPI.COMM_WORLD; n_ghost::Int=1)
     rank = MPI.Comm_rank(comm)
     size = MPI.Comm_size(comm)
     
@@ -68,13 +68,13 @@ function MPI2DDecomposition(nx_global::Int, ny_global::Int, comm::MPI.Comm=MPI.C
     
     # Determine local domain size (interior cells only)
     nx_local = nx_global ÷ dims[1]
-    ny_local = ny_global ÷ dims[2]
+    ny_local = nz_global ÷ dims[2]
     
     # Handle remainder cells
     if coords[1] < nx_global % dims[1]
         nx_local += 1
     end
-    if coords[2] < ny_global % dims[2]
+    if coords[2] < nz_global % dims[2]
         ny_local += 1
     end
     
@@ -85,7 +85,7 @@ function MPI2DDecomposition(nx_global::Int, ny_global::Int, comm::MPI.Comm=MPI.C
     # Determine local index ranges (global indexing for interior cells)
     i_start = coords[1] * (nx_global ÷ dims[1]) + 1 + min(coords[1], nx_global % dims[1])
     i_end = i_start + nx_local - 1
-    j_start = coords[2] * (ny_global ÷ dims[2]) + 1 + min(coords[2], ny_global % dims[2])
+    j_start = coords[2] * (nz_global ÷ dims[2]) + 1 + min(coords[2], nz_global % dims[2])
     j_end = j_start + ny_local - 1
     
     # Local array indices for interior cells (1-based indexing including ghosts)
@@ -99,7 +99,7 @@ function MPI2DDecomposition(nx_global::Int, ny_global::Int, comm::MPI.Comm=MPI.C
     bottom_rank, top_rank = MPI.Cart_shift(cart_comm, 1, 1)
     
     # Create pencil for PencilArrays
-    pencil = Pencil(cart_comm, (nx_global, ny_global), (coords[1]+1, coords[2]+1))
+    pencil = Pencil(cart_comm, (nx_global, nz_global), (coords[1]+1, coords[2]+1))
     
     # Initialize communication buffers with proper ghost cell sizes
     send_buffers = Dict{Symbol, Vector{Float64}}()
@@ -119,7 +119,7 @@ function MPI2DDecomposition(nx_global::Int, ny_global::Int, comm::MPI.Comm=MPI.C
     recv_buffers[:top] = zeros(n_ghost * nx_local_with_ghosts)
     
     MPI2DDecomposition(pencil, cart_comm, rank, size,
-                      nx_global, ny_global, nx_local, ny_local,
+                      nx_global, nz_global, nx_local, ny_local,
                       nx_local_with_ghosts, ny_local_with_ghosts, n_ghost,
                       i_start, i_end, j_start, j_end,
                       i_local_start, i_local_end, j_local_start, j_local_end,
@@ -128,28 +128,132 @@ function MPI2DDecomposition(nx_global::Int, ny_global::Int, comm::MPI.Comm=MPI.C
                       send_buffers, recv_buffers)
 end
 
-function create_local_grid_2d(decomp::MPI2DDecomposition, Lx::Float64, Ly::Float64)
+function create_local_grid_2d(decomp::MPI2DDecomposition, Lx::Float64, Lz::Float64)
     # Create local grid for this MPI rank INCLUDING ghost cells
     dx = Lx / decomp.nx_global
-    dy = Ly / decomp.ny_global
+    dz = Lz / decomp.nz_global
     
     # Local domain bounds (for interior cells)
     x_min = (decomp.i_start - 1) * dx
-    y_min = (decomp.j_start - 1) * dy
+    z_min = (decomp.j_start - 1) * dz
     
     # Extend bounds to include ghost cells
     x_min_with_ghosts = x_min - decomp.n_ghost * dx
-    y_min_with_ghosts = y_min - decomp.n_ghost * dy
+    z_min_with_ghosts = z_min - decomp.n_ghost * dz
     
     local_Lx_with_ghosts = decomp.nx_local_with_ghosts * dx
-    local_Ly_with_ghosts = decomp.ny_local_with_ghosts * dy
+    local_Lz_with_ghosts = decomp.ny_local_with_ghosts * dz
     
     # Create grid with ghost cells
     local_grid = StaggeredGrid2D(decomp.nx_local_with_ghosts, decomp.ny_local_with_ghosts, 
-                                local_Lx_with_ghosts, local_Ly_with_ghosts;
-                                origin_x=x_min_with_ghosts, origin_y=y_min_with_ghosts)
+                                local_Lx_with_ghosts, local_Lz_with_ghosts;
+                                origin_x=x_min_with_ghosts, origin_z=z_min_with_ghosts)
     
     return local_grid
+end
+
+"""
+    apply_physical_boundary_conditions_2d!(decomp, grid, state, bc, t)
+
+Apply boundary conditions only at physical domain boundaries (not inter-process boundaries).
+This function determines which boundaries of the local domain are physical boundaries
+and applies the appropriate boundary conditions only to those.
+"""
+function apply_physical_boundary_conditions_2d!(decomp::MPI2DDecomposition, grid::StaggeredGrid, 
+                                               state::MPISolutionState2D, bc::BoundaryConditions, t::Float64)
+    nx_g = decomp.nx_local_with_ghosts
+    ny_g = decomp.ny_local_with_ghosts
+    n_ghost = decomp.n_ghost
+    
+    # Check if this process is at a physical boundary and apply BC accordingly
+    
+    # Left boundary (x=0): only if this process contains the left boundary
+    if decomp.i_global_start == 1 && haskey(bc.conditions, (:x, :left))
+        condition = bc.conditions[(:x, :left)]
+        # Apply to the actual boundary (not ghost cells)
+        for j = n_ghost+1:ny_g-n_ghost
+            apply_u_boundary_physical!(state.u, condition, n_ghost+1, j, t, :left)
+            apply_v_boundary_physical!(state.v, condition, n_ghost+1, j, t, :left)
+        end
+    end
+    
+    # Right boundary (x=Lx): only if this process contains the right boundary  
+    if decomp.i_global_end == decomp.nx_global && haskey(bc.conditions, (:x, :right))
+        condition = bc.conditions[(:x, :right)]
+        for j = n_ghost+1:ny_g-n_ghost
+            apply_u_boundary_physical!(state.u, condition, nx_g-n_ghost+1, j, t, :right)
+            apply_v_boundary_physical!(state.v, condition, nx_g-n_ghost, j, t, :right)
+        end
+    end
+    
+    # Bottom boundary (z=0): only if this process contains the bottom boundary
+    if decomp.j_global_start == 1 && haskey(bc.conditions, (:z, :bottom))
+        condition = bc.conditions[(:z, :bottom)]
+        for i = n_ghost+1:nx_g-n_ghost
+            apply_u_boundary_physical!(state.u, condition, i, n_ghost+1, t, :bottom)
+            apply_v_boundary_physical!(state.v, condition, i, n_ghost+1, t, :bottom)
+        end
+    end
+    
+    # Top boundary (z=Lz): only if this process contains the top boundary
+    if decomp.j_global_end == decomp.nz_global && haskey(bc.conditions, (:z, :top))
+        condition = bc.conditions[(:z, :top)]
+        for i = n_ghost+1:nx_g-n_ghost
+            apply_u_boundary_physical!(state.u, condition, i, ny_g-n_ghost, t, :top)
+            apply_v_boundary_physical!(state.v, condition, i, ny_g-n_ghost+1, t, :top)
+        end
+    end
+end
+
+"""
+Apply boundary conditions specifically for MPI domains at physical boundaries.
+"""
+function apply_u_boundary_physical!(u::Matrix, condition::BoundaryCondition, 
+                                   i::Int, j::Int, t::Float64, location::Symbol)
+    if condition.type == NoSlip
+        u[i, j] = 0.0
+    elseif condition.type == FreeSlip
+        if location in [:left, :right]
+            neighbor_i = location == :left ? i+1 : i-1
+            u[i, j] = u[neighbor_i, j]
+        else
+            u[i, j] = 0.0
+        end
+    elseif condition.type == Inlet
+        if condition.value isa Function
+            u[i, j] = condition.value(t)
+        else
+            u[i, j] = condition.value
+        end
+    elseif condition.type == Outlet
+        if location == :right
+            u[i, j] = u[i-1, j]
+        end
+    end
+end
+
+function apply_v_boundary_physical!(v::Matrix, condition::BoundaryCondition,
+                                   i::Int, j::Int, t::Float64, location::Symbol)
+    if condition.type == NoSlip
+        v[i, j] = 0.0
+    elseif condition.type == FreeSlip
+        if location in [:bottom, :top]
+            neighbor_j = location == :bottom ? j+1 : j-1
+            v[i, j] = v[i, neighbor_j]
+        else
+            v[i, j] = 0.0
+        end
+    elseif condition.type == Inlet
+        if condition.value isa Function
+            v[i, j] = condition.value(t)
+        else
+            v[i, j] = condition.value !== nothing ? condition.value : 0.0
+        end
+    elseif condition.type == Outlet
+        if location == :top
+            v[i, j] = v[i, j-1]
+        end
+    end
 end
 
 function create_local_arrays_2d(decomp::MPI2DDecomposition, T=Float64)
@@ -502,7 +606,7 @@ function gather_global_field_2d(decomp::MPI2DDecomposition, local_field::Matrix{
     # Gather local fields to form global field on root process
     
     if decomp.rank == 0
-        global_field = zeros(decomp.nx_global, decomp.ny_global)
+        global_field = zeros(decomp.nx_global, decomp.nz_global)
         
         # Copy local data from root
         global_field[decomp.i_start:decomp.i_end, decomp.j_start:decomp.j_end] .= local_field
@@ -513,20 +617,20 @@ function gather_global_field_2d(decomp::MPI2DDecomposition, local_field::Matrix{
             src_coords = MPI.Cart_coords(decomp.comm, src_rank, 2)
             
             src_nx_local = decomp.nx_global ÷ MPI.Cart_get(decomp.comm)[1]
-            src_ny_local = decomp.ny_global ÷ MPI.Cart_get(decomp.comm)[2]
+            src_ny_local = decomp.nz_global ÷ MPI.Cart_get(decomp.comm)[2]
             
             if src_coords[1] < decomp.nx_global % MPI.Cart_get(decomp.comm)[1]
                 src_nx_local += 1
             end
-            if src_coords[2] < decomp.ny_global % MPI.Cart_get(decomp.comm)[2]
+            if src_coords[2] < decomp.nz_global % MPI.Cart_get(decomp.comm)[2]
                 src_ny_local += 1
             end
             
             src_i_start = src_coords[1] * (decomp.nx_global ÷ MPI.Cart_get(decomp.comm)[1]) + 1 + 
                          min(src_coords[1], decomp.nx_global % MPI.Cart_get(decomp.comm)[1])
             src_i_end = src_i_start + src_nx_local - 1
-            src_j_start = src_coords[2] * (decomp.ny_global ÷ MPI.Cart_get(decomp.comm)[2]) + 1 + 
-                         min(src_coords[2], decomp.ny_global % MPI.Cart_get(decomp.comm)[2])
+            src_j_start = src_coords[2] * (decomp.nz_global ÷ MPI.Cart_get(decomp.comm)[2]) + 1 + 
+                         min(src_coords[2], decomp.nz_global % MPI.Cart_get(decomp.comm)[2])
             src_j_end = src_j_start + src_ny_local - 1
             
             # Receive data
@@ -556,20 +660,20 @@ function distribute_global_field_2d!(decomp::MPI2DDecomposition, local_field::Ma
             dest_coords = MPI.Cart_coords(decomp.comm, dest_rank, 2)
             
             dest_nx_local = decomp.nx_global ÷ MPI.Cart_get(decomp.comm)[1]
-            dest_ny_local = decomp.ny_global ÷ MPI.Cart_get(decomp.comm)[2]
+            dest_ny_local = decomp.nz_global ÷ MPI.Cart_get(decomp.comm)[2]
             
             if dest_coords[1] < decomp.nx_global % MPI.Cart_get(decomp.comm)[1]
                 dest_nx_local += 1
             end
-            if dest_coords[2] < decomp.ny_global % MPI.Cart_get(decomp.comm)[2]
+            if dest_coords[2] < decomp.nz_global % MPI.Cart_get(decomp.comm)[2]
                 dest_ny_local += 1
             end
             
             dest_i_start = dest_coords[1] * (decomp.nx_global ÷ MPI.Cart_get(decomp.comm)[1]) + 1 + 
                           min(dest_coords[1], decomp.nx_global % MPI.Cart_get(decomp.comm)[1])
             dest_i_end = dest_i_start + dest_nx_local - 1
-            dest_j_start = dest_coords[2] * (decomp.ny_global ÷ MPI.Cart_get(decomp.comm)[2]) + 1 + 
-                          min(dest_coords[2], decomp.ny_global % MPI.Cart_get(decomp.comm)[2])
+            dest_j_start = dest_coords[2] * (decomp.nz_global ÷ MPI.Cart_get(decomp.comm)[2]) + 1 + 
+                          min(dest_coords[2], decomp.nz_global % MPI.Cart_get(decomp.comm)[2])
             dest_j_end = dest_j_start + dest_ny_local - 1
             
             # Send data
@@ -669,22 +773,22 @@ struct MPINavierStokesSolver2D <: AbstractSolver
     local_rhs_p::Matrix{Float64}
 end
 
-function MPINavierStokesSolver2D(nx_global::Int, ny_global::Int, Lx::Float64, Ly::Float64,
+function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int, Lx::Float64, Lz::Float64,
                                 fluid::FluidProperties, bc::BoundaryConditions, 
                                 time_scheme::TimeSteppingScheme;
                                 comm::MPI.Comm=MPI.COMM_WORLD)
     # Create MPI decomposition
-    decomp = MPI2DDecomposition(nx_global, ny_global, comm)
+    decomp = MPI2DDecomposition(nx_global, nz_global, comm)
     
     # Create local grid
-    local_grid = create_local_grid_2d(decomp, Lx, Ly)
+    local_grid = create_local_grid_2d(decomp, Lx, Lz)
     
     # Initialize local work arrays
-    nx_local, ny_local = decomp.nx_local, decomp.ny_local
-    local_u_star = zeros(nx_local+1, ny_local)
-    local_v_star = zeros(nx_local, ny_local+1)
-    local_phi = zeros(nx_local, ny_local)
-    local_rhs_p = zeros(nx_local, ny_local)
+    nx_local, nz_local = decomp.nx_local, decomp.ny_local  # ny_local actually represents nz for 2D XZ plane
+    local_u_star = zeros(nx_local+1, nz_local)
+    local_v_star = zeros(nx_local, nz_local+1)  # v represents w-velocity in XZ plane
+    local_phi = zeros(nx_local, nz_local)
+    local_rhs_p = zeros(nx_local, nz_local)
     
     MPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme,
                            local_u_star, local_v_star, local_phi, local_rhs_p)
@@ -703,7 +807,8 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D, local_state_new::So
               (state, args...) -> predictor_rhs,
               solver.time_scheme, dt, solver.local_grid, solver.fluid, solver.bc)
     
-    # Step 2: Exchange ghost cells for predictor velocity
+    # Step 2: Apply boundary conditions to predictor velocity and exchange ghost cells
+    apply_physical_boundary_conditions_2d!(decomp, solver.local_grid, local_state_predictor, solver.bc, local_state_old.t + dt)
     exchange_ghost_cells_2d!(decomp, local_state_predictor.u)
     exchange_ghost_cells_2d!(decomp, local_state_predictor.v)
     
@@ -728,7 +833,8 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D, local_state_new::So
     local_state_new.t = local_state_old.t + dt
     local_state_new.step = local_state_old.step + 1
     
-    # Final ghost cell exchange
+    # Apply final boundary conditions and ghost cell exchange
+    apply_physical_boundary_conditions_2d!(decomp, solver.local_grid, local_state_new, solver.bc, local_state_new.t)
     exchange_ghost_cells_2d!(decomp, local_state_new.u)
     exchange_ghost_cells_2d!(decomp, local_state_new.v)
     exchange_ghost_cells_2d!(decomp, local_state_new.p)

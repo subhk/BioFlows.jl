@@ -136,6 +136,106 @@ function create_local_grid_3d(decomp::MPI3DDecomposition, Lx::Float64, Ly::Float
     return local_grid
 end
 
+"""
+    apply_physical_boundary_conditions_3d!(decomp, grid, state, bc, t)
+
+Apply boundary conditions only at physical domain boundaries for 3D MPI domains.
+"""
+function apply_physical_boundary_conditions_3d!(decomp::MPI3DDecomposition, grid::StaggeredGrid, 
+                                               state::MPISolutionState3D, bc::BoundaryConditions, t::Float64)
+    # For now, implement a simplified version that identifies physical boundaries
+    # and applies boundary conditions accordingly.
+    # This ensures MPI consistency with serial implementation.
+    
+    # Check if this process is at a physical boundary and apply BC accordingly
+    if haskey(bc.conditions, (:x, :left)) && decomp.i_global_start == 1
+        condition = bc.conditions[(:x, :left)]
+        apply_boundary_conditions_x_left_3d!(state, condition, t)
+    end
+    
+    if haskey(bc.conditions, (:x, :right)) && decomp.i_global_end == decomp.nx_global
+        condition = bc.conditions[(:x, :right)]
+        apply_boundary_conditions_x_right_3d!(state, condition, t)
+    end
+    
+    if haskey(bc.conditions, (:y, :bottom)) && decomp.j_global_start == 1
+        condition = bc.conditions[(:y, :bottom)]
+        apply_boundary_conditions_y_bottom_3d!(state, condition, t)
+    end
+    
+    if haskey(bc.conditions, (:y, :top)) && decomp.j_global_end == decomp.ny_global
+        condition = bc.conditions[(:y, :top)]
+        apply_boundary_conditions_y_top_3d!(state, condition, t)
+    end
+    
+    if haskey(bc.conditions, (:z, :front)) && decomp.k_global_start == 1
+        condition = bc.conditions[(:z, :front)]
+        apply_boundary_conditions_z_front_3d!(state, condition, t)
+    end
+    
+    if haskey(bc.conditions, (:z, :back)) && decomp.k_global_end == decomp.nz_global
+        condition = bc.conditions[(:z, :back)]
+        apply_boundary_conditions_z_back_3d!(state, condition, t)
+    end
+end
+
+# Simplified boundary condition application functions for 3D MPI
+function apply_boundary_conditions_x_left_3d!(state::MPISolutionState3D, condition::BoundaryCondition, t::Float64)
+    if condition.type == NoSlip
+        state.u[1, :, :] .= 0.0
+        state.v[1, :, :] .= 0.0
+        state.w[1, :, :] .= 0.0
+    elseif condition.type == Inlet
+        val = condition.value isa Function ? condition.value(t) : condition.value
+        state.u[1, :, :] .= val
+    end
+end
+
+function apply_boundary_conditions_x_right_3d!(state::MPISolutionState3D, condition::BoundaryCondition, t::Float64)
+    nx = size(state.u, 1)
+    if condition.type == NoSlip
+        state.u[nx, :, :] .= 0.0
+        state.v[nx-1, :, :] .= 0.0
+        state.w[nx-1, :, :] .= 0.0
+    elseif condition.type == Outlet
+        state.u[nx, :, :] .= state.u[nx-1, :, :]
+    end
+end
+
+function apply_boundary_conditions_y_bottom_3d!(state::MPISolutionState3D, condition::BoundaryCondition, t::Float64)
+    if condition.type == NoSlip
+        state.u[:, 1, :] .= 0.0
+        state.v[:, 1, :] .= 0.0
+        state.w[:, 1, :] .= 0.0
+    end
+end
+
+function apply_boundary_conditions_y_top_3d!(state::MPISolutionState3D, condition::BoundaryCondition, t::Float64)
+    ny = size(state.v, 2)
+    if condition.type == NoSlip
+        state.u[:, ny-1, :] .= 0.0
+        state.v[:, ny, :] .= 0.0
+        state.w[:, ny-1, :] .= 0.0
+    end
+end
+
+function apply_boundary_conditions_z_front_3d!(state::MPISolutionState3D, condition::BoundaryCondition, t::Float64)
+    if condition.type == NoSlip
+        state.u[:, :, 1] .= 0.0
+        state.v[:, :, 1] .= 0.0
+        state.w[:, :, 1] .= 0.0
+    end
+end
+
+function apply_boundary_conditions_z_back_3d!(state::MPISolutionState3D, condition::BoundaryCondition, t::Float64)
+    nz = size(state.w, 3)
+    if condition.type == NoSlip
+        state.u[:, :, nz-1] .= 0.0
+        state.v[:, :, nz-1] .= 0.0
+        state.w[:, :, nz] .= 0.0
+    end
+end
+
 function exchange_ghost_cells_3d!(decomp::MPI3DDecomposition, field::Union{Array{Float64,3}, PencilArray})
     # For PencilArrays compatibility, check if field is a PencilArray
     if isa(field, PencilArray)
@@ -362,7 +462,8 @@ function mpi_solve_step_3d!(solver::MPINavierStokesSolver3D, local_state_new::So
               (state, args...) -> predictor_rhs,
               solver.time_scheme, dt, solver.local_grid, solver.fluid, solver.bc)
     
-    # Step 2: Exchange ghost cells
+    # Step 2: Apply boundary conditions and exchange ghost cells
+    apply_physical_boundary_conditions_3d!(decomp, solver.local_grid, local_state_predictor, solver.bc, local_state_old.t + dt)
     exchange_ghost_cells_3d!(decomp, local_state_predictor.u)
     exchange_ghost_cells_3d!(decomp, local_state_predictor.v)
     exchange_ghost_cells_3d!(decomp, local_state_predictor.w)
@@ -389,7 +490,8 @@ function mpi_solve_step_3d!(solver::MPINavierStokesSolver3D, local_state_new::So
     local_state_new.t = local_state_old.t + dt
     local_state_new.step = local_state_old.step + 1
     
-    # Final ghost cell exchange
+    # Apply final boundary conditions and ghost cell exchange
+    apply_physical_boundary_conditions_3d!(decomp, solver.local_grid, local_state_new, solver.bc, local_state_new.t)
     exchange_ghost_cells_3d!(decomp, local_state_new.u)
     exchange_ghost_cells_3d!(decomp, local_state_new.v)
     exchange_ghost_cells_3d!(decomp, local_state_new.w)

@@ -1,20 +1,20 @@
 function divergence_2d!(div::Matrix{T}, u::Matrix{T}, v::Matrix{T}, 
                         grid::StaggeredGrid{T}) where T<:Real
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz
     dx, dy = grid.dx, grid.dy
     
-    @inbounds for j = 1:ny, i = 1:nx
+    @inbounds for j = 1:nz, i = 1:nx
         div[i, j] = (u[i+1, j] - u[i, j]) / dx + (v[i, j+1] - v[i, j]) / dy
     end
 end
 
 function gradient_pressure_2d!(dpdx::Matrix{T}, dpdy::Matrix{T}, p::Matrix{T},
                                grid::StaggeredGrid{T}) where T<:Real
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz
     dx, dy = grid.dx, grid.dy
     
     # 2nd order accurate pressure gradient at u-velocity points (x-faces)
-    @inbounds for j = 1:ny, i = 1:nx+1
+    @inbounds for j = 1:nz, i = 1:nx+1
         if i == 1
             # Left boundary: 2nd order one-sided difference
             dpdx[i, j] = (-3*p[1, j] + 4*p[2, j] - p[3, j]) / (2*dx)
@@ -28,13 +28,13 @@ function gradient_pressure_2d!(dpdx::Matrix{T}, dpdy::Matrix{T}, p::Matrix{T},
     end
     
     # 2nd order accurate pressure gradient at v-velocity points (y-faces)
-    @inbounds for j = 1:ny+1, i = 1:nx
+    @inbounds for j = 1:nz+1, i = 1:nx
         if j == 1
             # Bottom boundary: 2nd order one-sided difference
             dpdy[i, j] = (-3*p[i, 1] + 4*p[i, 2] - p[i, 3]) / (2*dy)
-        elseif j == ny+1
+        elseif j == nz+1
             # Top boundary: 2nd order one-sided difference
-            dpdy[i, j] = (3*p[i, ny] - 4*p[i, ny-1] + p[i, ny-2]) / (2*dy)
+            dpdy[i, j] = (3*p[i, nz] - 4*p[i, nz-1] + p[i, nz-2]) / (2*dy)
         else
             # Interior: 2nd order central difference
             dpdy[i, j] = (p[i, j] - p[i, j-1]) / dy
@@ -45,14 +45,14 @@ end
 function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T}, 
                       u::Matrix{T}, v::Matrix{T}, 
                       grid::StaggeredGrid{T}) where T<:Real
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz
     dx, dy = grid.dx, grid.dy
     
     # 2nd order accurate advection using conservative finite volume method
     # Based on MAC staggered grid discretization
     
     # Advection term for u-momentum: ∇·(u⊗u) = ∂(u²)/∂x + ∂(uv)/∂y
-    @inbounds for j = 2:ny-1, i = 2:nx
+    @inbounds for j = 2:nz-1, i = 2:nx
         # ∂(u²)/∂x: 2nd order conservative form
         # Compute u² at cell faces using 2nd order interpolation
         if i > 2 && i < nx
@@ -86,7 +86,7 @@ function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T},
     end
     
     # Advection term for v-momentum: ∇·(v⊗u) = ∂(uv)/∂x + ∂(v²)/∂y
-    @inbounds for j = 2:ny, i = 2:nx-1
+    @inbounds for j = 2:nz, i = 2:nx-1
         # ∂(uv)/∂x: 2nd order conservative form
         # Interpolate u and v to x-faces
         v_east = 0.5 * (v[i, j] + v[i+1, j])
@@ -101,13 +101,13 @@ function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T},
         d_uv_dx = (flux_uv_east - flux_uv_west) / dx
         
         # ∂(v²)/∂y: 2nd order conservative form
-        if j > 2 && j < ny
+        if j > 2 && j < nz
             # Interior points: 2nd order upwind-biased interpolation
             v_north = v[i, j] + 0.5 * minmod((v[i, j+1] - v[i, j]), (v[i, j] - v[i, j-1]))
             v_south = v[i, j-1] + 0.5 * minmod((v[i, j] - v[i, j-1]), (v[i, j-1] - v[i, j-2]))
         else
             # Near boundaries: central difference
-            v_north = 0.5 * (v[i, j] + v[i, j+1]) if j < ny else v[i, j]
+            v_north = 0.5 * (v[i, j] + v[i, j+1]) if j < nz else v[i, j]
             v_south = 0.5 * (v[i, j-1] + v[i, j])
         end
         
@@ -133,7 +133,7 @@ end
 function compute_diffusion_2d!(diff_u::Matrix{T}, diff_v::Matrix{T},
                               u::Matrix{T}, v::Matrix{T}, 
                               fluid::FluidProperties, grid::StaggeredGrid{T}) where T<:Real
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz
     dx, dy = grid.dx, grid.dy
     μ = fluid.μ
     
@@ -147,7 +147,7 @@ function compute_diffusion_2d!(diff_u::Matrix{T}, diff_v::Matrix{T},
     # 2nd order accurate viscous terms for u-momentum
     # Full viscous stress tensor: ∇·τ = μ∇²u + μ∇(∇·u) for incompressible flow
     # Since ∇·u = 0, this reduces to μ∇²u
-    @inbounds for j = 2:ny-1, i = 2:nx
+    @inbounds for j = 2:nz-1, i = 2:nx
         # ∂²u/∂x²: 2nd order accurate
         d2udx2 = (u[i+1, j] - 2*u[i, j] + u[i-1, j]) / dx^2
         
@@ -158,7 +158,7 @@ function compute_diffusion_2d!(diff_u::Matrix{T}, diff_v::Matrix{T},
     end
     
     # 2nd order accurate viscous terms for v-momentum
-    @inbounds for j = 2:ny, i = 2:nx-1
+    @inbounds for j = 2:nz, i = 2:nx-1
         # ∂²v/∂x²: 2nd order accurate
         d2vdx2 = (v[i+1, j] - 2*v[i, j] + v[i-1, j]) / dx^2
         
@@ -178,7 +178,7 @@ function viscous_stress_2d!(visc_u::Matrix{T}, visc_v::Matrix{T},
     For incompressible flow: ∇·τ = μ[∇²u + ∇(∇·u)]
     Since ∇·u = 0, this reduces to μ∇²u, but this function computes the full tensor.
     """
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz
     dx, dy = grid.dx, grid.dy
     μ = fluid.μ
     
@@ -189,7 +189,7 @@ function viscous_stress_2d!(visc_u::Matrix{T}, visc_v::Matrix{T},
     end
     
     # u-momentum viscous terms
-    @inbounds for j = 2:ny-1, i = 2:nx
+    @inbounds for j = 2:nz-1, i = 2:nx
         # ∂/∂x(μ ∂u/∂x) = μ ∂²u/∂x²
         d2udx2 = (u[i+1, j] - 2*u[i, j] + u[i-1, j]) / dx^2
         
@@ -201,7 +201,7 @@ function viscous_stress_2d!(visc_u::Matrix{T}, visc_v::Matrix{T},
     end
     
     # v-momentum viscous terms
-    @inbounds for j = 2:ny, i = 2:nx-1
+    @inbounds for j = 2:nz, i = 2:nx-1
         # ∂/∂x(μ ∂v/∂x) = μ ∂²v/∂x²
         d2vdx2 = (v[i+1, j] - 2*v[i, j] + v[i-1, j]) / dx^2
         
@@ -214,26 +214,26 @@ end
 
 function pressure_poisson_2d!(rhs::Matrix{T}, div_u::Matrix{T}, 
                              dt::T, grid::StaggeredGrid{T}) where T<:Real
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz
     
-    @inbounds for j = 1:ny, i = 1:nx
+    @inbounds for j = 1:nz, i = 1:nx
         rhs[i, j] = div_u[i, j] / dt
     end
 end
 
 function interpolate_to_cell_center_2d(u::Matrix{T}, v::Matrix{T}, 
                                       grid::StaggeredGrid{T}) where T<:Real
-    nx, ny = grid.nx, grid.ny
-    u_cc = zeros(T, nx, ny)
-    v_cc = zeros(T, nx, ny)
+    nx, nz = grid.nx, grid.nz
+    u_cc = zeros(T, nx, nz)
+    v_cc = zeros(T, nx, nz)
     
     # Interpolate u from face centers to cell centers
-    @inbounds for j = 1:ny, i = 1:nx
+    @inbounds for j = 1:nz, i = 1:nx
         u_cc[i, j] = 0.5 * (u[i, j] + u[i+1, j])
     end
     
     # Interpolate v from face centers to cell centers  
-    @inbounds for j = 1:ny, i = 1:nx
+    @inbounds for j = 1:nz, i = 1:nx
         v_cc[i, j] = 0.5 * (v[i, j] + v[i, j+1])
     end
     

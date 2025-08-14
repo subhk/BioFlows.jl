@@ -56,11 +56,11 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     println("  Solving pressure Poisson: ∇²φ = ∇·u*/dt")
     
     # Create staggered velocities for divergence computation
-    u_star_staggered = zeros(grid.nx + 1, grid.ny)
-    v_star_staggered = zeros(grid.nx, grid.ny + 1)
+    u_star_staggered = zeros(grid.nx + 1, grid.nz)
+    v_star_staggered = zeros(grid.nx, grid.nz + 1)
     
     # Interpolate back to staggered grid (simplified)
-    for j = 1:grid.ny, i = 1:grid.nx+1
+    for j = 1:grid.nz, i = 1:grid.nx+1
         if i <= grid.nx
             u_star_staggered[i, j] = u_star[i, j]
         else
@@ -68,11 +68,11 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
         end
     end
     
-    for j = 1:grid.ny+1, i = 1:grid.nx
-        if j <= grid.ny
+    for j = 1:grid.nz+1, i = 1:grid.nx
+        if j <= grid.nz
             v_star_staggered[i, j] = v_star[i, j]
         else
-            v_star_staggered[i, j] = v_star[i, grid.ny]
+            v_star_staggered[i, j] = v_star[i, grid.nz]
         end
     end
     
@@ -83,7 +83,7 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     rhs_pressure = div_u_star / dt
     
     # Solve ∇²φ = rhs_pressure
-    φ = zeros(grid.nx, grid.ny)
+    φ = zeros(grid.nx, grid.nz)
     # Here you would call your pressure solver:
     # solve_pressure_poisson!(φ, rhs_pressure, grid, bc)
     
@@ -145,7 +145,7 @@ function solve_poisson_simple!(φ::Matrix{T}, rhs::Matrix{T}, grid::StaggeredGri
         lap_φ = laplacian(φ, grid)
         
         # Traditional point-wise update for interior
-        for j = 2:grid.ny-1, i = 2:grid.nx-1
+        for j = 2:grid.nz-1, i = 2:grid.nx-1
             φ_new[i, j] = factor * (
                 (φ[i+1, j] + φ[i-1, j]) / dx^2 + 
                 (φ[i, j+1] + φ[i, j-1]) / dy^2 - 
@@ -180,14 +180,14 @@ function demonstrate_clean_vs_traditional()
     
     # Create test setup
     grid = StaggeredGrid2D(32, 24, 2.0, 1.5)
-    state = SolutionState2D(grid.nx, grid.ny)
+    state = SolutionState2D(grid.nx, grid.nz)
     
     # Initialize with some test data
-    for j = 1:grid.ny, i = 1:grid.nx+1
+    for j = 1:grid.nz, i = 1:grid.nx+1
         state.u[i, j] = sin(2π * i / grid.nx)
     end
-    for j = 1:grid.ny+1, i = 1:grid.nx
-        state.v[i, j] = cos(2π * j / grid.ny)
+    for j = 1:grid.nz+1, i = 1:grid.nx
+        state.v[i, j] = cos(2π * j / grid.nz)
     end
     
     println("\n--- CLEAN APPROACH ---")
@@ -216,8 +216,8 @@ function demonstrate_clean_vs_traditional()
     println("end")
     
     # Traditional divergence computation
-    div_u_trad = zeros(grid.nx, grid.ny)
-    for j = 1:grid.ny, i = 1:grid.nx
+    div_u_trad = zeros(grid.nx, grid.nz)
+    for j = 1:grid.nz, i = 1:grid.nx
         div_u_trad[i, j] = (state.u[i+1, j] - state.u[i, j]) / grid.dx + 
                            (state.v[i, j+1] - state.v[i, j]) / grid.dy
     end

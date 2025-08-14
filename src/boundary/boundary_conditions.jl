@@ -5,9 +5,6 @@ struct BoundaryCondition <: AbstractBoundaryCondition
     location::Symbol   # :left, :right, :bottom, :top, :front, :back
 end
 
-function BoundaryCondition(type::BoundaryType, direction::Symbol, location::Symbol; value=nothing)
-    BoundaryCondition(type, value, direction, location)
-end
 
 struct BoundaryConditions
     conditions::Dict{Tuple{Symbol, Symbol}, BoundaryCondition}

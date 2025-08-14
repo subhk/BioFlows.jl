@@ -303,7 +303,7 @@ function interpolate_to_refined_grid(refined_grid::RefinedGrid, base_solution::S
     weights = refined_grid.interpolation_weights[cell_idx]
     
     # Create local solution state
-    local_state = SolutionState2D(local_grid.nx, local_grid.ny)
+    local_state = SolutionState2D(local_grid.nx, local_grid.nz)
     
     # Interpolate each variable
     # This is simplified - full implementation would handle staggered grid interpolation properly

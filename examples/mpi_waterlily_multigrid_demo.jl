@@ -25,15 +25,15 @@ function demo_mpi_waterlily_multigrid()
     end
     
     # Create distributed grid using PencilArrays
-    nx, ny = 128, 96
-    Lx, Ly = 2.0, 1.5
+    nx, nz = 128, 96
+    Lx, Lz = 2.0, 1.5
     
     # Create pencil decomposition (2D domain decomposition)
     decomp = Decomposition((nx, ny), comm)
     pencil = Pencil(decomp, (nx, ny))
     
     # Create BioFlows grid
-    grid = StaggeredGrid2D(nx, ny, Lx, Ly)
+    grid = StaggeredGrid2D(nx, nz, Lx, Lz)
     
     if rank == 0
         println("Grid: $(nx) × $(ny)")
@@ -118,7 +118,7 @@ function demo_mpi_waterlily_multigrid()
     end
     
     # Test 2: Compare with single-node solver (if small enough)
-    if nprocs == 1 || (rank == 0 && nx * ny <= 32 * 32)
+    if nprocs == 1 || (rank == 0 && nx * nz <= 32 * 32)
         if rank == 0
             println("2. Single-node WaterLily.jl Comparison")
             println("-" * 40)
@@ -203,11 +203,11 @@ function test_mpi_scalability(grid::StaggeredGrid, pencil::Pencil, bc::BoundaryC
         println("  ----------|-----------|---------------|----------")
     end
     
-    for (nx_test, ny_test) in problem_sizes
-        if nx_test <= 256 && ny_test <= 256  # Reasonable limit for demo
+    for (nx_test, nz_test) in problem_sizes
+        if nx_test <= 256 && nz_test <= 256  # Reasonable limit for demo
             
             # Create test grid and pencil
-            grid_test = StaggeredGrid2D(nx_test, ny_test, 2.0, 1.5)
+            grid_test = StaggeredGrid2D(nx_test, nz_test, 2.0, 1.5)
             decomp_test = Decomposition((nx_test, ny_test), comm)
             pencil_test = Pencil(decomp_test, (nx_test, ny_test))
             

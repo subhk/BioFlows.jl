@@ -43,12 +43,12 @@ mutable struct SolutionState{T<:Real}
     step::Int    # current step
 end
 
-function SolutionState2D(nx, ny, T=Float64)
+function SolutionState2D(nx, nz, T=Float64)
     SolutionState{T}(
-        zeros(T, nx+1, ny),    # u (staggered)
-        zeros(T, nx, ny+1),    # v (staggered)
+        zeros(T, nx+1, nz),    # u (staggered in x)
+        zeros(T, nx, nz+1),    # v (staggered in z, represents w-velocity for XZ plane)
         zeros(T, 0, 0),        # w (not used in 2D)
-        zeros(T, nx, ny),      # p (cell-centered)
+        zeros(T, nx, nz),      # p (cell-centered)
         zero(T),               # t
         0                      # step
     )
@@ -67,9 +67,9 @@ end
 
 # MPI-aware solution state with ghost cells
 mutable struct MPISolutionState2D{T<:Real}
-    u::Matrix{T}     # u-velocity with ghost cells (nx_g+1, ny_g)
-    v::Matrix{T}     # v-velocity with ghost cells (nx_g, ny_g+1)
-    p::Matrix{T}     # pressure with ghost cells (nx_g, ny_g)
+    u::Matrix{T}     # u-velocity with ghost cells (nx_g+1, nz_g) - XZ plane
+    v::Matrix{T}     # v-velocity with ghost cells (nx_g, nz_g+1) - represents w-velocity in XZ plane
+    p::Matrix{T}     # pressure with ghost cells (nx_g, nz_g)
     t::T             # current time
     step::Int        # current step
     decomp::Union{Nothing, Any}  # MPI decomposition info
@@ -77,12 +77,12 @@ end
 
 function MPISolutionState2D(decomp, T=Float64)
     nx_g = decomp.nx_local_with_ghosts
-    ny_g = decomp.ny_local_with_ghosts
+    nz_g = decomp.ny_local_with_ghosts  # ny_local actually represents nz for XZ plane
     
     MPISolutionState2D{T}(
-        zeros(T, nx_g + 1, ny_g),  # u (staggered in x)
-        zeros(T, nx_g, ny_g + 1),  # v (staggered in y)
-        zeros(T, nx_g, ny_g),      # p (cell-centered)
+        zeros(T, nx_g + 1, nz_g),  # u (staggered in x)
+        zeros(T, nx_g, nz_g + 1),  # v (staggered in z, represents w-velocity for XZ plane)
+        zeros(T, nx_g, nz_g),      # p (cell-centered)
         zero(T),                   # t
         0,                         # step
         decomp                     # MPI decomposition
