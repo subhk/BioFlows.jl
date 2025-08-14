@@ -1,4 +1,4 @@
-module BioFlow
+module BioFlows
 
 using LinearAlgebra
 using Statistics

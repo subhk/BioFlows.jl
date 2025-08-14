@@ -5,7 +5,7 @@ This example demonstrates the performance and accuracy of the WaterLily.jl-style
 multigrid solver compared to the GeometricMultigrid.jl approach.
 """
 
-using BioFlow
+using BioFlows
 
 function demo_waterlily_multigrid()
     println("WaterLily.jl-style Multigrid Solver Demo")

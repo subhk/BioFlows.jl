@@ -12,11 +12,11 @@ Run this example to see how the control system maintains constant distances
 between oscillating flags by dynamically adjusting their amplitudes.
 """
 
-using BioFlow
+using BioFlows
 using Printf
 
 function main()
-    println("🎌 BioFlow.jl Coordinated Flag Oscillations Demo")
+    println("🎌 BioFlows.jl Coordinated Flag Oscillations Demo")
     println("=" ^ 55)
     
     # =================================================================

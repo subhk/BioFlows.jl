@@ -11,11 +11,11 @@ This example demonstrates comprehensive position saving for flexible bodies with
 Run this example to see different position saving strategies.
 """
 
-using BioFlow
+using BioFlows
 using Printf
 
 function main()
-    println("📍 BioFlow.jl Flexible Body Position Tracking Demo")
+    println("📍 BioFlows.jl Flexible Body Position Tracking Demo")
     println("=" ^ 55)
     
     # =================================================================

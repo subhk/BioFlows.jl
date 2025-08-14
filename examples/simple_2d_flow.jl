@@ -1,11 +1,11 @@
 """
 Example: Simple 2D channel flow simulation
 
-This example demonstrates the basic usage of BioFlow.jl for simulating
+This example demonstrates the basic usage of BioFlows.jl for simulating
 2D incompressible flow in a channel.
 """
 
-using BioFlow
+using BioFlows
 
 # Simple 2D channel flow - no bodies
 function simple_channel_flow()
@@ -104,7 +104,7 @@ end
 
 # Run examples
 if abspath(PROGRAM_FILE) == @__FILE__
-    println("BioFlow.jl 2D Flow Examples")
+    println("BioFlows.jl 2D Flow Examples")
     println("="^50)
     
     # Example 1: Simple channel flow

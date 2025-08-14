@@ -9,7 +9,7 @@ This example demonstrates the improved AMR system with:
 5. MPI-aware refinement (optional)
 """
 
-using BioFlow
+using BioFlows
 using Printf
 
 function demo_advanced_amr()

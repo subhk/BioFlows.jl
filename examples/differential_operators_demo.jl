@@ -1,14 +1,14 @@
 """
-Demonstration of Clean Differential Operators in BioFlow.jl
+Demonstration of Clean Differential Operators in BioFlows.jl
 
 This example shows how to use the intuitive differential operators
 for debugging, development, and clean code writing.
 """
 
-using BioFlow
+using BioFlows
 
 function demo_differential_operators()
-    println("BioFlow.jl Differential Operators Demo")
+    println("BioFlows.jl Differential Operators Demo")
     println("="^50)
     
     # Create a simple 2D grid

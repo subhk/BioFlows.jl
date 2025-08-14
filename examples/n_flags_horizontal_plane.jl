@@ -13,7 +13,7 @@ Examples:
 6. Performance analysis for large N
 """
 
-using BioFlow
+using BioFlows
 using Printf
 
 # =================================================================

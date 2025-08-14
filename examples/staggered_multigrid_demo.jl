@@ -8,7 +8,7 @@ This example demonstrates the proper handling of staggered grids in the multigri
 - Correct gradient computation from cell centers to faces
 """
 
-using BioFlow
+using BioFlows
 
 function demo_staggered_multigrid()
     println("Staggered Grid Multigrid Solver Demo")

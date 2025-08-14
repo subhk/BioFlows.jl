@@ -1,5 +1,5 @@
 """
-High-level user API for BioFlow.jl simulations.
+High-level user API for BioFlows.jl simulations.
 
 This module provides convenient functions for setting up and running
 biological flow simulations with various configurations.
@@ -470,7 +470,7 @@ Run the complete simulation.
 - `initial_state::SolutionState`: Initial solution state
 """
 function run_simulation(config::SimulationConfig, solver, initial_state::SolutionState)
-    println("Starting BioFlow simulation...")
+    println("Starting BioFlows simulation...")
     println("  Grid: $(config.nx) × $(config.ny)" * (config.grid_type == ThreeDimensional ? " × $(config.nz)" : ""))
     println("  Domain: $(config.Lx) × $(config.Ly)" * (config.grid_type == ThreeDimensional ? " × $(config.Lz)" : ""))
     println("  Time: 0.0 → $(config.final_time), dt = $(config.dt)")

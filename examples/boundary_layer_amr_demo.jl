@@ -8,7 +8,7 @@ This example demonstrates specialized AMR for resolving boundary layers around s
 4. Comparison with uniform grid approaches
 """
 
-using BioFlow
+using BioFlows
 using Printf
 
 function demo_boundary_layer_amr()

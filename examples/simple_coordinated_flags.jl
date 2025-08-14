@@ -12,7 +12,7 @@ Examples:
 5. Phase coordination strategies
 """
 
-using BioFlow
+using BioFlows
 using Printf
 
 # =================================================================

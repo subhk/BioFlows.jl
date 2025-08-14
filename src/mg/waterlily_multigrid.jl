@@ -2,7 +2,7 @@
 WaterLily.jl-style Multigrid Solver for Pressure Poisson Equation
 
 This module provides a high-performance geometric multigrid solver based on the 
-WaterLily.jl MultiLevelPoisson implementation, adapted for BioFlow.jl.
+WaterLily.jl MultiLevelPoisson implementation, adapted for BioFlows.jl.
 
 Key features:
 - Recursive V-cycle algorithm

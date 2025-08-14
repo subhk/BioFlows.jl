@@ -7,7 +7,7 @@ works with PencilArrays.jl for MPI parallelization.
 Run with: mpirun -np 4 julia mpi_waterlily_multigrid_demo.jl
 """
 
-using BioFlow
+using BioFlows
 using PencilArrays
 using MPI
 
@@ -32,7 +32,7 @@ function demo_mpi_waterlily_multigrid()
     decomp = Decomposition((nx, ny), comm)
     pencil = Pencil(decomp, (nx, ny))
     
-    # Create BioFlow grid
+    # Create BioFlows grid
     grid = StaggeredGrid2D(nx, ny, Lx, Ly)
     
     if rank == 0

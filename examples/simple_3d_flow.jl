@@ -1,11 +1,11 @@
 """
 Example: Simple 3D flow simulations
 
-This example demonstrates the usage of BioFlow.jl for simulating
+This example demonstrates the usage of BioFlows.jl for simulating
 3D incompressible flows with various configurations.
 """
 
-using BioFlow
+using BioFlows
 
 # Simple 3D channel flow
 function simple_3d_channel_flow()
@@ -137,7 +137,7 @@ end
 
 # Run examples
 if abspath(PROGRAM_FILE) == @__FILE__
-    println("BioFlow.jl 3D Flow Examples")
+    println("BioFlows.jl 3D Flow Examples")
     println("="^50)
     
     # Example 1: Simple 3D channel flow

@@ -151,8 +151,8 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
     
     # Add global attributes
     NetCDF.putatt(ncfile, "global", Dict(
-        "title" => "BioFlow.jl simulation results",
-        "institution" => "BioFlow.jl",
+        "title" => "BioFlows.jl simulation results",
+        "institution" => "BioFlows.jl",
         "source" => "Finite volume Navier-Stokes solver with immersed boundary method",
         "grid_type" => string(writer.grid.grid_type),
         "nx" => nx,

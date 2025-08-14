@@ -1,5 +1,5 @@
 """
-Example: Advanced BioFlow.jl features
+Example: Advanced BioFlows.jl features
 
 This example demonstrates advanced features including:
 - Custom grid generation
@@ -8,7 +8,7 @@ This example demonstrates advanced features including:
 - Complex boundary conditions
 """
 
-using BioFlow
+using BioFlows
 
 # Example with custom stretched grid
 function custom_grid_example()
@@ -229,7 +229,7 @@ end
 
 # Run advanced examples
 if abspath(PROGRAM_FILE) == @__FILE__
-    println("BioFlow.jl Advanced Features Examples")
+    println("BioFlows.jl Advanced Features Examples")
     println("="^50)
     
     # Example 1: Custom grid

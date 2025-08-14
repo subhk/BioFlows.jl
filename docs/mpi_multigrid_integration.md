@@ -83,7 +83,7 @@ end
 
 ### **Basic MPI Setup**
 ```julia
-using BioFlow, PencilArrays, MPI
+using BioFlows, PencilArrays, MPI
 
 # Initialize MPI and create domain decomposition
 MPI.Init()

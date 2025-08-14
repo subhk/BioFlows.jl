@@ -10,11 +10,11 @@ This example demonstrates:
 Run this example to see how force coefficients are calculated and saved.
 """
 
-using BioFlow
+using BioFlows
 using Printf
 
 function main()
-    println("🚩 BioFlow.jl Flag Force Coefficients Demo")
+    println("🚩 BioFlows.jl Flag Force Coefficients Demo")
     println("=" ^ 50)
     
     # =================================================================

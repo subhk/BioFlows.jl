@@ -1,10 +1,10 @@
-# BioFlow.jl
+# BioFlows.jl
 
 A comprehensive Julia package for simulating biological flows using computational fluid dynamics with immersed boundary methods.
 
 ## Features
 
-BioFlow.jl provides a complete framework for biological flow simulation with the following capabilities:
+BioFlows.jl provides a complete framework for biological flow simulation with the following capabilities:
 
 ### Flow Simulation
 - **2D and 3D Navier-Stokes equations** with dimensionalized formulation
@@ -36,16 +36,28 @@ Based on the mathematical formulation in `flexible_bodies.pdf`, supporting:
 - Time interval and iteration-based saving options
 - Support for velocity, pressure, vorticity, and body motion data
 
+## Repository Structure
+
+- `src/core`: Core types, grids, and differential operators
+- `src/boundary`: Boundary conditions and boundary-layer AMR utilities
+- `src/amr`: Adaptive mesh refinement implementations (base, v2, MPI)
+- `src/mg`: Multigrid solvers (staggered, WaterLily-style, MPI)
+- `src/immersed`: Immersed boundary method utilities
+- `src/api`: High-level simulation API
+- `src/2D`, `src/3D`: Dimension-specific grids, discretizations, and solvers
+- `src/bodies`: Rigid and flexible bodies and controllers
+- `src/output`: NetCDF writer and I/O helpers
+
 ## Installation
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/yourusername/BioFlow.jl")
+Pkg.add(url="https://github.com/yourusername/BioFlows.jl")
 ```
 
 ## Dependencies
 
-BioFlow.jl utilizes several specialized Julia packages:
+BioFlows.jl utilizes several specialized Julia packages:
 - `GeometricMultigrid.jl` - Multigrid pressure solver
 - `ParametricBodies.jl` - Body geometry generation
 - `PencilArrays.jl` - MPI parallelization
@@ -58,7 +70,7 @@ BioFlow.jl utilizes several specialized Julia packages:
 ### Simple 2D Channel Flow
 
 ```julia
-using BioFlow
+using BioFlows
 
 # Run a simple 2D channel flow simulation
 final_state = run_bioflow_2d(
@@ -75,7 +87,7 @@ final_state = run_bioflow_2d(
 ### Flow Around a Cylinder
 
 ```julia
-using BioFlow
+using BioFlows
 
 # Create simulation configuration
 config = create_2d_simulation_config(
@@ -99,7 +111,7 @@ final_state = run_simulation(config, solver, initial_state)
 ### Flexible Body Swimming
 
 ```julia
-using BioFlow
+using BioFlows
 
 # Configure simulation
 config = create_2d_simulation_config(
@@ -131,7 +143,7 @@ final_state = run_simulation(config, solver, initial_state)
 ### 3D Flow Simulation
 
 ```julia
-using BioFlow
+using BioFlows
 
 # 3D flow around a sphere
 final_state = run_bioflow_3d(
@@ -147,7 +159,7 @@ final_state = run_bioflow_3d(
 
 ## Grid Types
 
-BioFlow.jl supports multiple grid configurations:
+BioFlows.jl supports multiple grid configurations:
 
 ```julia
 # Standard 2D grid (xy-plane)
@@ -254,7 +266,7 @@ Results are saved in NetCDF format containing:
 
 ## Performance
 
-BioFlow.jl is designed for high-performance computing:
+BioFlows.jl is designed for high-performance computing:
 - Efficient staggered grid finite volume discretization
 - Geometric multigrid solver for optimal scaling
 - MPI parallelization for distributed computing
@@ -270,14 +282,14 @@ This project is licensed under the MIT License.
 
 ## Citation
 
-If you use BioFlow.jl in your research, please cite:
+If you use BioFlows.jl in your research, please cite:
 
 ```bibtex
-@software{bioflow_jl,
-  title={BioFlow.jl: A Julia Package for Biological Flow Simulation},
+@software{bioflows_jl,
+  title={BioFlows.jl: A Julia Package for Biological Flow Simulation},
   author={Your Name},
   year={2025},
-  url={https://github.com/yourusername/BioFlow.jl}
+  url={https://github.com/yourusername/BioFlows.jl}
 }
 ```
 
