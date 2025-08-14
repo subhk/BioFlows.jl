@@ -15,27 +15,27 @@ using PencilArrays
 using MPI
 
 """
-    MPIMultiLevelPoisson{T,P}
+    MPIMultiLevelPoisson{T,N,P}
 
 Distributed multigrid solver using PencilArrays.jl for MPI parallelization.
+Supports both 2D (N=2) and 3D (N=3) problems.
 """
-mutable struct MPIMultiLevelPoisson{T,P<:Pencil}
+mutable struct MPIMultiLevelPoisson{T,N,P<:Pencil}
     levels::Int
+    ndims::Int                # Number of spatial dimensions (2 or 3)
     # PencilArrays for each grid level
-    x::Vector{PencilArray{T,2,P}}      # Solution arrays
-    r::Vector{PencilArray{T,2,P}}      # Residual arrays  
-    b::Vector{PencilArray{T,2,P}}      # RHS arrays
+    x::Vector{PencilArray{T,N,P}}      # Solution arrays
+    r::Vector{PencilArray{T,N,P}}      # Residual arrays  
+    b::Vector{PencilArray{T,N,P}}      # RHS arrays
     # Local arrays for coarse levels (when needed)
-    x_local::Vector{Matrix{T}}
-    r_local::Vector{Matrix{T}}
-    b_local::Vector{Matrix{T}}
+    x_local::Vector{Array{T,N}}
+    r_local::Vector{Array{T,N}}
+    b_local::Vector{Array{T,N}}
     # Pencil configurations for each level
     pencils::Vector{P}
     # Grid information
-    nx::Vector{Int}           # Global grid sizes
-    ny::Vector{Int}
-    dx::Vector{T}             # Grid spacings
-    dy::Vector{T}
+    grid_sizes::Vector{NTuple{N,Int}}  # Grid sizes for each level
+    grid_spacing::Vector{NTuple{N,T}}  # Grid spacing for each level
     # MPI information
     comm::MPI.Comm
     rank::Int
@@ -45,9 +45,10 @@ mutable struct MPIMultiLevelPoisson{T,P<:Pencil}
     tol::T                    # Convergence tolerance
     coarse_threshold::Int     # Grid size below which to use single process
     
-    function MPIMultiLevelPoisson{T,P}(pencil::P, nx::Int, ny::Int, dx::T, dy::T, 
-                                      levels::Int=4; n_smooth::Int=3, tol::T=1e-6,
-                                      coarse_threshold::Int=16) where {T,P<:Pencil}
+    # 2D Constructor
+    function MPIMultiLevelPoisson{T,2,P}(pencil::P, nx::Int, ny::Int, dx::T, dy::T, 
+                                        levels::Int=4; n_smooth::Int=3, tol::T=1e-6,
+                                        coarse_threshold::Int=16) where {T,P<:Pencil}
         
         comm = pencil.decomp.comm
         rank = MPI.Comm_rank(comm)
@@ -57,15 +58,13 @@ mutable struct MPIMultiLevelPoisson{T,P<:Pencil}
         x_levels = Vector{PencilArray{T,2,P}}(undef, levels)
         r_levels = Vector{PencilArray{T,2,P}}(undef, levels)
         b_levels = Vector{PencilArray{T,2,P}}(undef, levels)
-        x_local = Vector{Matrix{T}}(undef, levels)
-        r_local = Vector{Matrix{T}}(undef, levels)
-        b_local = Vector{Matrix{T}}(undef, levels)
+        x_local = Vector{Array{T,2}}(undef, levels)
+        r_local = Vector{Array{T,2}}(undef, levels)
+        b_local = Vector{Array{T,2}}(undef, levels)
         pencils = Vector{P}(undef, levels)
         
-        nx_levels = Vector{Int}(undef, levels)
-        ny_levels = Vector{Int}(undef, levels)
-        dx_levels = Vector{T}(undef, levels)
-        dy_levels = Vector{T}(undef, levels)
+        grid_sizes = Vector{NTuple{2,Int}}(undef, levels)
+        grid_spacing = Vector{NTuple{2,T}}(undef, levels)
         
         # Create grid hierarchy with pencil configurations
         curr_nx, curr_ny = nx, ny
@@ -73,10 +72,8 @@ mutable struct MPIMultiLevelPoisson{T,P<:Pencil}
         curr_pencil = pencil
         
         for level = 1:levels
-            nx_levels[level] = curr_nx
-            ny_levels[level] = curr_ny
-            dx_levels[level] = curr_dx
-            dy_levels[level] = curr_dy
+            grid_sizes[level] = (curr_nx, curr_ny)
+            grid_spacing[level] = (curr_dx, curr_dy)
             pencils[level] = curr_pencil
             
             # Create PencilArrays for distributed levels
@@ -91,9 +88,9 @@ mutable struct MPIMultiLevelPoisson{T,P<:Pencil}
                 fill!(b_levels[level], 0)
                 
                 # No local arrays needed
-                x_local[level] = Matrix{T}(undef, 0, 0)
-                r_local[level] = Matrix{T}(undef, 0, 0)
-                b_local[level] = Matrix{T}(undef, 0, 0)
+                x_local[level] = Array{T,2}(undef, 0, 0)
+                r_local[level] = Array{T,2}(undef, 0, 0)
+                b_local[level] = Array{T,2}(undef, 0, 0)
             else
                 # Use local arrays for small coarse grids
                 x_local[level] = zeros(T, curr_nx, curr_ny)
@@ -126,9 +123,95 @@ mutable struct MPIMultiLevelPoisson{T,P<:Pencil}
             end
         end
         
-        new(levels, x_levels, r_levels, b_levels, x_local, r_local, b_local,
-            pencils, nx_levels, ny_levels, dx_levels, dy_levels, 
-            comm, rank, nprocs, n_smooth, tol, coarse_threshold)
+        new{T,2,P}(levels, 2, x_levels, r_levels, b_levels, x_local, r_local, b_local,
+                   pencils, grid_sizes, grid_spacing, 
+                   comm, rank, nprocs, n_smooth, tol, coarse_threshold)
+    end
+    
+    # 3D Constructor  
+    function MPIMultiLevelPoisson{T,3,P}(pencil::P, nx::Int, ny::Int, nz::Int, 
+                                        dx::T, dy::T, dz::T, levels::Int=4; 
+                                        n_smooth::Int=3, tol::T=1e-6,
+                                        coarse_threshold::Int=16) where {T,P<:Pencil}
+        
+        comm = pencil.decomp.comm
+        rank = MPI.Comm_rank(comm)
+        nprocs = MPI.Comm_size(comm)
+        
+        # Initialize arrays for all levels
+        x_levels = Vector{PencilArray{T,3,P}}(undef, levels)
+        r_levels = Vector{PencilArray{T,3,P}}(undef, levels)
+        b_levels = Vector{PencilArray{T,3,P}}(undef, levels)
+        x_local = Vector{Array{T,3}}(undef, levels)
+        r_local = Vector{Array{T,3}}(undef, levels)
+        b_local = Vector{Array{T,3}}(undef, levels)
+        pencils = Vector{P}(undef, levels)
+        
+        grid_sizes = Vector{NTuple{3,Int}}(undef, levels)
+        grid_spacing = Vector{NTuple{3,T}}(undef, levels)
+        
+        # Create grid hierarchy with pencil configurations
+        curr_nx, curr_ny, curr_nz = nx, ny, nz
+        curr_dx, curr_dy, curr_dz = dx, dy, dz
+        curr_pencil = pencil
+        
+        for level = 1:levels
+            grid_sizes[level] = (curr_nx, curr_ny, curr_nz)
+            grid_spacing[level] = (curr_dx, curr_dy, curr_dz)
+            pencils[level] = curr_pencil
+            
+            # Create PencilArrays for distributed levels
+            if curr_nx >= coarse_threshold && curr_ny >= coarse_threshold && curr_nz >= coarse_threshold
+                x_levels[level] = PencilArray{T}(undef, curr_pencil, (curr_nx, curr_ny, curr_nz))
+                r_levels[level] = PencilArray{T}(undef, curr_pencil, (curr_nx, curr_ny, curr_nz))
+                b_levels[level] = PencilArray{T}(undef, curr_pencil, (curr_nx, curr_ny, curr_nz))
+                
+                # Initialize to zero
+                fill!(x_levels[level], 0)
+                fill!(r_levels[level], 0)
+                fill!(b_levels[level], 0)
+                
+                # No local arrays needed
+                x_local[level] = Array{T,3}(undef, 0, 0, 0)
+                r_local[level] = Array{T,3}(undef, 0, 0, 0)
+                b_local[level] = Array{T,3}(undef, 0, 0, 0)
+            else
+                # Use local arrays for small coarse grids
+                x_local[level] = zeros(T, curr_nx, curr_ny, curr_nz)
+                r_local[level] = zeros(T, curr_nx, curr_ny, curr_nz)
+                b_local[level] = zeros(T, curr_nx, curr_ny, curr_nz)
+                
+                # Dummy PencilArrays
+                x_levels[level] = PencilArray{T}(undef, curr_pencil, (1, 1, 1))
+                r_levels[level] = PencilArray{T}(undef, curr_pencil, (1, 1, 1))
+                b_levels[level] = PencilArray{T}(undef, curr_pencil, (1, 1, 1))
+            end
+            
+            # Coarsen grid for next level
+            if level < levels
+                curr_nx = max(3, curr_nx ÷ 2)
+                curr_ny = max(3, curr_ny ÷ 2)
+                curr_nz = max(3, curr_nz ÷ 2)
+                curr_dx *= 2
+                curr_dy *= 2
+                curr_dz *= 2
+                
+                # Create coarser pencil configuration if needed
+                if curr_nx >= coarse_threshold && curr_ny >= coarse_threshold && curr_nz >= coarse_threshold
+                    # Try to create coarser decomposition
+                    try
+                        curr_pencil = create_coarser_pencil_3d(curr_pencil, curr_nx, curr_ny, curr_nz)
+                    catch
+                        # If decomposition fails, use same pencil
+                        # This might happen for very coarse grids
+                    end
+                end
+            end
+        end
+        
+        new{T,3,P}(levels, 3, x_levels, r_levels, b_levels, x_local, r_local, b_local,
+                   pencils, grid_sizes, grid_spacing, 
+                   comm, rank, nprocs, n_smooth, tol, coarse_threshold)
     end
 end
 
@@ -144,12 +227,24 @@ function create_coarser_pencil(pencil::P, nx::Int, ny::Int) where P<:Pencil
 end
 
 """
+    create_coarser_pencil_3d(pencil, nx, ny, nz)
+
+Create a coarser pencil configuration for 3D multigrid.
+"""
+function create_coarser_pencil_3d(pencil::P, nx::Int, ny::Int, nz::Int) where P<:Pencil
+    # For simplicity, keep the same decomposition
+    # In practice, you might want to reduce the number of processes for coarse grids
+    return pencil
+end
+
+"""
     solve_poisson_mpi!(φ, rhs, mg)
 
 Solve ∇²φ = rhs using distributed WaterLily.jl-style multigrid V-cycle.
+Supports both 2D and 3D problems.
 """
-function solve_poisson_mpi!(φ::PencilArray{T,2}, rhs::PencilArray{T,2}, 
-                           mg::MPIMultiLevelPoisson{T}; max_iter::Int=50) where T
+function solve_poisson_mpi!(φ::PencilArray{T,N}, rhs::PencilArray{T,N}, 
+                           mg::MPIMultiLevelPoisson{T,N}; max_iter::Int=50) where {T,N}
     
     # Initialize finest level
     copyto!(mg.x[1], φ)
@@ -183,8 +278,11 @@ end
 
 Distributed V-cycle multigrid algorithm with MPI communication.
 """
-function v_cycle_mpi!(mg::MPIMultiLevelPoisson, level::Int)
-    if level == mg.levels || mg.nx[level] < mg.coarse_threshold
+function v_cycle_mpi!(mg::MPIMultiLevelPoisson{T,N}, level::Int) where {T,N}
+    grid_size = mg.grid_sizes[level]
+    min_grid_dim = minimum(grid_size)
+    
+    if level == mg.levels || min_grid_dim < mg.coarse_threshold
         # Coarsest level or small grid: solve with all-reduce
         exact_solve_mpi!(mg, level)
     else
@@ -198,7 +296,10 @@ function v_cycle_mpi!(mg::MPIMultiLevelPoisson, level::Int)
         restrict_mpi!(mg, level)
         
         # Initialize coarser level solution to zero
-        if mg.nx[level+1] >= mg.coarse_threshold
+        next_grid_size = mg.grid_sizes[level+1]
+        next_min_dim = minimum(next_grid_size)
+        
+        if next_min_dim >= mg.coarse_threshold
             fill!(mg.x[level+1], 0)
         else
             fill!(mg.x_local[level+1], 0)
