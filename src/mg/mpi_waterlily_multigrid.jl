@@ -500,7 +500,8 @@ function compute_residual_mpi_2d!(mg::MPIMultiLevelPoisson{T,2}, level::Int) whe
         end
         
         # Set boundary residuals to zero
-        set_boundary_residuals_zero_mpi!(r, pencil, mg.nx[level], mg.ny[level])
+        nx, ny = mg.grid_sizes[level]
+        set_boundary_residuals_zero_mpi!(r, pencil, nx, ny)
     else
         compute_residual_local_mpi!(mg, level)
     end
@@ -894,4 +895,20 @@ function compute_residual_norm_mpi_2d(mg::MPIMultiLevelPoisson{T,2}, level::Int)
     else
         return sqrt(sum(mg.r_local[level] .^ 2)) / length(mg.r_local[level])
     end
+end
+
+# Placeholder 2D function implementations that need to be properly updated
+function restrict_mpi_2d!(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    @warn "Using simplified 2D restriction - needs update to new structure"
+    # Placeholder - needs proper implementation with new grid_sizes structure
+end
+
+function prolongate_and_correct_mpi_2d!(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T  
+    @warn "Using simplified 2D prolongation - needs update to new structure"
+    # Placeholder - needs proper implementation with new grid_sizes structure
+end
+
+function exact_solve_mpi_2d!(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    @warn "Using simplified 2D exact solve - needs update to new structure"
+    # Placeholder - needs proper implementation with new grid_sizes structure
 end

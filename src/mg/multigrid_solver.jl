@@ -291,11 +291,13 @@ function solve_poisson!(solver::MultigridPoissonSolver, phi::Array, rhs::Array,
             error("Staggered 3D solver not yet implemented")
         end
     elseif solver.solver_type == :mpi_waterlily
-        # Use MPI WaterLily.jl-style solver
+        # Use MPI WaterLily.jl-style solver  
         if grid.grid_type == TwoDimensional
             solve_poisson_2d_mpi_waterlily!(solver, phi, rhs, grid, bc)
+        elseif grid.grid_type == ThreeDimensional
+            solve_poisson_3d_mpi_waterlily!(solver, phi, rhs, grid, bc)
         else
-            error("MPI WaterLily.jl-style 3D solver not yet implemented")
+            error("MPI WaterLily.jl-style solver not implemented for grid type: $(grid.grid_type)")
         end
     elseif solver.solver_type == :waterlily
         # Use single-node WaterLily.jl-style solver
@@ -350,6 +352,26 @@ function solve_poisson_2d_mpi_waterlily!(solver::MultigridPoissonSolver, phi::Pe
     
     if mg.rank == 0
         println("MPI WaterLily.jl multigrid converged in $iterations iterations, residual = $residual")
+    end
+end
+
+function solve_poisson_3d_mpi_waterlily!(solver::MultigridPoissonSolver, phi::PencilArray, rhs::PencilArray,
+                                        grid::StaggeredGrid, bc::BoundaryConditions)
+    
+    # Apply boundary conditions and ensure compatibility
+    rhs_bc = similar(rhs)
+    copyto!(rhs_bc, rhs)
+    apply_poisson_rhs_bc_3d_mpi!(rhs_bc, bc, grid)
+    
+    # Solve using 3D MPI WaterLily.jl-style multigrid
+    mg = solver.mg_solver::MPIMultiLevelPoisson{Float64,3}
+    residual, iterations = solve_poisson_mpi!(phi, rhs_bc, mg; max_iter=solver.max_iterations)
+    
+    # Apply boundary conditions to solution
+    apply_poisson_bc_3d_mpi!(phi, bc, grid)
+    
+    if mg.rank == 0
+        println("3D MPI WaterLily.jl multigrid converged in $iterations iterations, residual = $residual")
     end
 end
 
@@ -604,4 +626,16 @@ end
 function apply_poisson_bc_2d_mpi!(phi::PencilArray{T,2}, bc::BoundaryConditions, grid::StaggeredGrid) where T
     # Apply boundary conditions only on domain boundaries using the helper function
     apply_boundary_conditions_mpi!(phi, phi.decomp, grid.nx, grid.ny)
+end
+
+# 3D MPI boundary condition functions
+function apply_poisson_rhs_bc_3d_mpi!(rhs::PencilArray{T,3}, bc::BoundaryConditions, grid::StaggeredGrid) where T
+    @warn "Using placeholder 3D MPI RHS boundary conditions"
+    # Placeholder - should implement proper 3D boundary condition application
+end
+
+function apply_poisson_bc_3d_mpi!(phi::PencilArray{T,3}, bc::BoundaryConditions, grid::StaggeredGrid) where T
+    @warn "Using placeholder 3D MPI boundary conditions"
+    # Apply boundary conditions only on domain boundaries using the helper function
+    apply_boundary_conditions_mpi_3d!(phi, phi.decomp, grid.nx, grid.ny, grid.nz)
 end
