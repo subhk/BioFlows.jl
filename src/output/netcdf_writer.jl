@@ -899,10 +899,13 @@ function validate_body_data(bodies::Union{RigidBodyCollection, FlexibleBodyColle
     return true
 end
 
-function write_solution!(writer::NetCDFWriter, state::SolutionState, 
+function write_solution!(writer::NetCDFWriter, 
+                        state::SolutionState, 
                         bodies::Union{Nothing, RigidBodyCollection, FlexibleBodyCollection},
-                        grid::StaggeredGrid, fluid::FluidProperties,
-                        current_time::Float64, current_iteration::Int; 
+                        grid::StaggeredGrid, 
+                        fluid::FluidProperties,
+                        current_time::Float64, 
+                        current_iteration::Int; 
                         validate_data::Bool = true, kwargs...)
     """
     Main function to write complete solution data to NetCDF.

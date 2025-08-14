@@ -447,7 +447,7 @@ end
 
 Interpolate all velocity components to cell centers for post-processing.
 """
-function interpolate_to_cell_centers(u::Matrix{T}, v::Matrix{T}, grid::StaggeredGrid) where T
+function interpolate_to_cell_centers(u::Matrix{T,2}, v::Matrix{T,2}, grid::StaggeredGrid) where T
     u_cc = interpolate_u_to_cell_center(u, grid)
     v_cc = interpolate_v_to_cell_center(v, grid)
     return u_cc, v_cc
