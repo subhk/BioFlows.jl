@@ -48,9 +48,9 @@ Create configuration for 2D biological flow simulation.
 
 # Arguments
 - `nx::Int`: Number of grid points in x-direction
-- `ny::Int`: Number of grid points in y-direction  
+- `nz::Int`: Number of grid points in z-direction (vertical for XZ plane)
 - `Lx::Float64`: Domain length in x-direction
-- `Ly::Float64`: Domain length in y-direction
+- `Lz::Float64`: Domain length in z-direction
 - `grid_type::GridType = TwoDimensional`: 2D flow in XZ plane (z is vertical)
 - `origin::Vector{Float64} = [0.0, 0.0]`: Domain origin coordinates
 - `Reynolds::Float64 = 100.0`: Reynolds number
