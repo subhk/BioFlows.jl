@@ -44,7 +44,7 @@ include("api/simulation_api.jl")
 # High-level user API exports
 export SimulationConfig, create_2d_simulation_config, create_3d_simulation_config
 export add_rigid_circle!, add_rigid_square!, add_flexible_body!
-export create_solver, initialize_simulation, run_simulation
+export create_solver, create_2d_solver, create_3d_solver, initialize_simulation, run_simulation
 export run_bioflow_2d, run_bioflow_3d
 
 # Grid and solver exports

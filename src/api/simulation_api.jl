@@ -97,7 +97,7 @@ function create_2d_simulation_config(;
         error("Variable density not yet implemented")
     end
     
-    fluid = FluidProperties(ρ, viscosity)
+    fluid = FluidProperties(viscosity, ρ, Reynolds)
     
     # Create boundary conditions
     inlet_bc = InletBC(inlet_velocity, 0.0)  # u_inlet, v_inlet
@@ -217,7 +217,7 @@ function create_3d_simulation_config(;
         error("Variable density not yet implemented")
     end
     
-    fluid = FluidProperties(ρ, viscosity)
+    fluid = FluidProperties(viscosity, ρ, Reynolds)
     
     # Create boundary conditions
     inlet_bc = InletBC(inlet_velocity, 0.0, 0.0)  # u_inlet, v_inlet, w_inlet
@@ -420,13 +420,13 @@ function create_solver(config::SimulationConfig)
         )
     else
         return create_2d_solver(
-            config.nx, config.ny, config.Lx, config.Ly,
+            config.nx, config.nz, config.Lx, config.Lz,
             config.fluid, config.bc;
             grid_type=config.grid_type,
             time_scheme=config.time_scheme,
             use_mpi=config.use_mpi,
             origin_x=config.origin[1],
-            origin_y=config.origin[2]
+            origin_z=config.origin[2]
         )
     end
 end
@@ -449,7 +449,7 @@ function initialize_simulation(config::SimulationConfig; initial_conditions::Sym
         end
         
     else
-        state = SolutionState2D(config.nx, config.ny)
+        state = SolutionState2D(config.nx, config.nz)
         
         if initial_conditions == :uniform_flow
             state.u .= 1.0  # Uniform flow in x-direction

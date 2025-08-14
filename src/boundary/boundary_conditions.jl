@@ -160,24 +160,65 @@ function InletBC(direction::Symbol, location::Symbol, value::Union{Float64, Func
     BoundaryCondition(Inlet, value, direction, location)
 end
 
+# Simplified constructors for API compatibility
+function InletBC(u_inlet::Float64, v_inlet::Float64=0.0)
+    # For 2D: inlet in x-direction
+    BoundaryCondition(Inlet, u_inlet, :x, :left)
+end
+
+function InletBC(u_inlet::Float64, v_inlet::Float64, w_inlet::Float64)
+    # For 3D: inlet in x-direction  
+    BoundaryCondition(Inlet, u_inlet, :x, :left)
+end
+
 function PressureOutletBC(direction::Symbol, location::Symbol, value::Float64=0.0)
     BoundaryCondition(Outlet, value, direction, location)
+end
+
+function PressureOutletBC(pressure::Float64=0.0)
+    # Simplified constructor for outlet in x-direction
+    BoundaryCondition(Outlet, pressure, :x, :right)
 end
 
 function VelocityOutletBC(direction::Symbol, location::Symbol, value::Union{Float64, Function}=0.0)
     BoundaryCondition(Outlet, value, direction, location)
 end
 
+function VelocityOutletBC(u_outlet::Float64, v_outlet::Float64=0.0)
+    # For 2D: outlet in x-direction
+    BoundaryCondition(Outlet, u_outlet, :x, :right)
+end
+
+function VelocityOutletBC(u_outlet::Float64, v_outlet::Float64, w_outlet::Float64)
+    # For 3D: outlet in x-direction
+    BoundaryCondition(Outlet, u_outlet, :x, :right)
+end
+
 function NoSlipBC(direction::Symbol, location::Symbol)
     BoundaryCondition(NoSlip, nothing, direction, location)
+end
+
+function NoSlipBC()
+    # Generic no-slip BC
+    BoundaryCondition(NoSlip, nothing, :z, :bottom)  # Default for walls
 end
 
 function FreeSlipBC(direction::Symbol, location::Symbol)
     BoundaryCondition(FreeSlip, nothing, direction, location)
 end
 
+function FreeSlipBC()
+    # Generic free-slip BC
+    BoundaryCondition(FreeSlip, nothing, :z, :bottom)  # Default for walls
+end
+
 function PeriodicBC(direction::Symbol, location::Symbol)
     BoundaryCondition(Periodic, nothing, direction, location)
+end
+
+function PeriodicBC()
+    # Generic periodic BC  
+    BoundaryCondition(Periodic, nothing, :y, :bottom)  # Default for y-direction
 end
 
 # Convenience constructors for 2D boundary conditions (XZ plane)
@@ -215,6 +256,30 @@ function BoundaryConditions3D(;
     top !== nothing && add_boundary!(bc, top)
     front !== nothing && add_boundary!(bc, front)
     back !== nothing && add_boundary!(bc, back)
+    
+    return bc
+end
+
+# Simplified positional constructor for BoundaryConditions3D (API compatibility)
+function BoundaryConditions3D(inlet::BoundaryCondition, outlet::BoundaryCondition, 
+                             y_minus::BoundaryCondition, y_plus::BoundaryCondition, 
+                             z_minus::BoundaryCondition, z_plus::BoundaryCondition)
+    bc = BoundaryConditions()
+    
+    # Set proper direction and location for each boundary
+    inlet_fixed = BoundaryCondition(inlet.type, inlet.value, :x, :left)
+    outlet_fixed = BoundaryCondition(outlet.type, outlet.value, :x, :right)
+    y_minus_fixed = BoundaryCondition(y_minus.type, y_minus.value, :y, :bottom)  
+    y_plus_fixed = BoundaryCondition(y_plus.type, y_plus.value, :y, :top)
+    z_minus_fixed = BoundaryCondition(z_minus.type, z_minus.value, :z, :front)
+    z_plus_fixed = BoundaryCondition(z_plus.type, z_plus.value, :z, :back)
+    
+    add_boundary!(bc, inlet_fixed)
+    add_boundary!(bc, outlet_fixed)
+    add_boundary!(bc, y_minus_fixed)
+    add_boundary!(bc, y_plus_fixed)
+    add_boundary!(bc, z_minus_fixed)
+    add_boundary!(bc, z_plus_fixed)
     
     return bc
 end
