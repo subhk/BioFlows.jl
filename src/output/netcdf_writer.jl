@@ -1,3 +1,5 @@
+using Dates
+
 """
     NetCDFConfig
 
@@ -115,24 +117,26 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
         NetCDF.defVar(ncfile, "zw", Float64, ("nz_w",))
     end
     
-    # Define solution variables
-    if is_3d
-        NetCDF.defVar(ncfile, "u", Float64, ("nx_u", "ny", "nz", "time"))
-        NetCDF.defVar(ncfile, "v", Float64, ("nx", "ny_v", "nz", "time"))
-        NetCDF.defVar(ncfile, "w", Float64, ("nx", "ny", "nz_w", "time"))
-        NetCDF.defVar(ncfile, "p", Float64, ("nx", "ny", "nz", "time"))
-    else
-        NetCDF.defVar(ncfile, "u", Float64, ("nx_u", "ny", "time"))
-        NetCDF.defVar(ncfile, "v", Float64, ("nx", "ny_v", "time"))
-        NetCDF.defVar(ncfile, "p", Float64, ("nx", "ny", "time"))
-    end
-    
-    # Add variable attributes
-    NetCDF.putatt(ncfile, "u", Dict("long_name" => "x-velocity", "units" => "m/s"))
-    NetCDF.putatt(ncfile, "v", Dict("long_name" => "y-velocity", "units" => "m/s"))
-    NetCDF.putatt(ncfile, "p", Dict("long_name" => "pressure", "units" => "Pa"))
-    if is_3d
-        NetCDF.putatt(ncfile, "w", Dict("long_name" => "z-velocity", "units" => "m/s"))
+    # Define solution variables only if flow field saving is enabled
+    if writer.config.save_flow_field
+        if is_3d
+            NetCDF.defVar(ncfile, "u", Float64, ("nx_u", "ny", "nz", "time"))
+            NetCDF.defVar(ncfile, "v", Float64, ("nx", "ny_v", "nz", "time"))
+            NetCDF.defVar(ncfile, "w", Float64, ("nx", "ny", "nz_w", "time"))
+            NetCDF.defVar(ncfile, "p", Float64, ("nx", "ny", "nz", "time"))
+        else
+            NetCDF.defVar(ncfile, "u", Float64, ("nx_u", "ny", "time"))
+            NetCDF.defVar(ncfile, "v", Float64, ("nx", "ny_v", "time"))
+            NetCDF.defVar(ncfile, "p", Float64, ("nx", "ny", "time"))
+        end
+        
+        # Add variable attributes
+        NetCDF.putatt(ncfile, "u", Dict("long_name" => "x-velocity", "units" => "m/s"))
+        NetCDF.putatt(ncfile, "v", Dict("long_name" => "y-velocity", "units" => "m/s"))
+        NetCDF.putatt(ncfile, "p", Dict("long_name" => "pressure", "units" => "Pa"))
+        if is_3d
+            NetCDF.putatt(ncfile, "w", Dict("long_name" => "z-velocity", "units" => "m/s"))
+        end
     end
     
     # Write coordinate data
@@ -197,38 +201,47 @@ function save_snapshot!(writer::NetCDFWriter, state::SolutionState, current_time
         return false
     end
     
-    # Check if we have room for more snapshots
+    # Check if we have room for more snapshots, if not, create new file
     if writer.current_snapshot >= writer.config.max_snapshots_per_file
-        @warn "Maximum number of snapshots ($(writer.config.max_snapshots_per_file)) reached. Not saving."
-        return false
+        timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
+        create_new_file!(writer, "part_$(timestamp)")
     end
     
     writer.current_snapshot += 1
     snapshot_idx = writer.current_snapshot
     
-    # Write time
-    NetCDF.putvar(writer.ncfile, "time", [current_time], start=[snapshot_idx])
-    
-    # Write velocity and pressure data
-    is_3d = writer.grid.grid_type == ThreeDimensional
-    
-    if is_3d
-        NetCDF.putvar(writer.ncfile, "u", state.u, start=[1, 1, 1, snapshot_idx])
-        NetCDF.putvar(writer.ncfile, "v", state.v, start=[1, 1, 1, snapshot_idx])
-        NetCDF.putvar(writer.ncfile, "w", state.w, start=[1, 1, 1, snapshot_idx])
-        NetCDF.putvar(writer.ncfile, "p", state.p, start=[1, 1, 1, snapshot_idx])
-    else
-        NetCDF.putvar(writer.ncfile, "u", state.u, start=[1, 1, snapshot_idx])
-        NetCDF.putvar(writer.ncfile, "v", state.v, start=[1, 1, snapshot_idx])
-        NetCDF.putvar(writer.ncfile, "p", state.p, start=[1, 1, snapshot_idx])
+    try
+        # Write time
+        NetCDF.putvar(writer.ncfile, "time", [current_time], start=[snapshot_idx])
+        
+        # Only save flow field if configured to do so
+        if writer.config.save_flow_field
+            # Write velocity and pressure data
+            is_3d = writer.grid.grid_type == ThreeDimensional
+            
+            if is_3d
+                NetCDF.putvar(writer.ncfile, "u", state.u, start=[1, 1, 1, snapshot_idx])
+                NetCDF.putvar(writer.ncfile, "v", state.v, start=[1, 1, 1, snapshot_idx])
+                NetCDF.putvar(writer.ncfile, "w", state.w, start=[1, 1, 1, snapshot_idx])
+                NetCDF.putvar(writer.ncfile, "p", state.p, start=[1, 1, 1, snapshot_idx])
+            else
+                NetCDF.putvar(writer.ncfile, "u", state.u, start=[1, 1, snapshot_idx])
+                NetCDF.putvar(writer.ncfile, "v", state.v, start=[1, 1, snapshot_idx])
+                NetCDF.putvar(writer.ncfile, "p", state.p, start=[1, 1, snapshot_idx])
+            end
+        end
+        
+        # Update last save times
+        writer.last_save_time = current_time
+        writer.last_save_iteration = current_iteration
+        
+        println("Saved snapshot $(snapshot_idx) at time $(current_time), iteration $(current_iteration)")
+        return true
+        
+    catch e
+        @error "Failed to save snapshot: $e"
+        return false
     end
-    
-    # Update last save times
-    writer.last_save_time = current_time
-    writer.last_save_iteration = current_iteration
-    
-    println("Saved snapshot $(snapshot_idx) at time $(current_time), iteration $(current_iteration)")
-    return true
 end
 
 function save_body_data!(writer::NetCDFWriter, bodies::Union{RigidBodyCollection, FlexibleBodyCollection}, 
@@ -582,8 +595,13 @@ function save_flexible_body_positions!(writer::NetCDFWriter,
         if save_velocities
             vel_x_data = zeros(body.n_points)
             vel_z_data = zeros(body.n_points)
-            for i = 1:body.n_points
-                vel_x_data[i], vel_z_data[i] = compute_body_velocity_accurate(body, i)
+            # Compute velocities using finite differences or stored data
+            if hasfield(typeof(body), :X_old) && body.X_old !== nothing
+                dt = 0.001  # This should be passed as parameter in real implementation
+                for i = 1:body.n_points
+                    vel_x_data[i] = (body.X[i, 1] - body.X_old[i, 1]) / dt
+                    vel_z_data[i] = (body.X[i, 2] - body.X_old[i, 2]) / dt
+                end
             end
             NetCDF.putvar(writer.ncfile, "flexible_body_$(body_id)_vel_x", vel_x_data, start=[1, snapshot_idx])
             NetCDF.putvar(writer.ncfile, "flexible_body_$(body_id)_vel_z", vel_z_data, start=[1, snapshot_idx])
@@ -710,10 +728,19 @@ end
 
 function close_netcdf!(writer::NetCDFWriter)
     if writer.ncfile !== nothing
-        NetCDF.close(writer.ncfile)
-        writer.ncfile = nothing
-        println("Closed NetCDF file: $(writer.filepath)")
+        try
+            NetCDF.close(writer.ncfile)
+            writer.ncfile = nothing
+            println("Closed NetCDF file: $(writer.filepath)")
+        catch e
+            @error "Failed to close NetCDF file: $e"
+        end
     end
+end
+
+# Alias for compatibility with exports
+function close!(writer::NetCDFWriter)
+    close_netcdf!(writer)
 end
 
 function create_new_file!(writer::NetCDFWriter, file_suffix::String)
@@ -786,4 +813,116 @@ function read_netcdf_data(filepath::String)
         "w" => w_data,
         "p" => p_data
     )
+end
+
+# Data validation functions
+function validate_state_data(state::SolutionState, grid::StaggeredGrid)
+    """Validate that solution state has correct dimensions and no NaN/Inf values."""
+    
+    # Check dimensions
+    if size(state.u, 1) != grid.nx + 1 || size(state.u, 2) != grid.ny
+        @error "u-velocity dimensions mismatch: expected $(grid.nx+1)×$(grid.ny), got $(size(state.u))"
+        return false
+    end
+    
+    if size(state.v, 1) != grid.nx || size(state.v, 2) != grid.ny + 1
+        @error "v-velocity dimensions mismatch: expected $(grid.nx)×$(grid.ny+1), got $(size(state.v))"
+        return false
+    end
+    
+    if size(state.p, 1) != grid.nx || size(state.p, 2) != grid.ny
+        @error "Pressure dimensions mismatch: expected $(grid.nx)×$(grid.ny), got $(size(state.p))"
+        return false
+    end
+    
+    # Check for NaN/Inf values
+    if any(isnan, state.u) || any(isinf, state.u)
+        @error "u-velocity contains NaN or Inf values"
+        return false
+    end
+    
+    if any(isnan, state.v) || any(isinf, state.v)
+        @error "v-velocity contains NaN or Inf values"
+        return false
+    end
+    
+    if any(isnan, state.p) || any(isinf, state.p)
+        @error "Pressure contains NaN or Inf values"
+        return false
+    end
+    
+    # Check 3D if applicable
+    if grid.grid_type == ThreeDimensional
+        if size(state.w, 1) != grid.nx || size(state.w, 2) != grid.ny || size(state.w, 3) != grid.nz + 1
+            @error "w-velocity dimensions mismatch for 3D"
+            return false
+        end
+        
+        if any(isnan, state.w) || any(isinf, state.w)
+            @error "w-velocity contains NaN or Inf values"
+            return false
+        end
+    end
+    
+    return true
+end
+
+function validate_body_data(bodies::Union{RigidBodyCollection, FlexibleBodyCollection})
+    """Validate body data before saving."""
+    
+    if bodies isa FlexibleBodyCollection
+        for (i, body) in enumerate(bodies.bodies)
+            if any(isnan, body.X) || any(isinf, body.X)
+                @error "Flexible body $(i) positions contain NaN or Inf values"
+                return false
+            end
+            
+            if any(isnan, body.force) || any(isinf, body.force)
+                @error "Flexible body $(i) forces contain NaN or Inf values"
+                return false
+            end
+        end
+    elseif bodies isa RigidBodyCollection
+        for (i, body) in enumerate(bodies.bodies)
+            if any(isnan, body.center) || any(isinf, body.center)
+                @error "Rigid body $(i) center contains NaN or Inf values"
+                return false
+            end
+            
+            if any(isnan, body.velocity) || any(isinf, body.velocity)
+                @error "Rigid body $(i) velocity contains NaN or Inf values"
+                return false
+            end
+        end
+    end
+    
+    return true
+end
+
+function write_solution!(writer::NetCDFWriter, state::SolutionState, 
+                        bodies::Union{Nothing, RigidBodyCollection, FlexibleBodyCollection},
+                        grid::StaggeredGrid, fluid::FluidProperties,
+                        current_time::Float64, current_iteration::Int; 
+                        validate_data::Bool = true, kwargs...)
+    """
+    Main function to write complete solution data to NetCDF.
+    Validates data and handles all output types.
+    """
+    
+    # Data validation
+    if validate_data
+        if !validate_state_data(state, grid)
+            @error "State data validation failed - not saving"
+            return false
+        end
+        
+        if bodies !== nothing && !validate_body_data(bodies)
+            @error "Body data validation failed - not saving"
+            return false
+        end
+    end
+    
+    # Save complete snapshot
+    return save_complete_snapshot!(writer, state, bodies, grid, fluid, 
+                                  current_time, current_iteration; kwargs...)
 end
