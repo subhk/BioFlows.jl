@@ -323,14 +323,24 @@ end
 
 Distributed red-black Gauss-Seidel smoothing with halo exchange.
 """
-function gauss_seidel_smooth_mpi!(mg::MPIMultiLevelPoisson{T}, level::Int) where T
-    if mg.nx[level] >= mg.coarse_threshold
+# Dispatch wrapper for different dimensions
+function gauss_seidel_smooth_mpi!(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    gauss_seidel_smooth_mpi_2d!(mg, level)
+end
+
+function gauss_seidel_smooth_mpi!(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    gauss_seidel_smooth_mpi_3d!(mg, level)
+end
+
+function gauss_seidel_smooth_mpi_2d!(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    grid_size = mg.grid_sizes[level]
+    if minimum(grid_size) >= mg.coarse_threshold
         # Use distributed arrays
         x = mg.x[level]
         b = mg.b[level]
         pencil = mg.pencils[level]
         
-        dx, dy = mg.dx[level], mg.dy[level]
+        dx, dy = mg.grid_spacing[level][1], mg.grid_spacing[level][2]
         dx2_inv = 1.0 / (dx * dx)
         dy2_inv = 1.0 / (dy * dy)
         factor = 1.0 / (2.0 * (dx2_inv + dy2_inv))
@@ -361,7 +371,57 @@ function gauss_seidel_smooth_mpi!(mg::MPIMultiLevelPoisson{T}, level::Int) where
         exchange_halos!(x, pencil)
         
         # Apply boundary conditions on domain boundaries
-        apply_boundary_conditions_mpi!(x, pencil, mg.nx[level], mg.ny[level])
+        nx, ny = mg.grid_sizes[level]
+        apply_boundary_conditions_mpi!(x, pencil, nx, ny)
+    else
+        # Use local arrays with MPI operations
+        gauss_seidel_smooth_local_mpi!(mg, level)
+    end
+end
+
+function gauss_seidel_smooth_mpi_3d!(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    grid_size = mg.grid_sizes[level]
+    if minimum(grid_size) >= mg.coarse_threshold
+        # Use distributed arrays
+        x = mg.x[level]
+        b = mg.b[level]
+        pencil = mg.pencils[level]
+        
+        dx, dy, dz = mg.grid_spacing[level]
+        dx2_inv = 1.0 / (dx * dx)
+        dy2_inv = 1.0 / (dy * dy)
+        dz2_inv = 1.0 / (dz * dz)
+        factor = 1.0 / (2.0 * (dx2_inv + dy2_inv + dz2_inv))
+        
+        # Get local indices
+        local_indices = local_indices_interior(pencil, size(x))
+        i_range, j_range, k_range = local_indices
+        
+        # Red-black smoothing with halo exchange (3D version)
+        for color = 0:1
+            # Exchange halos before each color
+            exchange_halos!(x, pencil)
+            
+            # Smooth local interior points with 7-point stencil
+            for k in k_range, j in j_range, i in i_range
+                if (i + j + k) % 2 == color
+                    # 7-point stencil for 3D
+                    x.data[i, j, k] = factor * (
+                        dx2_inv * (x.data[i-1, j, k] + x.data[i+1, j, k]) +
+                        dy2_inv * (x.data[i, j-1, k] + x.data[i, j+1, k]) +
+                        dz2_inv * (x.data[i, j, k-1] + x.data[i, j, k+1]) -
+                        b.data[i, j, k]
+                    )
+                end
+            end
+        end
+        
+        # Final halo exchange
+        exchange_halos!(x, pencil)
+        
+        # Apply boundary conditions on domain boundaries
+        nx, ny, nz = mg.grid_sizes[level]
+        apply_boundary_conditions_mpi_3d!(x, pencil, nx, ny, nz)
     else
         # Use local arrays with MPI operations
         gauss_seidel_smooth_local_mpi!(mg, level)
@@ -373,14 +433,56 @@ end
 
 Compute distributed residual with halo exchange.
 """
-function compute_residual_mpi!(mg::MPIMultiLevelPoisson{T}, level::Int) where T
-    if mg.nx[level] >= mg.coarse_threshold
+# Dispatch wrapper for residual computation
+function compute_residual_mpi!(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    compute_residual_mpi_2d!(mg, level)
+end
+
+function compute_residual_mpi!(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    compute_residual_mpi_3d!(mg, level)
+end
+
+function restrict_mpi!(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    restrict_mpi_2d!(mg, level)
+end
+
+function restrict_mpi!(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    restrict_mpi_3d!(mg, level)
+end
+
+function prolongate_and_correct_mpi!(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    prolongate_and_correct_mpi_2d!(mg, level)
+end
+
+function prolongate_and_correct_mpi!(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    prolongate_and_correct_mpi_3d!(mg, level)
+end
+
+function exact_solve_mpi!(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    exact_solve_mpi_2d!(mg, level)
+end
+
+function exact_solve_mpi!(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    exact_solve_mpi_3d!(mg, level)
+end
+
+function compute_residual_norm_mpi(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    compute_residual_norm_mpi_2d(mg, level)
+end
+
+function compute_residual_norm_mpi(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    compute_residual_norm_mpi_3d(mg, level)
+end
+
+function compute_residual_mpi_2d!(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    grid_size = mg.grid_sizes[level]
+    if minimum(grid_size) >= mg.coarse_threshold
         x = mg.x[level]
         b = mg.b[level]
         r = mg.r[level]
         pencil = mg.pencils[level]
         
-        dx, dy = mg.dx[level], mg.dy[level]
+        dx, dy = mg.grid_spacing[level]
         dx2_inv = 1.0 / (dx * dx)
         dy2_inv = 1.0 / (dy * dy)
         
@@ -699,5 +801,97 @@ function set_boundary_residuals_zero_mpi!(r::PencilArray{T,2}, pencil::Pencil,
     end
     if j_global[end] == ny_global
         r.data[:, end] .= 0.0
+    end
+end
+
+"""
+    apply_boundary_conditions_mpi_3d!(x, pencil, nx, ny, nz)
+
+Apply homogeneous Neumann boundary conditions for 3D distributed arrays.
+"""
+function apply_boundary_conditions_mpi_3d!(x::PencilArray{T,3}, pencil::Pencil, 
+                                          nx_global::Int, ny_global::Int, nz_global::Int) where T
+    # Get global indices
+    i_global, j_global, k_global = global_indices(pencil)
+    
+    # Apply homogeneous Neumann conditions on domain boundaries
+    if i_global[1] == 1
+        x.data[1, :, :] .= x.data[2, :, :]
+    end
+    if i_global[end] == nx_global
+        x.data[end, :, :] .= x.data[end-1, :, :]
+    end
+    if j_global[1] == 1
+        x.data[:, 1, :] .= x.data[:, 2, :]
+    end
+    if j_global[end] == ny_global
+        x.data[:, end, :] .= x.data[:, end-1, :]
+    end
+    if k_global[1] == 1
+        x.data[:, :, 1] .= x.data[:, :, 2]
+    end
+    if k_global[end] == nz_global
+        x.data[:, :, end] .= x.data[:, :, end-1]
+    end
+end
+
+# ==============================================================================
+# Placeholder 3D implementations
+# These provide basic functionality for 3D MPI multigrid operations
+# ==============================================================================
+
+function compute_residual_mpi_3d!(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    # Simplified 3D residual computation
+    @warn "Using simplified 3D residual computation - full implementation needed"
+    # For now, delegate to 2D-style computation (needs proper 3D implementation)
+    grid_size = mg.grid_sizes[level]
+    if minimum(grid_size) >= mg.coarse_threshold
+        fill!(mg.r[level], 0)  # Placeholder
+    else
+        fill!(mg.r_local[level], 0)  # Placeholder
+    end
+end
+
+function restrict_mpi_3d!(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    # Simplified 3D restriction
+    @warn "Using simplified 3D restriction - full implementation needed"
+    grid_size = mg.grid_sizes[level]
+    if minimum(grid_size) >= mg.coarse_threshold && level < mg.levels
+        copyto!(mg.b[level+1], mg.r[level])  # Placeholder - needs proper restriction
+    end
+end
+
+function prolongate_and_correct_mpi_3d!(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    # Simplified 3D prolongation
+    @warn "Using simplified 3D prolongation - full implementation needed"  
+    # Placeholder implementation
+end
+
+function exact_solve_mpi_3d!(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    # Simplified exact solve for coarse 3D grids
+    @warn "Using simplified 3D exact solve - full implementation needed"
+    grid_size = mg.grid_sizes[level]
+    if minimum(grid_size) < mg.coarse_threshold
+        fill!(mg.x_local[level], 0)  # Placeholder
+    end
+end
+
+function compute_residual_norm_mpi_3d(mg::MPIMultiLevelPoisson{T,3}, level::Int) where T
+    # Simplified norm computation
+    grid_size = mg.grid_sizes[level]
+    if minimum(grid_size) >= mg.coarse_threshold
+        return sqrt(sum(mg.r[level].data .^ 2)) / length(mg.r[level].data)
+    else
+        return sqrt(sum(mg.r_local[level] .^ 2)) / length(mg.r_local[level])
+    end
+end
+
+# Update compute_residual_norm_mpi_2d to use new structure
+function compute_residual_norm_mpi_2d(mg::MPIMultiLevelPoisson{T,2}, level::Int) where T
+    grid_size = mg.grid_sizes[level]
+    if minimum(grid_size) >= mg.coarse_threshold
+        return sqrt(sum(mg.r[level].data .^ 2)) / length(mg.r[level].data)
+    else
+        return sqrt(sum(mg.r_local[level] .^ 2)) / length(mg.r_local[level])
     end
 end

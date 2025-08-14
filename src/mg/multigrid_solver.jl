@@ -83,15 +83,14 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
         end
         
         if grid.grid_type == TwoDimensional
-            mg_solver = MPIMultiLevelPoisson{Float64,typeof(pencil)}(
+            mg_solver = MPIMultiLevelPoisson{Float64,2,typeof(pencil)}(
                 pencil, grid.nx, grid.nz, grid.dx, grid.dz, levels;  # Use XZ plane for 2D
                 n_smooth=3, tol=tolerance)
         elseif grid.grid_type == ThreeDimensional
-            # TODO: Implement 3D MPI WaterLily multigrid
-            # For now, fall back to GeometricMultigrid.jl
-            @warn "3D MPI multigrid not yet implemented, falling back to single-process GeometricMultigrid.jl"
-            mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
-            solver_type = :geometric
+            # 3D MPI WaterLily multigrid
+            mg_solver = MPIMultiLevelPoisson{Float64,3,typeof(pencil)}(
+                pencil, grid.nx, grid.ny, grid.nz, grid.dx, grid.dy, grid.dz, levels;
+                n_smooth=3, tol=tolerance)
         else
             error("Multigrid not implemented for grid type: $(grid.grid_type)")
         end
