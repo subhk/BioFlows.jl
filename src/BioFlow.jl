@@ -9,17 +9,17 @@ using ForwardDiff
 using NetCDF
 using MPI
 
-include("common/types.jl")
-include("common/grids.jl")
-include("common/differential_operators.jl")
-include("common/boundary_conditions.jl")
+include("core/types.jl")
+include("core/grids.jl")
+include("core/differential_operators.jl")
+include("boundary/boundary_conditions.jl")
 include("timestep/time_stepping.jl")
-include("common/multigrid_solver.jl")
-include("common/adaptive_refinement.jl")
-include("common/adaptive_refinement_v2.jl")
-include("common/adaptive_refinement_mpi.jl")
-include("common/boundary_layer_amr.jl")
-include("common/immersed_boundary.jl")
+include("mg/multigrid_solver.jl")
+include("amr/adaptive_refinement.jl")
+include("amr/adaptive_refinement_v2.jl")
+include("amr/adaptive_refinement_mpi.jl")
+include("boundary/boundary_layer_amr.jl")
+include("immersed/immersed_boundary.jl")
 
 include("2D/grid_2d.jl")
 include("2D/discretization_2d.jl")
@@ -39,7 +39,7 @@ include("bodies/coordinated_system_factory.jl")
 include("bodies/horizontal_plane_utilities.jl")
 
 include("output/netcdf_writer.jl")
-include("common/simulation_api.jl")
+include("api/simulation_api.jl")
 
 # High-level user API exports
 export SimulationConfig, create_2d_simulation_config, create_3d_simulation_config
