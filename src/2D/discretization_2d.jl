@@ -57,7 +57,7 @@ function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T},
         # Compute u² at cell faces using 2nd order interpolation
         if i > 2 && i < nx
             # Interior points: 2nd order upwind-biased interpolation
-            u_east = u[i, j] + 0.5 * minmod((u[i+1, j] - u[i, j]), (u[i, j] - u[i-1, j]))
+            u_east = u[i, j]   + 0.5 * minmod((u[i+1, j] - u[i, j]), (u[i, j] - u[i-1, j]))
             u_west = u[i-1, j] + 0.5 * minmod((u[i, j] - u[i-1, j]), (u[i-1, j] - u[i-2, j]))
         else
             # Near boundaries: central difference
@@ -103,7 +103,7 @@ function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T},
         # ∂(v²)/∂y: 2nd order conservative form
         if j > 2 && j < nz
             # Interior points: 2nd order upwind-biased interpolation
-            v_north = v[i, j] + 0.5 * minmod((v[i, j+1] - v[i, j]), (v[i, j] - v[i, j-1]))
+            v_north = v[i, j]   + 0.5 * minmod((v[i, j+1] - v[i, j]), (v[i, j] - v[i, j-1]))
             v_south = v[i, j-1] + 0.5 * minmod((v[i, j] - v[i, j-1]), (v[i, j-1] - v[i, j-2]))
         else
             # Near boundaries: central difference
@@ -131,8 +131,8 @@ function minmod(a::T, b::T) where T<:Real
 end
 
 function compute_diffusion_2d!(diff_u::Matrix{T}, diff_v::Matrix{T},
-                              u::Matrix{T}, v::Matrix{T}, 
-                              fluid::FluidProperties, grid::StaggeredGrid{T}) where T<:Real
+                            u::Matrix{T}, v::Matrix{T}, 
+                            fluid::FluidProperties, grid::StaggeredGrid{T}) where T<:Real
     nx, nz = grid.nx, grid.nz
     dx, dy = grid.dx, grid.dy
     μ = fluid.μ
@@ -171,8 +171,8 @@ end
 
 # Alternative: Full viscous stress tensor for generality
 function viscous_stress_2d!(visc_u::Matrix{T}, visc_v::Matrix{T},
-                           u::Matrix{T}, v::Matrix{T}, 
-                           fluid::FluidProperties, grid::StaggeredGrid{T}) where T<:Real
+                        u::Matrix{T}, v::Matrix{T}, 
+                        fluid::FluidProperties, grid::StaggeredGrid{T}) where T<:Real
     """
     2nd order accurate discretization of full viscous stress tensor.
     For incompressible flow: ∇·τ = μ[∇²u + ∇(∇·u)]
@@ -213,7 +213,7 @@ function viscous_stress_2d!(visc_u::Matrix{T}, visc_v::Matrix{T},
 end
 
 function pressure_poisson_2d!(rhs::Matrix{T}, div_u::Matrix{T}, 
-                             dt::T, grid::StaggeredGrid{T}) where T<:Real
+                            dt::T, grid::StaggeredGrid{T}) where T<:Real
     nx, nz = grid.nx, grid.nz
     
     @inbounds for j = 1:nz, i = 1:nx
@@ -222,7 +222,7 @@ function pressure_poisson_2d!(rhs::Matrix{T}, div_u::Matrix{T},
 end
 
 function interpolate_to_cell_center_2d(u::Matrix{T}, v::Matrix{T}, 
-                                      grid::StaggeredGrid{T}) where T<:Real
+                                    grid::StaggeredGrid{T}) where T<:Real
     nx, nz = grid.nx, grid.nz
     u_cc = zeros(T, nx, nz)
     v_cc = zeros(T, nx, nz)
@@ -240,7 +240,8 @@ function interpolate_to_cell_center_2d(u::Matrix{T}, v::Matrix{T},
     return u_cc, v_cc
 end
 
-function compute_cfl_2d(u::Matrix{T}, v::Matrix{T}, grid::StaggeredGrid{T}, dt::T) where T<:Real
+function compute_cfl_2d(u::Matrix{T}, v::Matrix{T}, 
+                    grid::StaggeredGrid{T}, dt::T) where T<:Real
     max_u = maximum(abs.(u))
     max_v = maximum(abs.(v))
     
