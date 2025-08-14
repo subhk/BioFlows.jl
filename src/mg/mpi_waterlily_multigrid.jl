@@ -513,7 +513,7 @@ end
 Distributed restriction with communication.
 """
 function restrict_mpi!(mg::MPIMultiLevelPoisson{T}, level::Int) where T
-    if mg.nx[level] >= mg.coarse_threshold && mg.nx[level+1] >= mg.coarse_threshold
+    if mg.grid_sizes[level][1] >= mg.coarse_threshold && mg.grid_sizes[level+1][1] >= mg.coarse_threshold
         # Both levels are distributed
         r_fine = mg.r[level]
         b_coarse = mg.b[level+1]
@@ -535,7 +535,7 @@ end
 Distributed prolongation with communication.
 """
 function prolongate_and_correct_mpi!(mg::MPIMultiLevelPoisson{T}, level::Int) where T
-    if mg.nx[level] >= mg.coarse_threshold && mg.nx[level+1] >= mg.coarse_threshold
+    if mg.grid_sizes[level][1] >= mg.coarse_threshold && mg.grid_sizes[level+1][1] >= mg.coarse_threshold
         # Both levels are distributed
         x_fine = mg.x[level]
         x_coarse = mg.x[level+1]
@@ -557,7 +557,7 @@ end
 Exact solve on coarsest grid using collective operations.
 """
 function exact_solve_mpi!(mg::MPIMultiLevelPoisson{T}, level::Int) where T
-    if mg.nx[level] >= mg.coarse_threshold
+    if mg.grid_sizes[level][1] >= mg.coarse_threshold
         # Distributed exact solve (many smoothing iterations)
         for _ = 1:100
             gauss_seidel_smooth_mpi!(mg, level)
@@ -639,7 +639,7 @@ Compute global L2 norm of residual using MPI reduction.
 function compute_residual_norm_mpi(mg::MPIMultiLevelPoisson{T}, level::Int) where T
     compute_residual_mpi!(mg, level)
     
-    if mg.nx[level] >= mg.coarse_threshold
+    if mg.grid_sizes[level][1] >= mg.coarse_threshold
         r = mg.r[level]
         
         # Compute local contribution to norm
@@ -671,8 +671,10 @@ function gauss_seidel_smooth_local_mpi!(mg::MPIMultiLevelPoisson{T}, level::Int)
     # For brevity, using simplified approach
     x = mg.x_local[level]
     b = mg.b_local[level]
-    nx, ny = mg.nx[level], mg.ny[level]
-    dx, dy = mg.dx[level], mg.dy[level]
+    grid_size = mg.grid_sizes[level]
+    grid_spacing = mg.grid_spacing[level]
+    nx, ny = grid_size[1], grid_size[2]
+    dx, dy = grid_spacing[1], grid_spacing[2]
     
     # Only rank 0 performs the solve, then broadcasts
     if mg.rank == 0
@@ -709,8 +711,10 @@ function compute_residual_local_mpi!(mg::MPIMultiLevelPoisson{T}, level::Int) wh
         x = mg.x_local[level]
         b = mg.b_local[level]
         r = mg.r_local[level]
-        nx, ny = mg.nx[level], mg.ny[level]
-        dx, dy = mg.dx[level], mg.dy[level]
+        grid_size = mg.grid_sizes[level]
+        grid_spacing = mg.grid_spacing[level]
+        nx, ny = grid_size[1], grid_size[2]
+        dx, dy = grid_spacing[1], grid_spacing[2]
         
         dx2_inv = 1.0 / (dx * dx)
         dy2_inv = 1.0 / (dy * dy)
@@ -737,7 +741,8 @@ function compute_residual_norm_local_mpi(mg::MPIMultiLevelPoisson{T}, level::Int
     
     if mg.rank == 0
         r = mg.r_local[level]
-        nx, ny = mg.nx[level], mg.ny[level]
+        grid_size = mg.grid_sizes[level]
+        nx, ny = grid_size[1], grid_size[2]
         
         norm_sq = 0.0
         for j = 2:ny-1, i = 2:nx-1

@@ -447,7 +447,7 @@ function MPINavierStokesSolver3D(nx_global::Int, ny_global::Int, nz_global::Int,
     local_phi = zeros(nx_local, ny_local, nz_local)
     local_rhs_p = zeros(nx_local, ny_local, nz_local)
     
-    MPINavierStokesSolver3D(decomp, local_grid, fluid, bc, time_scheme,
+    MPINavierStokesSolver3D(decomp, local_grid, fluid, bc, time_scheme, nothing,
                            local_u_star, local_v_star, local_w_star, local_phi, local_rhs_p)
 end
 
