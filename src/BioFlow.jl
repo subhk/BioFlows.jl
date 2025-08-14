@@ -16,6 +16,9 @@ include("common/boundary_conditions.jl")
 include("common/time_stepping.jl")
 include("common/multigrid_solver.jl")
 include("common/adaptive_refinement.jl")
+include("common/adaptive_refinement_v2.jl")
+include("common/adaptive_refinement_mpi.jl")
+include("common/boundary_layer_amr.jl")
 include("common/immersed_boundary.jl")
 
 include("2D/grid_2d.jl")
@@ -74,8 +77,18 @@ export time_step!
 export BoundaryConditions, BoundaryConditions2D, BoundaryConditions3D
 export InletBC, PressureOutletBC, VelocityOutletBC, NoSlipBC, FreeSlipBC, PeriodicBC
 
-# Adaptive refinement exports
+# Adaptive refinement exports (original)
 export AdaptiveRefinementCriteria, RefinedGrid, adapt_grid!
+
+# Advanced adaptive refinement exports (v2)
+export AMRLevel, AMRHierarchy, MPIAMRHierarchy
+export compute_refinement_indicators_amr, conservative_restriction_2d, bilinear_prolongation_2d
+export refine_amr_level!, estimate_truncation_error, coordinate_global_refinement!
+
+# Boundary layer AMR exports
+export BoundaryLayerAMRCriteria, compute_boundary_layer_indicators
+export compute_wall_distance_field, compute_y_plus_field
+export refine_for_boundary_layers!, apply_anisotropic_refinement!
 
 # Output exports
 export NetCDFConfig, NetCDFWriter, write_solution!, close!
