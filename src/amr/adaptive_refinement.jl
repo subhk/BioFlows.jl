@@ -22,9 +22,9 @@ end
 
 mutable struct RefinedGrid
     base_grid::StaggeredGrid
-    refined_cells::Dict{Tuple{Int,Int}, Int}  # (i,j) -> refinement_level
-    refined_grids::Dict{Tuple{Int,Int}, StaggeredGrid}  # (i,j) -> local refined grid
-    interpolation_weights::Dict{Tuple{Int,Int}, Vector{Tuple{Tuple{Int,Int}, Float64}}}
+    refined_cells::Dict{Any, Int}  # Flexible indexing: (i,j) for 2D, (i,j,k) for 3D -> refinement_level
+    refined_grids::Dict{Any, StaggeredGrid}  # Flexible indexing -> local refined grid
+    interpolation_weights::Dict{Any, Vector{Tuple{Any, Float64}}}  # Flexible indexing
 end
 
 function RefinedGrid(base_grid::StaggeredGrid)
