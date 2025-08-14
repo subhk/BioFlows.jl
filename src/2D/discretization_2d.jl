@@ -76,7 +76,7 @@ function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T},
         
         # 2nd order interpolation of v to u-location
         v_north = 0.25 * (v[i-1, j+1] + v[i, j+1] + v[i-1, j] + v[i, j])
-        v_south = 0.25 * (v[i-1, j] + v[i, j] + v[i-1, j-1] + v[i, j-1])
+        v_south = 0.25 * (v[i-1, j]   + v[i, j] + v[i-1, j-1] + v[i, j-1])
         
         flux_uv_north = u_north * v_north
         flux_uv_south = u_south * v_south
