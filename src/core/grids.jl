@@ -15,8 +15,8 @@ struct StaggeredGrid{T<:Real} <: AbstractGrid
     yv::Vector{T}     # v-velocity grid points
     zw::Vector{T}     # w-velocity grid points
     grid_type::GridType
-    refined_cells::Vector{Tuple{Int,Int}}  # For adaptive refinement
-    refinement_level::Matrix{Int}
+    refined_cells::Dict{Any,Int}  # For adaptive refinement (flexible indexing for 2D/3D)
+    refinement_level::Array{Int}
 end
 
 function StaggeredGrid2D(nx::Int, nz::Int, Lx::T, Lz::T; 
@@ -39,7 +39,7 @@ function StaggeredGrid2D(nx::Int, nz::Int, Lx::T, Lz::T;
         collect(x), T[], collect(z),
         collect(xu), T[], collect(zw),
         TwoDimensional,
-        Tuple{Int,Int}[],
+        Dict{Any,Int}(),
         ones(Int, nx, nz)
     )
 end
@@ -67,7 +67,7 @@ function StaggeredGrid3D(nx::Int, ny::Int, nz::Int, Lx::T, Ly::T, Lz::T;
         collect(x), collect(y), collect(z),
         collect(xu), collect(yv), collect(zw),
         ThreeDimensional,
-        Tuple{Int,Int}[],
+        Dict{Any,Int}(),
         ones(Int, nx, ny, nz)
     )
 end
