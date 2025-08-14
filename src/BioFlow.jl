@@ -30,6 +30,10 @@ include("3D/mpi_3d.jl")
 
 include("bodies/rigid_bodies.jl")
 include("bodies/flexible_bodies.jl")
+include("bodies/distance_utilities.jl")
+include("bodies/flexible_body_controller.jl")
+include("bodies/coordinated_system_factory.jl")
+include("bodies/horizontal_plane_utilities.jl")
 
 include("output/netcdf_writer.jl")
 include("common/simulation_api.jl")
@@ -100,6 +104,23 @@ export compute_local_surface_properties, compute_adaptive_stiffness, compute_loc
 
 # Flag-specific constructor functions
 export create_flag, create_vertical_flag, create_curved_flag, create_angled_flag, create_flag_collection
+
+# Distance measurement utilities
+export compute_body_distance, get_body_point, validate_control_points
+export compute_multi_body_distances, find_closest_points, distance_statistics
+export compute_body_center_of_mass, compute_body_bounding_box, print_distance_analysis
+
+# Flexible body controller system
+export FlexibleBodyController, set_target_distances!, set_control_parameters!, reset_controller_state!
+export update_controller!, apply_harmonic_boundary_conditions!, monitor_distance_control, print_controller_status
+
+# Coordinated system factory functions
+export create_coordinated_flag_system, setup_simple_two_flag_system, setup_multi_flag_chain
+export validate_system_configuration, print_system_summary
+
+# Horizontal plane distance control utilities
+export detect_horizontal_groups, create_horizontal_distance_matrix, setup_horizontal_plane_system
+export validate_horizontal_plane_configuration, print_horizontal_plane_analysis
 
 # Force coefficient calculation functions  
 export compute_drag_lift_coefficients, compute_body_coefficients_collection, compute_instantaneous_power

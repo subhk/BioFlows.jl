@@ -1163,6 +1163,351 @@ function compute_instantaneous_power(body::FlexibleBody, grid::StaggeredGrid,
 end
 
 # ============================================================================
+# Harmonic Oscillation Control System for Multiple Flexible Bodies
+# ============================================================================
+
+"""
+    FlexibleBodyController
+
+Controller for coordinating multiple flexible bodies with harmonic oscillations
+while maintaining constant distances between them.
+"""
+mutable struct FlexibleBodyController
+    # Bodies being controlled
+    bodies::Vector{FlexibleBody}
+    n_bodies::Int
+    
+    # Control parameters
+    target_distances::Matrix{Float64}      # Target distances between bodies [i,j]
+    distance_tolerance::Float64            # Acceptable distance variation
+    
+    # PID control parameters for each body pair
+    kp::Float64                           # Proportional gain
+    ki::Float64                           # Integral gain  
+    kd::Float64                           # Derivative gain
+    
+    # Control state variables
+    error_integral::Matrix{Float64}        # Accumulated error [i,j]
+    error_previous::Matrix{Float64}        # Previous error [i,j]
+    
+    # Harmonic parameters
+    base_frequency::Float64               # Base oscillation frequency
+    phase_offsets::Vector{Float64}        # Phase offset for each body
+    
+    # Adaptation parameters
+    max_amplitude::Float64                # Maximum allowed amplitude
+    min_amplitude::Float64                # Minimum allowed amplitude
+    adaptation_rate::Float64              # Rate of amplitude adjustment
+    
+    # Measurement settings
+    measurement_points::Vector{Symbol}    # :tip, :center, :quarter, etc.
+    
+    function FlexibleBodyController(bodies::Vector{FlexibleBody};
+                                   target_distances::Union{Matrix{Float64}, Nothing} = nothing,
+                                   distance_tolerance::Float64 = 0.05,
+                                   kp::Float64 = 1.0,
+                                   ki::Float64 = 0.1,
+                                   kd::Float64 = 0.05,
+                                   base_frequency::Float64 = 2.0,
+                                   max_amplitude::Float64 = 0.3,
+                                   min_amplitude::Float64 = 0.01,
+                                   adaptation_rate::Float64 = 0.1,
+                                   measurement_points::Vector{Symbol} = [:tip])
+        
+        n_bodies = length(bodies)
+        
+        # Initialize target distances if not provided
+        if target_distances === nothing
+            target_distances = zeros(n_bodies, n_bodies)
+            # Set initial target distances based on current positions
+            for i = 1:n_bodies, j = i+1:n_bodies
+                dist = compute_body_distance(bodies[i], bodies[j], :tip)
+                target_distances[i, j] = dist
+                target_distances[j, i] = dist
+            end
+        end
+        
+        # Initialize control matrices
+        error_integral = zeros(n_bodies, n_bodies)
+        error_previous = zeros(n_bodies, n_bodies)
+        
+        # Initialize phase offsets (evenly spaced)
+        phase_offsets = [2π * (i-1) / n_bodies for i = 1:n_bodies]
+        
+        new(bodies, n_bodies, target_distances, distance_tolerance,
+            kp, ki, kd, error_integral, error_previous,
+            base_frequency, phase_offsets, max_amplitude, min_amplitude, 
+            adaptation_rate, measurement_points)
+    end
+end
+
+"""
+    compute_body_distance(body1, body2, measurement_point)
+
+Compute distance between two flexible bodies at specified measurement points.
+"""
+function compute_body_distance(body1::FlexibleBody, body2::FlexibleBody, 
+                              measurement_point::Symbol = :tip)
+    
+    # Get measurement points on each body
+    pos1 = get_measurement_point(body1, measurement_point)
+    pos2 = get_measurement_point(body2, measurement_point)
+    
+    # Euclidean distance
+    return sqrt((pos1[1] - pos2[1])^2 + (pos1[2] - pos2[2])^2)
+end
+
+"""
+    get_measurement_point(body, point_type)
+
+Get coordinates of specified measurement point on flexible body.
+"""
+function get_measurement_point(body::FlexibleBody, point_type::Symbol)
+    n = body.n_points
+    
+    if point_type == :tip
+        return [body.X[end, 1], body.X[end, 2]]
+    elseif point_type == :center
+        mid_idx = div(n, 2)
+        return [body.X[mid_idx, 1], body.X[mid_idx, 2]]
+    elseif point_type == :quarter
+        quarter_idx = div(n, 4)
+        return [body.X[quarter_idx, 1], body.X[quarter_idx, 2]]
+    elseif point_type == :root
+        return [body.X[1, 1], body.X[1, 2]]
+    else
+        error("Unknown measurement point: $point_type")
+    end
+end
+
+"""
+    update_controller!(controller, current_time, dt)
+
+Update the control system to maintain target distances between bodies.
+"""
+function update_controller!(controller::FlexibleBodyController, 
+                           current_time::Float64, dt::Float64)
+    
+    n = controller.n_bodies
+    
+    # Compute current distances between all pairs
+    current_distances = zeros(n, n)
+    for i = 1:n, j = i+1:n
+        dist = compute_body_distance(controller.bodies[i], controller.bodies[j], 
+                                   controller.measurement_points[1])
+        current_distances[i, j] = dist
+        current_distances[j, i] = dist
+    end
+    
+    # Update control for each body pair
+    for i = 1:n, j = i+1:n
+        # Compute distance error
+        target_dist = controller.target_distances[i, j]
+        current_dist = current_distances[i, j]
+        error = target_dist - current_dist
+        
+        # Skip if within tolerance
+        if abs(error) < controller.distance_tolerance
+            continue
+        end
+        
+        # PID control calculation
+        controller.error_integral[i, j] += error * dt
+        error_derivative = (error - controller.error_previous[i, j]) / dt
+        
+        control_signal = (controller.kp * error + 
+                         controller.ki * controller.error_integral[i, j] +
+                         controller.kd * error_derivative)
+        
+        # Update previous error
+        controller.error_previous[i, j] = error
+        
+        # Apply control to trailing body (higher index)
+        trailing_body = controller.bodies[j]
+        
+        # Adjust amplitude based on control signal
+        current_amplitude = trailing_body.amplitude
+        new_amplitude = current_amplitude + controller.adaptation_rate * control_signal
+        
+        # Clamp amplitude to bounds
+        new_amplitude = max(controller.min_amplitude, 
+                           min(controller.max_amplitude, new_amplitude))
+        
+        # Update body amplitude
+        trailing_body.amplitude = new_amplitude
+        
+        # Optional: adjust frequency for phase synchronization
+        # This creates more sophisticated coordination
+        phase_error = compute_phase_error(controller.bodies[i], controller.bodies[j], current_time)
+        if abs(phase_error) > π/4  # If phases are significantly out of sync
+            # Slightly adjust frequency of trailing body
+            freq_adjustment = 0.1 * sign(-phase_error)  # Small frequency correction
+            # This would require extending the FlexibleBody structure to store frequency
+        end
+    end
+end
+
+"""
+    compute_phase_error(body1, body2, current_time)
+
+Compute phase difference between two oscillating bodies.
+"""
+function compute_phase_error(body1::FlexibleBody, body2::FlexibleBody, current_time::Float64)
+    # Get tip velocities as proxy for phase
+    _, w1 = compute_body_velocity_accurate(body1, body1.n_points)
+    _, w2 = compute_body_velocity_accurate(body2, body2.n_points)
+    
+    # Simple phase estimation based on velocity signs and magnitudes
+    # More sophisticated approach would track actual oscillation phase
+    if body1.amplitude > 0 && body2.amplitude > 0
+        phase1 = atan(w1, body1.amplitude * body1.frequency)
+        phase2 = atan(w2, body2.amplitude * body2.frequency)
+        return phase1 - phase2
+    end
+    
+    return 0.0
+end
+
+"""
+    apply_harmonic_boundary_conditions!(controller, current_time)
+
+Apply coordinated harmonic boundary conditions to all controlled bodies.
+"""
+function apply_harmonic_boundary_conditions!(controller::FlexibleBodyController, 
+                                           current_time::Float64)
+    
+    for (i, body) in enumerate(controller.bodies)
+        if body.bc_type == :sinusoidal_front
+            # Apply harmonic motion with current amplitude and phase
+            phase = controller.phase_offsets[i]
+            motion = body.amplitude * sin(2π * body.frequency * current_time + phase)
+            
+            # Apply to leading edge (could be x or z direction based on setup)
+            body.X[1, 2] += motion  # Vertical motion in XZ plane
+        end
+    end
+end
+
+"""
+    create_coordinated_flag_system(positions, lengths, widths; kwargs...)
+
+Create a system of flexible flags with harmonic coordination control.
+
+# Arguments
+- `positions::Vector{Vector{Float64}}`: Starting positions for each flag
+- `lengths::Vector{Float64}`: Length of each flag
+- `widths::Vector{Float64}`: Width of each flag
+
+# Keywords
+- `target_distances::Union{Matrix{Float64}, Nothing} = nothing`: Desired distances between flags
+- `base_frequency::Float64 = 2.0`: Base oscillation frequency
+- `base_amplitude::Float64 = 0.1`: Initial amplitude
+- `phase_coordination::Symbol = :synchronized`: Phase relationship (:synchronized, :alternating, :sequential)
+- `distance_tolerance::Float64 = 0.05`: Acceptable distance variation
+- `control_gains::NamedTuple = (kp=1.0, ki=0.1, kd=0.05)`: PID gains
+"""
+function create_coordinated_flag_system(positions::Vector{Vector{Float64}}, 
+                                       lengths::Vector{Float64}, 
+                                       widths::Vector{Float64};
+                                       target_distances::Union{Matrix{Float64}, Nothing} = nothing,
+                                       base_frequency::Float64 = 2.0,
+                                       base_amplitude::Float64 = 0.1,
+                                       phase_coordination::Symbol = :synchronized,
+                                       distance_tolerance::Float64 = 0.05,
+                                       control_gains::NamedTuple = (kp=1.0, ki=0.1, kd=0.05),
+                                       material::Symbol = :flexible,
+                                       n_points::Int = 20)
+    
+    n_flags = length(positions)
+    @assert length(lengths) == n_flags && length(widths) == n_flags "Inconsistent array lengths"
+    
+    # Create flexible bodies
+    bodies = FlexibleBody[]
+    
+    for i = 1:n_flags
+        flag = create_flag(positions[i], lengths[i], widths[i];
+                          material = material,
+                          attachment = :fixed_leading_edge,
+                          prescribed_motion = (type=:sinusoidal, 
+                                             amplitude=base_amplitude, 
+                                             frequency=base_frequency),
+                          n_points = n_points,
+                          id = i)
+        
+        push!(bodies, flag)
+    end
+    
+    # Set up phase coordination
+    phase_offsets = zeros(n_flags)
+    if phase_coordination == :synchronized
+        phase_offsets .= 0.0  # All in phase
+    elseif phase_coordination == :alternating
+        for i = 1:n_flags
+            phase_offsets[i] = (i % 2) * π  # Alternating 0, π, 0, π...
+        end
+    elseif phase_coordination == :sequential
+        for i = 1:n_flags
+            phase_offsets[i] = 2π * (i-1) / n_flags  # Evenly distributed phases
+        end
+    end
+    
+    # Create controller
+    controller = FlexibleBodyController(bodies;
+                                       target_distances = target_distances,
+                                       distance_tolerance = distance_tolerance,
+                                       kp = control_gains.kp,
+                                       ki = control_gains.ki,
+                                       kd = control_gains.kd,
+                                       base_frequency = base_frequency,
+                                       max_amplitude = 2.0 * base_amplitude,
+                                       min_amplitude = 0.1 * base_amplitude)
+    
+    # Set phase offsets
+    controller.phase_offsets = phase_offsets
+    
+    # Create collection
+    collection = FlexibleBodyCollection()
+    for body in bodies
+        add_flexible_body!(collection, body)
+    end
+    
+    return collection, controller
+end
+
+"""
+    monitor_distance_control(controller, current_time)
+
+Monitor and report the performance of distance control system.
+"""
+function monitor_distance_control(controller::FlexibleBodyController, current_time::Float64)
+    
+    distances = Dict{String, Float64}()
+    errors = Dict{String, Float64}()
+    amplitudes = Dict{String, Float64}()
+    
+    n = controller.n_bodies
+    
+    for i = 1:n, j = i+1:n
+        # Current distance
+        current_dist = compute_body_distance(controller.bodies[i], controller.bodies[j], :tip)
+        target_dist = controller.target_distances[i, j]
+        error = abs(target_dist - current_dist)
+        
+        # Store for monitoring
+        pair_name = "Flag_$(i)_to_$(j)"
+        distances[pair_name] = current_dist
+        errors[pair_name] = error
+    end
+    
+    # Current amplitudes
+    for i = 1:n
+        amplitudes["Flag_$(i)"] = controller.bodies[i].amplitude
+    end
+    
+    return (time = current_time, distances = distances, errors = errors, amplitudes = amplitudes)
+end
+
+# ============================================================================
 # Convenient Flag-Specific Constructor Functions
 # ============================================================================
 
@@ -1434,3 +1779,8 @@ function apply_boundary_conditions!(body::FlexibleBody, t::Float64)
         
     end
 end
+
+# Control system functions have been moved to separate files:
+# - distance_utilities.jl: Distance measurement functions
+# - flexible_body_controller.jl: PID control system  
+# - coordinated_system_factory.jl: High-level setup functions

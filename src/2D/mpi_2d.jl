@@ -173,12 +173,20 @@ function create_local_arrays_2d(decomp::MPI2DDecomposition, T=Float64)
     return u, v, p
 end
 
-function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition, field::Matrix{Float64})
+function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition, field::Union{Matrix{Float64}, PencilArray})
     """
     Exchange ghost cells with neighboring processes for a cell-centered field.
     Field should be sized (nx_local_with_ghosts, ny_local_with_ghosts).
     """
     
+    # For PencilArrays compatibility, check if field is a PencilArray
+    if isa(field, PencilArray)
+        # Use PencilArrays built-in halo exchange for better performance
+        PencilArrays.exchange_halo!(field)
+        return
+    end
+    
+    # Fallback to manual MPI communication for regular arrays
     requests = MPI.Request[]
     n_ghost = decomp.n_ghost
     nx_g = decomp.nx_local_with_ghosts
@@ -305,11 +313,20 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition, field::Matrix{Floa
     end
 end
 
-function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition, u::Matrix{Float64})
+function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition, u::Union{Matrix{Float64}, PencilArray})
     """
     Exchange ghost cells for u-velocity (staggered in x-direction).
     u should be sized (nx_local_with_ghosts + 1, ny_local_with_ghosts).
     """
+    
+    # For PencilArrays compatibility, check if field is a PencilArray
+    if isa(u, PencilArray)
+        # Use PencilArrays built-in halo exchange for better performance
+        PencilArrays.exchange_halo!(u)
+        return
+    end
+    
+    # Fallback to manual MPI communication for regular arrays
     # Similar implementation but accounting for staggered grid layout
     # u is defined at x-faces, so has one extra point in x-direction
     
@@ -446,11 +463,20 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition, u::Mat
     end
 end
 
-function exchange_ghost_cells_staggered_v_2d!(decomp::MPI2DDecomposition, v::Matrix{Float64})
+function exchange_ghost_cells_staggered_v_2d!(decomp::MPI2DDecomposition, v::Union{Matrix{Float64}, PencilArray})
     """
     Exchange ghost cells for v-velocity (staggered in y-direction).
     v should be sized (nx_local_with_ghosts, ny_local_with_ghosts + 1).
     """
+    
+    # For PencilArrays compatibility, check if field is a PencilArray
+    if isa(v, PencilArray)
+        # Use PencilArrays built-in halo exchange for better performance
+        PencilArrays.exchange_halo!(v)
+        return
+    end
+    
+    # Fallback to manual MPI communication for regular arrays
     # Similar to u but staggered in y-direction
     # Implementation follows similar pattern to u but with y-staggering
     

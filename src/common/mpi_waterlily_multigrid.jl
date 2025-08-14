@@ -383,7 +383,8 @@ Get local interior indices (excluding halos).
 """
 function local_indices_interior(pencil::Pencil, global_size::Tuple{Int,Int})
     # Get local domain excluding halos
-    local_size = size_local(pencil, global_size)
+    # Use PencilArrays.jl correct function
+    local_size = PencilArrays.size_local(pencil)
     nx_local, ny_local = local_size
     
     # Interior points (excluding 1-cell boundary)
@@ -401,7 +402,8 @@ Apply boundary conditions only on domain boundaries.
 function apply_boundary_conditions_mpi!(x::PencilArray{T,2}, pencil::Pencil, 
                                        nx_global::Int, ny_global::Int) where T
     # Check if this process owns global boundaries
-    global_ranges = global_range(pencil)
+    # Use PencilArrays.jl correct function
+    global_ranges = PencilArrays.global_range(pencil)
     i_global, j_global = global_ranges
     
     # Left boundary
@@ -581,7 +583,8 @@ function set_boundary_residuals_zero_mpi!(r::PencilArray{T,2}, pencil::Pencil,
     apply_boundary_conditions_mpi!(r, pencil, nx_global, ny_global)
     
     # Also zero out the boundary values
-    global_ranges = global_range(pencil)
+    # Use PencilArrays.jl correct function
+    global_ranges = PencilArrays.global_range(pencil)
     i_global, j_global = global_ranges
     
     if i_global[1] == 1

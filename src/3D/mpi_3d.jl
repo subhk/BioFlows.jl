@@ -136,7 +136,15 @@ function create_local_grid_3d(decomp::MPI3DDecomposition, Lx::Float64, Ly::Float
     return local_grid
 end
 
-function exchange_ghost_cells_3d!(decomp::MPI3DDecomposition, field::Array{Float64,3})
+function exchange_ghost_cells_3d!(decomp::MPI3DDecomposition, field::Union{Array{Float64,3}, PencilArray})
+    # For PencilArrays compatibility, check if field is a PencilArray
+    if isa(field, PencilArray)
+        # Use PencilArrays built-in halo exchange for better performance
+        PencilArrays.exchange_halo!(field)
+        return
+    end
+    
+    # Fallback to manual MPI communication for regular arrays
     requests = MPI.Request[]
     
     # X-direction exchange (left-right)

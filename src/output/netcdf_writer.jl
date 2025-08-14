@@ -48,7 +48,7 @@ struct NetCDFConfig
     end
 end
 
-struct NetCDFWriter
+mutable struct NetCDFWriter
     filepath::String
     grid::StaggeredGrid
     config::NetCDFConfig
@@ -90,7 +90,7 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
         "nx" => nx,
         "ny" => ny,
         "nz" => nz,
-        "time" => writer.max_snapshots
+        "time" => writer.config.max_snapshots_per_file
     ))
     
     # Define coordinate variables
@@ -102,16 +102,17 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
     NetCDF.defVar(ncfile, "time", Float64, ("time",))
     
     # Define staggered grid coordinates
-    NetCDF.defVar(ncfile, "xu", Float64, ("nx_u",)) where {
-        ncfile.dim["nx_u"] = nx + 1
-    }
-    NetCDF.defVar(ncfile, "yv", Float64, ("ny_v",)) where {
-        ncfile.dim["ny_v"] = ny + 1
-    }
+    # Add staggered dimensions
+    ncfile.dim["nx_u"] = nx + 1
+    ncfile.dim["ny_v"] = ny + 1
     if is_3d
-        NetCDF.defVar(ncfile, "zw", Float64, ("nz_w",)) where {
-            ncfile.dim["nz_w"] = nz + 1
-        }
+        ncfile.dim["nz_w"] = nz + 1
+    end
+    
+    NetCDF.defVar(ncfile, "xu", Float64, ("nx_u",))
+    NetCDF.defVar(ncfile, "yv", Float64, ("ny_v",))
+    if is_3d
+        NetCDF.defVar(ncfile, "zw", Float64, ("nz_w",))
     end
     
     # Define solution variables
@@ -159,9 +160,9 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
         "dx" => writer.grid.dx,
         "dy" => writer.grid.dy,
         "dz" => writer.grid.dz,
-        "max_snapshots" => writer.max_snapshots,
-        "time_interval" => writer.time_interval,
-        "iteration_interval" => writer.iteration_interval
+        "max_snapshots" => writer.config.max_snapshots_per_file,
+        "time_interval" => writer.config.time_interval,
+        "iteration_interval" => writer.config.iteration_interval
     ))
     
     # Store file handle
