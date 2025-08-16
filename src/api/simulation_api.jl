@@ -31,6 +31,7 @@ struct SimulationConfig
     # Bodies (optional)
     rigid_bodies::Union{RigidBodyCollection, Nothing}
     flexible_bodies::Union{FlexibleBodyCollection, Nothing}
+    flexible_body_controller::Union{FlexibleBodyController, Nothing}
     
     # Solver options
     use_mpi::Bool
@@ -153,7 +154,7 @@ function create_2d_simulation_config(;
     return SimulationConfig(
         grid_type, nx, 0, nz, Lx, 0.0, Lz, origin,  # XZ plane: ny=0, Ly=0.0
         fluid, bc, time_scheme_obj, dt, final_time,
-        nothing, nothing,  # No bodies by default
+        nothing, nothing, nothing,  # No bodies or controller by default
         use_mpi, adaptive_refinement, refinement_criteria,
         output_config
     )
@@ -520,6 +521,12 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
         end
         
         if config.flexible_bodies !== nothing
+            # Apply controller if available
+            if config.flexible_body_controller !== nothing
+                # Apply coordinated harmonic boundary conditions with controller
+                apply_harmonic_boundary_conditions!(config.flexible_body_controller, state_new.t, dt)
+            end
+            
             # Update flexible body dynamics using same time scheme as fluid solver
             update_flexible_bodies!(config.flexible_bodies, state_new, solver.grid, dt, solver.time_scheme)
             apply_flexible_body_forcing!(state_new, config.flexible_bodies, solver.grid, dt)
