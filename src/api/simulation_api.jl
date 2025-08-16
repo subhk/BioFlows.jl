@@ -161,6 +161,82 @@ function create_2d_simulation_config(;
 end
 
 """
+    add_flexible_bodies_with_controller!(config::SimulationConfig, 
+                                        bodies::FlexibleBodyCollection,
+                                        controller::FlexibleBodyController)
+
+Add flexible bodies and their controller to simulation configuration.
+
+# Arguments
+- `config::SimulationConfig`: Simulation configuration to modify
+- `bodies::FlexibleBodyCollection`: Collection of flexible bodies
+- `controller::FlexibleBodyController`: Controller for coordinated motion
+"""
+function add_flexible_bodies_with_controller!(config::SimulationConfig, 
+                                            bodies::FlexibleBodyCollection,
+                                            controller::FlexibleBodyController)
+    # Update the configuration with new bodies and controller
+    new_config = SimulationConfig(
+        config.grid_type, config.nx, config.ny, config.nz, 
+        config.Lx, config.Ly, config.Lz, config.origin,
+        config.fluid, config.bc, config.time_scheme, config.dt, config.final_time,
+        config.rigid_bodies, bodies, controller,  # Add flexible bodies and controller
+        config.use_mpi, config.adaptive_refinement, config.refinement_criteria,
+        config.output_config
+    )
+    
+    # Copy fields back to original config (since structs are immutable)
+    # Note: This would require making SimulationConfig mutable, or returning the new config
+    @warn "SimulationConfig is immutable. Consider making it mutable or use the returned configuration."
+    
+    return new_config
+end
+
+"""
+    create_coordinated_flexible_system(flag_configs::Vector, distance_matrix::Matrix{Float64}; kwargs...)
+
+Convenience function to create coordinated flexible body system for use in simulations.
+
+# Arguments
+- `flag_configs::Vector`: Vector of flag configuration NamedTuples
+- `distance_matrix::Matrix{Float64}`: Target distances between flags
+- Additional control options passed to create_coordinated_flag_system
+
+# Returns
+- `FlexibleBodyCollection`: Collection of flags
+- `FlexibleBodyController`: Control system for coordination
+
+# Example
+```julia
+# Create simulation config
+config = create_2d_simulation_config(nx=128, nz=64, Lx=4.0, Lz=2.0)
+
+# Define coordinated flexible system
+flag_configs = [
+    (start_point=[1.0, 1.0], length=0.8, width=0.04, 
+     prescribed_motion=(type=:sinusoidal, amplitude=0.1, frequency=2.0)),
+    (start_point=[2.0, 1.0], length=0.6, width=0.03,
+     prescribed_motion=(type=:sinusoidal, amplitude=0.08, frequency=2.0))
+]
+distance_matrix = [0.0 0.8; 0.8 0.0]
+
+# Create coordinated system
+bodies, controller = create_coordinated_flexible_system(flag_configs, distance_matrix;
+                                                       base_frequency=2.0,
+                                                       kp=0.5, ki=0.1, kd=0.05)
+
+# Add to simulation
+config = add_flexible_bodies_with_controller!(config, bodies, controller)
+
+# Run simulation
+run_simulation(config)
+```
+"""
+function create_coordinated_flexible_system(flag_configs::Vector, distance_matrix::Matrix{Float64}; kwargs...)
+    return create_coordinated_flag_system(flag_configs, distance_matrix; kwargs...)
+end
+
+"""
     create_3d_simulation_config(; kwargs...)
 
 Create configuration for 3D biological flow simulation.
