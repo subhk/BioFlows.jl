@@ -4,9 +4,9 @@
 
 This directory contains a comprehensive adaptive mesh refinement implementation for BioFlow.jl that supports both 2D (XZ plane) and 3D fluid flow simulations. The AMR system is designed to work seamlessly with existing BioFlow.jl solvers while maintaining high performance and accuracy.
 
-## 🎯 Key Features
+## Key Features
 
-### ✅ **COMPLETED & VALIDATED**
+### **COMPLETED & VALIDATED**
 - **2D XZ Plane Support**: Proper coordinate system handling for 2D flows
 - **3D Full Support**: Complete 3D adaptive refinement capabilities  
 - **Type-Stable Implementation**: All operations maintain Julia type stability
@@ -17,7 +17,7 @@ This directory contains a comprehensive adaptive mesh refinement implementation 
 - **Memory Optimized**: Minimal allocations in hot paths
 - **Conservative Methods**: Mass and momentum conservation maintained
 
-## 📁 File Structure
+## File Structure
 
 ```
 src/amr/
@@ -33,7 +33,7 @@ src/amr/
 └── README_AMR.md                   # This documentation
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Basic Usage
 
@@ -86,7 +86,7 @@ amr_solver = create_amr_integrated_solver(mpi_solver, amr_criteria)
 # AMR will automatically handle MPI communication and load balancing
 ```
 
-## 🔧 Core Components
+## Core Components
 
 ### 1. RefinedGrid Structure
 
@@ -106,9 +106,9 @@ end
 ```
 
 **Key Design Decisions:**
-- ✅ Separate 2D/3D dictionaries for type stability
-- ✅ XZ plane coordinates for 2D (consistent with BioFlow.jl)
-- ✅ Pre-computed interpolation weights for efficiency
+- Separate 2D/3D dictionaries for type stability
+- XZ plane coordinates for 2D (consistent with BioFlow.jl)
+- Pre-computed interpolation weights for efficiency
 
 ### 2. Refinement Criteria
 
@@ -126,11 +126,11 @@ end
 ```
 
 **Refinement Indicators:**
-- ✅ Velocity gradient magnitude: `|∇u|²`
-- ✅ Pressure gradient magnitude: `|∇p|²`
-- ✅ Vorticity magnitude: `|∇×u|`
-- ✅ Body proximity: Distance to immersed boundaries
-- ✅ Solution quality: Truncation error estimation
+- Velocity gradient magnitude: `|∇u|²`
+- Pressure gradient magnitude: `|∇p|²`
+- Vorticity magnitude: `|∇×u|`
+- Body proximity: Distance to immersed boundaries
+- Solution quality: Truncation error estimation
 
 ### 3. Coordinate System Handling
 
@@ -145,7 +145,7 @@ end
 - Z: Vertical (nz cells)
 - Velocity: u(x-faces), v(y-faces), w(z-faces), p(cell-centers)
 
-## 🔄 Refinement Process
+## Refinement Process
 
 ### 1. Indicator Computation
 ```julia
@@ -179,7 +179,7 @@ local_state = interpolate_to_refined_grid_2d(refined_grid, base_solution, cell_i
 - Bilinear (2D) or trilinear (3D) interpolation
 - Maintains staggered grid structure
 
-## 🌐 MPI Integration
+## MPI Integration
 
 ### Load Balancing
 - **Automatic Detection**: Monitors computational load per process
@@ -196,16 +196,16 @@ local_state = interpolate_to_refined_grid_2d(refined_grid, base_solution, cell_i
 refined_count = coordinate_global_refinement!(mpi_hierarchy, state, bodies)
 ```
 
-## 📊 Output Integration - **ORIGINAL GRID ONLY**
+## Output Integration - **ORIGINAL GRID ONLY**
 
-### 🚨 **CRITICAL**: Data Saved on Original Grid Resolution Only
+### **CRITICAL**: Data Saved on Original Grid Resolution Only
 
 **The AMR system ensures that ALL output data is saved on the original base grid resolution, never on refined grids.** This design choice provides:
 
-- ✅ **Consistent Visualization**: All output files have the same grid dimensions
-- ✅ **Tool Compatibility**: Works with existing visualization and analysis tools
-- ✅ **Time Series Consistency**: No changing grid sizes between timesteps
-- ✅ **Post-Processing Simplicity**: No need for grid interpolation or regridding
+- **Consistent Visualization**: All output files have the same grid dimensions
+- **Tool Compatibility**: Works with existing visualization and analysis tools
+- **Time Series Consistency**: No changing grid sizes between timesteps
+- **Post-Processing Simplicity**: No need for grid interpolation or regridding
 
 ### How It Works
 
@@ -214,9 +214,9 @@ refined_count = coordinate_global_refinement!(mpi_hierarchy, state, bodies)
 amr_solve_step!(amr_solver, state_new, state_old, dt, bodies)
 
 # BUT: state_new is ALWAYS on original grid dimensions
-@assert size(state_new.u) == (original_nx + 1, original_nz)  # ✅ Original grid
-@assert size(state_new.v) == (original_nx, original_nz + 1)  # ✅ Original grid  
-@assert size(state_new.p) == (original_nx, original_nz)      # ✅ Original grid
+@assert size(state_new.u) == (original_nx + 1, original_nz)  # Original grid
+@assert size(state_new.v) == (original_nx, original_nz + 1)  # Original grid  
+@assert size(state_new.p) == (original_nx, original_nz)      # Original grid
 
 # Output preparation projects AMR data to original grid
 output_state, metadata = prepare_amr_for_netcdf_output(refined_grid, state, "output", step, time)

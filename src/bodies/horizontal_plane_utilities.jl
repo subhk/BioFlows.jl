@@ -344,7 +344,7 @@ Print detailed analysis of horizontal plane configuration.
 function print_horizontal_plane_analysis(flag_configs::Vector, 
                                         target_separations::Dict{Int, Float64} = Dict{Int, Float64}())
     
-    println("\n🏗️  Horizontal Plane Configuration Analysis:")
+    println("\nHorizontal Plane Configuration Analysis:")
     println("   Total flags: $(length(flag_configs))")
     
     # Detect and analyze groups
@@ -389,14 +389,14 @@ function print_horizontal_plane_analysis(flag_configs::Vector,
     # Validation summary
     is_valid, messages = validate_horizontal_plane_configuration(flag_configs, target_separations)
     
-    println("\n   Validation: $(is_valid ? "✅ VALID" : "❌ INVALID")")
+    println("\n   Validation: $(is_valid ? "VALID" : "INVALID")")
     for msg in messages
         if startswith(msg, "ERROR")
-            println("     🔴 $msg")
+            println("     ERROR: $msg")
         elseif startswith(msg, "WARNING")
-            println("     🟡 $msg")
+            println("     WARNING: $msg")
         elseif startswith(msg, "INFO")
-            println("     ℹ️  $msg")
+            println("     INFO: $msg")
         end
     end
 end

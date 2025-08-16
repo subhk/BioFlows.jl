@@ -338,7 +338,7 @@ Print a summary of the coordinated system configuration.
 """
 function print_system_summary(flags::FlexibleBodyCollection, controller::FlexibleBodyController)
     
-    println("\n🎌 Coordinated Flag System Summary:")
+    println("\nCoordinated Flag System Summary:")
     println("   Number of flags: $(flags.n_bodies)")
     println("   Base frequency: $(controller.base_frequency) Hz")
     println("   Phase coordination: $(length(unique(controller.phase_offsets)) == 1 ? "Synchronized" : "Custom")")

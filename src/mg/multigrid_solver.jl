@@ -167,11 +167,11 @@ function show_solver_info(solver::MultigridPoissonSolver)
     println("  Cycle Type: $(solver.cycle_type)")
     
     if solver.solver_type == :mpi_waterlily
-        println("  ✅ Using MPIMultiLevelPoisson (MPI-enabled, high performance)")
+        println("  Using MPIMultiLevelPoisson (MPI-enabled, high performance)")
     elseif solver.solver_type == :staggered
-        println("  ⚡ Using StaggeredMultiLevelPoisson (CFD-optimized, single process)")
+        println("  Using StaggeredMultiLevelPoisson (CFD-optimized, single process)")
     elseif solver.solver_type == :geometric
-        println("  📐 Using GeometricMultigrid.jl (single process fallback)")
+        println("  Using GeometricMultigrid.jl (single process fallback)")
     end
 end
 

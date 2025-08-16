@@ -313,7 +313,7 @@ function print_distance_analysis(bodies::Vector{FlexibleBody},
                                 control_points::Vector{Symbol},
                                 target_distances::Matrix{Float64})
     
-    println("\n📏 Distance Analysis:")
+    println("\nDistance Analysis:")
     println("   Bodies: $(length(bodies))")
     
     current_distances = compute_multi_body_distances(bodies, control_points)
