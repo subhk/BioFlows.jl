@@ -5,6 +5,15 @@ This module ensures that adaptive mesh refinement data can be properly saved
 and visualized using the existing output systems in BioFlow.jl.
 """
 
+# Import NetCDF for metadata integration
+try
+    using NetCDF
+    global HAS_NETCDF = true
+catch
+    global HAS_NETCDF = false
+    println("Warning: NetCDF not available for AMR metadata integration")
+end
+
 """
     project_amr_to_original_grid!(output_state, refined_grid, current_state)
 
@@ -823,18 +832,46 @@ function integrate_amr_with_existing_output!(output_writer, refined_grid::Refine
         println("✅ Output verified: 3D data on original grid ($(base_grid.nx)×$(base_grid.ny)×$(base_grid.nz))")
     end
     
-    # Use existing output writer but with projected state
+    # Use existing NetCDF writer with projected state (guaranteed on original grid)
     # This ensures compatibility with existing visualization and analysis tools
     
-    # Add AMR-specific metadata to output (but data remains on original grid)
+    # Add AMR-specific metadata to NetCDF file attributes
     if hasfield(typeof(output_writer), :metadata)
         merge!(output_writer.metadata, metadata)
+    elseif hasfield(typeof(output_writer), :ncfile) && output_writer.ncfile !== nothing
+        # Add AMR metadata as NetCDF global attributes
+        try
+            for (key, value) in metadata
+                if isa(value, String) || isa(value, Number)
+                    NetCDF.putatt(output_writer.ncfile, "Global", "amr_$key", value)
+                elseif isa(value, Tuple)
+                    NetCDF.putatt(output_writer.ncfile, "Global", "amr_$key", collect(value))
+                end
+            end
+        catch e
+            println("Warning: Could not add AMR metadata to NetCDF file: $e")
+        end
     end
     
-    # Write using existing output system - data is guaranteed to be on original grid
-    # Implementation would depend on the specific output writer type
-    println("📄 AMR solution integrated with output system at step $step, time $time")
-    println("   Data saved on ORIGINAL grid resolution only")
+    # CRITICAL: Call NetCDF writer with projected state on original grid
+    if hasfield(typeof(output_writer), :current_snapshot) && 
+       hasmethod(save_snapshot!, (typeof(output_writer), typeof(output_state), Float64, Int))
+        
+        # Use the existing NetCDF save_snapshot! function
+        success = save_snapshot!(output_writer, output_state, time, step)
+        
+        if success
+            println("✅ AMR data written to NetCDF at step $step, time $time")
+            println("   Data saved on ORIGINAL grid resolution ($(size(output_state.p)))")
+        else
+            println("⚠️  NetCDF save was skipped (save conditions not met)")
+        end
+    else
+        # Fallback for custom output writers
+        println("📄 AMR solution prepared for output system at step $step, time $time")
+        println("   Data ready on ORIGINAL grid resolution only")
+        println("   Note: Call save_snapshot!(output_writer, output_state, time, step) to write to file")
+    end
     
     # Optionally write refinement map for visualization of AMR structure
     if step % 10 == 0  # Save refinement map every 10 steps
