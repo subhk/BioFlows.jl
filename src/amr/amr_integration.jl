@@ -340,10 +340,10 @@ function validate_amr_integration(amr_solver::AMRIntegratedSolver)
     end
     
     if validation_passed
-        println("🎉 All AMR integration tests PASSED!")
+        println("SUCCESS: All AMR integration tests PASSED!")
         print_amr_summary(amr_solver)
     else
-        println("❌ Some AMR integration tests FAILED")
+        println("ERROR: Some AMR integration tests FAILED")
     end
     
     return validation_passed
@@ -465,10 +465,10 @@ function print_amr_summary(amr_solver::AMRIntegratedSolver)
     println("Min grid size: $(amr_solver.amr_criteria.min_grid_size)")
     
     println("\n=== AMR Features Available ===")
-    println("Advanced AMR (v2): $(HAS_ADVANCED_AMR ? "✅" : "❌")")
-    println("MPI AMR: $(HAS_MPI_AMR ? "✅" : "❌")")
-    println("Advanced AMR active: $(amr_solver.amr_hierarchy !== nothing ? "✅" : "❌")")
-    println("MPI AMR active: $(amr_solver.mpi_amr_hierarchy !== nothing ? "✅" : "❌")")
+    println("Advanced AMR (v2): $(HAS_ADVANCED_AMR ? "YES" : "NO")")
+    println("MPI AMR: $(HAS_MPI_AMR ? "YES" : "NO")")
+    println("Advanced AMR active: $(amr_solver.amr_hierarchy !== nothing ? "YES" : "NO")")
+    println("MPI AMR active: $(amr_solver.mpi_amr_hierarchy !== nothing ? "YES" : "NO")")
     
     println("\n=== AMR Statistics ===")
     for (key, value) in amr_solver.amr_statistics

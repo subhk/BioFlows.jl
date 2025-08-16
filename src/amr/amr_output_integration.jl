@@ -98,7 +98,7 @@ function project_2d_refined_to_original!(output_state::SolutionState,
                 project_w_velocity_2d!(output_state, local_solution, local_grid,
                                       i_base, j_base, refinement_level, base_grid)
                 
-                println("✅ Projected refined cell ($i_base, $j_base) level $refinement_level to original grid")
+                println("PROJECTED: Refined cell ($i_base, $j_base) level $refinement_level to original grid")
             end
         end
     end
@@ -493,7 +493,7 @@ function validate_conservation_2d(output_state::SolutionState, refined_grid::Ref
     if avg_mass_error > 1e-10
         @warn "Mass conservation error after AMR projection: $avg_mass_error"
     else
-        println("✅ Mass conservation maintained after AMR projection (error: $avg_mass_error)")
+        println("PASS: Mass conservation maintained after AMR projection (error: $avg_mass_error)")
     end
     
     return avg_mass_error
@@ -828,12 +828,12 @@ function integrate_amr_with_existing_output!(output_writer, refined_grid::Refine
         @assert size(output_state.u) == (base_grid.nx + 1, base_grid.nz) "Output u velocity not on original grid"
         @assert size(output_state.v) == (base_grid.nx, base_grid.nz + 1) "Output v velocity not on original grid"
         @assert size(output_state.p) == (base_grid.nx, base_grid.nz) "Output pressure not on original grid"
-        println("✅ Output verified: 2D data on original grid ($(base_grid.nx)×$(base_grid.nz))")
+        println("VERIFIED: Output 2D data on original grid ($(base_grid.nx)×$(base_grid.nz))")
     else
         @assert size(output_state.u) == (base_grid.nx + 1, base_grid.ny, base_grid.nz) "Output u velocity not on original grid"
         @assert size(output_state.v) == (base_grid.nx, base_grid.ny + 1, base_grid.nz) "Output v velocity not on original grid"
         @assert size(output_state.p) == (base_grid.nx, base_grid.ny, base_grid.nz) "Output pressure not on original grid"
-        println("✅ Output verified: 3D data on original grid ($(base_grid.nx)×$(base_grid.ny)×$(base_grid.nz))")
+        println("VERIFIED: Output 3D data on original grid ($(base_grid.nx)×$(base_grid.ny)×$(base_grid.nz))")
     end
     
     # Use existing NetCDF writer with projected state (guaranteed on original grid)
@@ -852,7 +852,7 @@ function integrate_amr_with_existing_output!(output_writer, refined_grid::Refine
                     NetCDF.putatt(output_writer.ncfile, "Global", "amr_$key", collect(value))
                 end
             end
-            println("📝 Added AMR metadata to NetCDF file")
+            println("INFO: Added AMR metadata to NetCDF file")
         catch e
             println("Warning: Could not add AMR metadata to NetCDF file: $e")
         end
@@ -866,14 +866,14 @@ function integrate_amr_with_existing_output!(output_writer, refined_grid::Refine
         success = save_snapshot!(output_writer, output_state, time, step)
         
         if success
-            println("✅ AMR data written to NetCDF at step $step, time $time")
+            println("SUCCESS: AMR data written to NetCDF at step $step, time $time")
             println("   Data saved on ORIGINAL grid resolution ($(size(output_state.p)))")
         else
-            println("⚠️  NetCDF save was skipped (save conditions not met)")
+            println("WARNING: NetCDF save was skipped (save conditions not met)")
         end
     else
         # Fallback for custom output writers
-        println("📄 AMR solution prepared for output system at step $step, time $time")
+        println("INFO: AMR solution prepared for output system at step $step, time $time")
         println("   Data ready on ORIGINAL grid resolution only")
         println("   Note: Call save_snapshot!(output_writer, output_state, time, step) to write to file")
     end
@@ -909,10 +909,10 @@ function validate_amr_output_consistency(refined_grid::RefinedGrid, state::Solut
         mass_error = abs(original_mass - output_mass) / max(abs(original_mass), 1e-16)
         
         if mass_error > tolerance
-            println("⚠️  Mass conservation error: $mass_error")
+            println("WARNING: Mass conservation error: $mass_error")
             return false
         else
-            println("✅ Mass conservation satisfied (error: $mass_error)")
+            println("PASS: Mass conservation satisfied (error: $mass_error)")
         end
     else
         # Check 3D mass conservation
@@ -923,17 +923,17 @@ function validate_amr_output_consistency(refined_grid::RefinedGrid, state::Solut
         mass_error = abs(original_mass - output_mass) / max(abs(original_mass), 1e-16)
         
         if mass_error > tolerance
-            println("⚠️  Mass conservation error: $mass_error")
+            println("WARNING: Mass conservation error: $mass_error")
             return false
         else
-            println("✅ Mass conservation satisfied (error: $mass_error)")
+            println("PASS: Mass conservation satisfied (error: $mass_error)")
         end
     end
     
     # Check momentum conservation (simplified)
     # Full implementation would check momentum conservation more rigorously
     
-    println("✅ AMR output consistency validation passed")
+    println("PASS: AMR output consistency validation passed")
     return true
 end
 
@@ -951,7 +951,7 @@ This is the main function to use for AMR output to NetCDF files.
 function save_amr_to_netcdf!(netcdf_writer, refined_grid::RefinedGrid, state::SolutionState, 
                             step::Int, time::Float64; bodies=nothing)
     
-    println("🔄 Processing AMR data for NetCDF output (step $step, t=$time)")
+    println("INFO: Processing AMR data for NetCDF output (step $step, t=$time)")
     
     # NOTE: This is the ONLY place where AMR-to-original projection happens!
     # During simulation, the solution always lives on the original grid.
@@ -966,12 +966,12 @@ function save_amr_to_netcdf!(netcdf_writer, refined_grid::RefinedGrid, state::So
         @assert size(output_state.u) == (base_grid.nx + 1, base_grid.nz) "AMR output u not on original grid"
         @assert size(output_state.v) == (base_grid.nx, base_grid.nz + 1) "AMR output v not on original grid" 
         @assert size(output_state.p) == (base_grid.nx, base_grid.nz) "AMR output p not on original grid"
-        println("   ✅ Verified: 2D data on original grid ($(base_grid.nx)×$(base_grid.nz))")
+        println("   VERIFIED: 2D data on original grid ($(base_grid.nx)×$(base_grid.nz))")
     else
         @assert size(output_state.u) == (base_grid.nx + 1, base_grid.ny, base_grid.nz) "AMR output u not on original grid"
         @assert size(output_state.v) == (base_grid.nx, base_grid.ny + 1, base_grid.nz) "AMR output v not on original grid"
         @assert size(output_state.p) == (base_grid.nx, base_grid.ny, base_grid.nz) "AMR output p not on original grid"
-        println("   ✅ Verified: 3D data on original grid ($(base_grid.nx)×$(base_grid.ny)×$(base_grid.nz))")
+        println("   VERIFIED: 3D data on original grid ($(base_grid.nx)×$(base_grid.ny)×$(base_grid.nz))")
     end
     
     # Step 3: Add AMR metadata to NetCDF file
@@ -991,9 +991,9 @@ function save_amr_to_netcdf!(netcdf_writer, refined_grid::RefinedGrid, state::So
                     NetCDF.putatt(netcdf_writer.ncfile, "Global", "amr_$key", collect(value))
                 end
             end
-            println("   📝 AMR metadata added to NetCDF file")
+            println("   INFO: AMR metadata added to NetCDF file")
         catch e
-            println("   ⚠️  Warning: Could not add AMR metadata: $e")
+            println("   WARNING: Could not add AMR metadata: $e")
         end
     end
     
@@ -1001,7 +1001,7 @@ function save_amr_to_netcdf!(netcdf_writer, refined_grid::RefinedGrid, state::So
     success = save_snapshot!(netcdf_writer, output_state, time, step)
     
     if success
-        println("   ✅ AMR flow data written to NetCDF file")
+        println("   SUCCESS: AMR flow data written to NetCDF file")
         
         # Step 5: Save body data if provided
         if bodies !== nothing && hasmethod(save_body_data!, (typeof(netcdf_writer), typeof(bodies), Float64, Int))
