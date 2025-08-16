@@ -1,6 +1,6 @@
 # BioFlows.jl
 
-A comprehensive Julia package for simulating biological flows using computational fluid dynamics with immersed boundary methods.
+A Julia package for simulating biological flows using computational fluid dynamics with immersed boundary methods.
 
 ## Features
 
