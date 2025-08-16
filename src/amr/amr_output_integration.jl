@@ -145,6 +145,69 @@ function get_local_refined_solution_2d(refined_grid::RefinedGrid, cell_idx::Tupl
 end
 
 """
+    get_local_refined_solution_3d(refined_grid, cell_idx, current_state)
+
+Get the local refined solution for a 3D refined cell.
+This is a placeholder that creates local solution by interpolating from base grid.
+In practice, refined solutions would be computed and stored during the solve step.
+"""
+function get_local_refined_solution_3d(refined_grid::RefinedGrid, current_state::SolutionState, 
+                                       cell_idx::Tuple{Int,Int,Int})
+    if !haskey(refined_grid.refined_grids_3d, cell_idx)
+        return nothing
+    end
+    
+    local_grid = refined_grid.refined_grids_3d[cell_idx]
+    i_base, j_base, k_base = cell_idx
+    base_grid = refined_grid.base_grid
+    
+    local_nx, local_ny, local_nz = local_grid.nx, local_grid.ny, local_grid.nz
+    
+    # Create local solution state for 3D
+    local_solution = (
+        u = zeros(local_nx + 1, local_ny, local_nz),      # u at x-faces  
+        v = zeros(local_nx, local_ny + 1, local_nz),      # v at y-faces
+        w = zeros(local_nx, local_ny, local_nz + 1),      # w at z-faces
+        p = zeros(local_nx, local_ny, local_nz)           # p at cell centers
+    )
+    
+    # Get base grid values for interpolation (simplified approach)
+    # In practice, this would use proper interpolation from surrounding cells
+    base_u_val = if i_base <= size(current_state.u, 1) && j_base <= size(current_state.u, 2) && k_base <= size(current_state.u, 3)
+        current_state.u[i_base, j_base, k_base]
+    else
+        0.0
+    end
+    
+    base_v_val = if i_base <= size(current_state.v, 1) && j_base <= size(current_state.v, 2) && k_base <= size(current_state.v, 3)
+        current_state.v[i_base, j_base, k_base]
+    else
+        0.0
+    end
+    
+    base_w_val = if hasfield(typeof(current_state), :w) && current_state.w !== nothing &&
+                    i_base <= size(current_state.w, 1) && j_base <= size(current_state.w, 2) && k_base <= size(current_state.w, 3)
+        current_state.w[i_base, j_base, k_base]
+    else
+        0.0
+    end
+    
+    base_p_val = if i_base <= size(current_state.p, 1) && j_base <= size(current_state.p, 2) && k_base <= size(current_state.p, 3)
+        current_state.p[i_base, j_base, k_base]
+    else
+        0.0
+    end
+    
+    # Fill local arrays with interpolated/refined values
+    fill!(local_solution.u, base_u_val)
+    fill!(local_solution.v, base_v_val)
+    fill!(local_solution.w, base_w_val)
+    fill!(local_solution.p, base_p_val)
+    
+    return local_solution
+end
+
+"""
     project_pressure_2d!(output_state, local_solution, local_grid, i_base, j_base, level, base_grid)
 
 Conservative projection of pressure from refined grid to base grid cell.
@@ -837,6 +900,6 @@ export project_amr_to_original_grid!, prepare_amr_for_netcdf_output
 export project_2d_refined_to_original!, project_3d_refined_to_original!
 export write_amr_refinement_map, integrate_amr_with_existing_output!
 export validate_amr_output_consistency, create_amr_output_metadata
-export validate_conservation_2d, get_local_refined_solution_2d
+export validate_conservation_2d, get_local_refined_solution_2d, get_local_refined_solution_3d
 export project_pressure_2d!, project_x_velocity_2d!, project_w_velocity_2d!
 export write_amr_solution_to_base_grid!  # DEPRECATED - use project_amr_to_original_grid! instead
