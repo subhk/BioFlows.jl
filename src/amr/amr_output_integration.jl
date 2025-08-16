@@ -449,10 +449,36 @@ function project_3d_refined_to_original!(output_state::SolutionState,
             refine_factor = 2^refinement_level
             local_nx, local_ny, local_nz = local_grid.nx, local_grid.ny, local_grid.nz
             
-            # Project 3D refined data back to original base cell
+            # Get local refined solution for this cell
+            local_solution = get_local_refined_solution_3d(refined_grid, current_state, cell_idx)
+            
+            # Project 3D refined data back to original base cell using conservative averaging
             if i_base <= nx && j_base <= ny && k_base <= nz
-                # Conservative averaging would go here
-                # output_state.p[i_base, j_base, k_base] = <averaged refined pressure>
+                # Conservative averaging for pressure (cell-centered scalar)
+                if hasfield(typeof(output_state), :p) && output_state.p !== nothing
+                    total_volume = 0.0
+                    weighted_pressure = 0.0
+                    
+                    for k_local = 1:local_nz, j_local = 1:local_ny, i_local = 1:local_nx
+                        cell_volume = local_grid.dx * local_grid.dy * local_grid.dz
+                        pressure_value = local_solution.p[i_local, j_local, k_local]
+                        
+                        weighted_pressure += pressure_value * cell_volume
+                        total_volume += cell_volume
+                    end
+                    
+                    if total_volume > 0.0
+                        output_state.p[i_base, j_base, k_base] = weighted_pressure / total_volume
+                    end
+                end
+                
+                # Conservative averaging for velocities (face-centered vectors)
+                project_u_velocity_3d!(output_state, local_solution, local_grid, 
+                                      i_base, j_base, k_base, refinement_level, base_grid)
+                project_v_velocity_3d!(output_state, local_solution, local_grid, 
+                                      i_base, j_base, k_base, refinement_level, base_grid)
+                project_w_velocity_3d!(output_state, local_solution, local_grid, 
+                                      i_base, j_base, k_base, refinement_level, base_grid)
             end
             
             println("Projected 3D refined cell ($i_base, $j_base, $k_base) level $refinement_level to original grid")
@@ -812,5 +838,5 @@ export project_2d_refined_to_original!, project_3d_refined_to_original!
 export write_amr_refinement_map, integrate_amr_with_existing_output!
 export validate_amr_output_consistency, create_amr_output_metadata
 export validate_conservation_2d, get_local_refined_solution_2d
-export project_pressure_2d!, project_x_velocity_2d!, project_z_velocity_2d!
+export project_pressure_2d!, project_x_velocity_2d!, project_w_velocity_2d!
 export write_amr_solution_to_base_grid!  # DEPRECATED - use project_amr_to_original_grid! instead
