@@ -13,7 +13,7 @@ GeometricMultigrid = "ec3bce20-3e4b-4d8a-a801-89defc82be1c"
 ParametricBodies = "06905c2e-4b4a-4765-8bb9-c6b6b2b99b1d"
 PencilArrays = "0e08944d-e94e-41b1-9406-dcf66b6a9d2e"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
-NetCDF = "30363a11-5582-574a-9bb0-0cfcb4de2b0e"
+NetCDF = "30363a11-5582-574a-97bb-aa9a979735b9"
 MPI = "da04e1cc-30fd-572f-bb4f-1f8673147195"
 
 
