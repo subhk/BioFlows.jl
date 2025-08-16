@@ -21,7 +21,13 @@ function project_amr_to_original_grid!(output_state::SolutionState,
     if base_grid.grid_type == TwoDimensional
         # Copy base grid data to output (2D XZ plane)
         output_state.u .= current_state.u
-        output_state.v .= current_state.v  # v represents w in XZ plane
+        # FIXED: For 2D XZ plane, we should have w-velocity, not v-velocity
+        if hasfield(typeof(output_state), :w) && output_state.w !== nothing
+            output_state.w .= current_state.w  # w-velocity in z-direction
+        elseif hasfield(typeof(output_state), :v) && hasfield(typeof(current_state), :v)
+            # Fallback: if using v to represent w in XZ plane (legacy compatibility)
+            output_state.v .= current_state.v  # v representing w in XZ plane
+        end
         output_state.p .= current_state.p
         
         # Step 2: Project refined grid data back to original grid resolution
