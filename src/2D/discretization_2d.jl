@@ -61,7 +61,7 @@ function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T},
             u_west = u[i-1, j] + 0.5 * minmod((u[i, j] - u[i-1, j]), (u[i-1, j] - u[i-2, j]))
         else
             # Near boundaries: central difference
-            u_east = 0.5 * (u[i, j] + u[i+1, j]) if i < nx else u[i, j]
+            u_east = i < nx ? 0.5 * (u[i, j] + u[i+1, j]) : u[i, j]
             u_west = 0.5 * (u[i-1, j] + u[i, j])
         end
         
@@ -107,7 +107,7 @@ function advection_2d!(adv_u::Matrix{T}, adv_v::Matrix{T},
             v_south = v[i, j-1] + 0.5 * minmod((v[i, j] - v[i, j-1]), (v[i, j-1] - v[i, j-2]))
         else
             # Near boundaries: central difference
-            v_north = 0.5 * (v[i, j] + v[i, j+1]) if j < nz else v[i, j]
+            v_north = j < nz ? 0.5 * (v[i, j] + v[i, j+1]) : v[i, j]
             v_south = 0.5 * (v[i, j-1] + v[i, j])
         end
         

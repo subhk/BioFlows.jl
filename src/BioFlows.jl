@@ -29,7 +29,8 @@ include("bodies/rigid_bodies.jl")
 # AMR can be included after body types are defined
 include("amr/adaptive_refinement.jl")
 include("amr/adaptive_refinement_v2.jl")
-include("amr/adaptive_refinement_mpi.jl")
+# Temporarily disable MPI AMR to fix dependencies
+# include("amr/adaptive_refinement_mpi.jl")
 include("boundary/boundary_layer_amr.jl")
 include("immersed/immersed_boundary.jl")
 
