@@ -784,6 +784,9 @@ end
 
 # Export AMR output functions - ALL guarantee original grid output
 export project_amr_to_original_grid!, prepare_amr_for_netcdf_output
+export project_2d_refined_to_original!, project_3d_refined_to_original!
 export write_amr_refinement_map, integrate_amr_with_existing_output!
 export validate_amr_output_consistency, create_amr_output_metadata
+export validate_conservation_2d, get_local_refined_solution_2d
+export project_pressure_2d!, project_x_velocity_2d!, project_z_velocity_2d!
 export write_amr_solution_to_base_grid!  # DEPRECATED - use project_amr_to_original_grid! instead
