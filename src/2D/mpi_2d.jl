@@ -47,7 +47,10 @@ struct MPI2DDecomposition <: AbstractMPIDecomposition
     recv_buffers::Dict{Symbol, Vector{Float64}}
 end
 
-function MPI2DDecomposition(nx_global::Int, nz_global::Int, comm::MPI.Comm=MPI.COMM_WORLD; n_ghost::Int=1)
+function MPI2DDecomposition(nx_global::Int, nz_global::Int, 
+                            comm::MPI.Comm=MPI.COMM_WORLD; 
+                            n_ghost::Int=1)
+
     rank = MPI.Comm_rank(comm)
     size = MPI.Comm_size(comm)
     
@@ -128,7 +131,9 @@ function MPI2DDecomposition(nx_global::Int, nz_global::Int, comm::MPI.Comm=MPI.C
                       send_buffers, recv_buffers)
 end
 
-function create_local_grid_2d(decomp::MPI2DDecomposition, Lx::Float64, Lz::Float64)
+function create_local_grid_2d(decomp::MPI2DDecomposition, 
+                            Lx::Float64, Lz::Float64)
+
     # Create local grid for this MPI rank INCLUDING ghost cells
     dx = Lx / decomp.nx_global
     dz = Lz / decomp.nz_global
@@ -160,7 +165,8 @@ This function determines which boundaries of the local domain are physical bound
 and applies the appropriate boundary conditions only to those.
 """
 function apply_physical_boundary_conditions_2d!(decomp::MPI2DDecomposition, grid::StaggeredGrid, 
-                                               state::MPISolutionState2D, bc::BoundaryConditions, t::Float64)
+                                               state::MPISolutionState2D, bc::BoundaryConditions, 
+                                               t::Float64)
     nx_g = decomp.nx_local_with_ghosts
     nz_g = decomp.nz_local_with_ghosts
     n_ghost = decomp.n_ghost
@@ -277,7 +283,9 @@ function create_local_arrays_2d(decomp::MPI2DDecomposition, T=Float64)
     return u, v, p
 end
 
-function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition, field::Union{Matrix{Float64}, PencilArray})
+function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition, 
+                                field::Union{Matrix{Float64}, PencilArray})
+
     """
     Exchange ghost cells with neighboring processes for a cell-centered field.
     Field should be sized (nx_local_with_ghosts, nz_local_with_ghosts).
@@ -347,7 +355,7 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition, field::Union{Matri
         end
         
         # Send and receive
-        req_send = MPI.Isend(decomp.send_buffers[:bottom], decomp.bottom_rank, 2, decomp.comm)
+        req_send = MPI.Isend(decomp.send_buffers[:bottom],  decomp.bottom_rank, 2, decomp.comm)
         req_recv = MPI.Irecv!(decomp.recv_buffers[:bottom], decomp.bottom_rank, 3, decomp.comm)
         push!(requests, req_send, req_recv)
     end
@@ -363,7 +371,7 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition, field::Union{Matri
         end
         
         # Send and receive
-        req_send = MPI.Isend(decomp.send_buffers[:top], decomp.top_rank, 3, decomp.comm)
+        req_send = MPI.Isend(decomp.send_buffers[:top],  decomp.top_rank, 3, decomp.comm)
         req_recv = MPI.Irecv!(decomp.recv_buffers[:top], decomp.top_rank, 2, decomp.comm)
         push!(requests, req_send, req_recv)
     end
@@ -417,7 +425,9 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition, field::Union{Matri
     end
 end
 
-function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition, u::Union{Matrix{Float64}, PencilArray})
+function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition, 
+                                            u::Union{Matrix{Float64}, PencilArray})
+
     """
     OPTIMIZED: Exchange ghost cells for u-velocity (staggered in x-direction).
     u should be sized (nx_local_with_ghosts + 1, nz_local_with_ghosts).
@@ -450,8 +460,8 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition, u::Uni
     # OPTIMIZATION: Pre-allocate persistent buffers if not already done
     buffer_size = n_ghost * (j_end - j_start + 1)
     if !haskey(decomp.send_buffers, :left_u)
-        decomp.send_buffers[:left_u] = zeros(buffer_size)
-        decomp.recv_buffers[:left_u] = zeros(buffer_size)
+        decomp.send_buffers[:left_u]  = zeros(buffer_size)
+        decomp.recv_buffers[:left_u]  = zeros(buffer_size)
         decomp.send_buffers[:right_u] = zeros(buffer_size)
         decomp.recv_buffers[:right_u] = zeros(buffer_size)
     end
@@ -489,7 +499,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition, u::Uni
         end
         
         recv_buffer = zeros(n_ghost * (j_end - j_start + 1))
-        req_send = MPI.Isend(send_buffer, decomp.right_rank, 11, decomp.comm)
+        req_send = MPI.Isend(send_buffer, decomp.right_rank,  11, decomp.comm)
         req_recv = MPI.Irecv!(recv_buffer, decomp.right_rank, 10, decomp.comm)
         push!(requests, req_send, req_recv)
         
@@ -508,7 +518,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition, u::Uni
         end
         
         recv_buffer = zeros(n_ghost * nx_g)
-        req_send = MPI.Isend(send_buffer, decomp.bottom_rank, 12, decomp.comm)
+        req_send = MPI.Isend(send_buffer, decomp.bottom_rank,  12, decomp.comm)
         req_recv = MPI.Irecv!(recv_buffer, decomp.bottom_rank, 13, decomp.comm)
         push!(requests, req_send, req_recv)
         
@@ -526,7 +536,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition, u::Uni
         end
         
         recv_buffer = zeros(n_ghost * nx_g)
-        req_send = MPI.Isend(send_buffer, decomp.top_rank, 13, decomp.comm)
+        req_send = MPI.Isend(send_buffer, decomp.top_rank,  13, decomp.comm)
         req_recv = MPI.Irecv!(recv_buffer, decomp.top_rank, 12, decomp.comm)
         push!(requests, req_send, req_recv)
         
@@ -578,7 +588,8 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition, u::Uni
     end
 end
 
-function exchange_ghost_cells_staggered_v_2d!(decomp::MPI2DDecomposition, v::Union{Matrix{Float64}, PencilArray})
+function exchange_ghost_cells_staggered_v_2d!(decomp::MPI2DDecomposition, 
+                                            v::Union{Matrix{Float64}, PencilArray})
     """
     Exchange ghost cells for v-velocity (staggered in y-direction).
     v should be sized (nx_local_with_ghosts, nz_local_with_ghosts + 1).

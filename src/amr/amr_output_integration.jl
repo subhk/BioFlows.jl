@@ -715,6 +715,10 @@ end
 
 Prepare AMR data for NetCDF output by projecting to ORIGINAL base grid ONLY.
 This ensures all output data is on the original grid resolution for consistent visualization.
+
+IMPORTANT: This function is ONLY called during file output, not during every iteration.
+The main simulation always keeps the solution on the original grid. This function
+optionally enhances the output by incorporating information from refined patches.
 """
 function prepare_amr_for_netcdf_output(refined_grid::RefinedGrid, state::SolutionState,
                                       filename_base::String, step::Int, time::Float64)
@@ -949,7 +953,11 @@ function save_amr_to_netcdf!(netcdf_writer, refined_grid::RefinedGrid, state::So
     
     println("🔄 Processing AMR data for NetCDF output (step $step, t=$time)")
     
-    # Step 1: Project AMR data to original grid
+    # NOTE: This is the ONLY place where AMR-to-original projection happens!
+    # During simulation, the solution always lives on the original grid.
+    # This function projects refined accuracy information back for enhanced output.
+    
+    # Step 1: Project AMR-enhanced data to original grid for output
     output_state, metadata = prepare_amr_for_netcdf_output(refined_grid, state, "amr_flow", step, time)
     
     # Step 2: Verify output is on original grid
