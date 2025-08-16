@@ -1,14 +1,12 @@
 """
 High-Performance Multigrid Solver for Pressure Poisson Equation
 
-This module provides both WaterLily.jl-style multigrid solver and fallback
-to GeometricMultigrid.jl for maximum performance and compatibility.
+This module provides GeometricMultigrid.jl-based multigrid solver with
+fallback to simple iterative solver for maximum compatibility.
 """
 
 using GeometricMultigrid
-include("waterlily_multigrid.jl")
-include("staggered_multigrid.jl")
-include("mpi_waterlily_multigrid.jl")
+# WaterLily-style multigrid implementations removed to eliminate dependency
 
 # Simple fallback iterative solver for when GeometricMultigrid is not available
 struct SimpleIterativeSolver
@@ -28,8 +26,8 @@ function solve!(solver::SimpleIterativeSolver, x::AbstractVector, b::AbstractVec
 end
 
 struct MultigridPoissonSolver
-    mg_solver::Union{Any, MultiLevelPoisson, StaggeredMultiLevelPoisson, MPIMultiLevelPoisson}
-    solver_type::Symbol  # :staggered, :waterlily, :mpi_waterlily, or :geometric
+    mg_solver::Union{Any, SimpleIterativeSolver}  # Simplified: GeometricMultigrid or fallback
+    solver_type::Symbol  # :geometric or :simple
     levels::Int
     max_iterations::Int
     tolerance::Float64
@@ -42,97 +40,19 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
                                max_iterations::Int=100,
                                tolerance::Float64=1e-10,
                                smoother::Symbol=:gauss_seidel,
-                               cycle_type::Symbol=:V,
-                               solver_type::Symbol=:auto,
-                               pencil::Union{Nothing,Pencil}=nothing,
-                               use_mpi::Bool=false,
-                               mpi_comm::MPI.Comm=MPI.COMM_WORLD)
+                               cycle_type::Symbol=:V)
     
-    # Auto-detect solver type based on MPI availability and grid type
-    if solver_type == :auto
-        # Check if MPI is initialized and has multiple processes
-        mpi_available = false
-        try
-            if MPI.Initialized() && MPI.Comm_size(mpi_comm) > 1
-                mpi_available = true
-            end
-        catch
-            # MPI not available or not initialized
-            mpi_available = false
-        end
-        
-        # Override with explicit use_mpi flag
-        if use_mpi
-            mpi_available = true
-        end
-        
-        if mpi_available || pencil !== nothing
-            solver_type = :mpi_waterlily  # PREFER MPI version when available
-        else
-            solver_type = :staggered  # Use staggered grid-aware version for single process
-        end
-    end
-    
-    # Choose solver implementation
-    if solver_type == :staggered
-        # Use staggered grid-aware multigrid (RECOMMENDED for CFD)
-        if grid.grid_type == TwoDimensional
-            mg_solver = StaggeredMultiLevelPoisson(grid, levels; n_smooth=3, tol=tolerance)
-        elseif grid.grid_type == ThreeDimensional
-            # 3D staggered not yet implemented, fall back
-            mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
-            solver_type = :geometric
-        else
-            error("Multigrid not implemented for grid type: $(grid.grid_type)")
-        end
-    elseif solver_type == :mpi_waterlily
-        # Auto-create pencil if not provided
-        if pencil === nothing
-            if grid.grid_type == TwoDimensional
-                # Create 2D pencil for XZ plane
-                pencil = Pencil(mpi_comm, (grid.nx, grid.nz))
-            elseif grid.grid_type == ThreeDimensional
-                # Create 3D pencil
-                pencil = Pencil(mpi_comm, (grid.nx, grid.ny, grid.nz))
-            else
-                error("Cannot create pencil for grid type: $(grid.grid_type)")
-            end
-        end
-        
-        if grid.grid_type == TwoDimensional
-            mg_solver = MPIMultiLevelPoisson{Float64,2,typeof(pencil)}(
-                pencil, grid.nx, grid.nz, grid.dx, grid.dz, levels;  # Use XZ plane for 2D
-                n_smooth=3, tol=tolerance)
-        elseif grid.grid_type == ThreeDimensional
-            # 3D MPI WaterLily multigrid
-            mg_solver = MPIMultiLevelPoisson{Float64,3,typeof(pencil)}(
-                pencil, grid.nx, grid.ny, grid.nz, grid.dx, grid.dy, grid.dz, levels;
-                n_smooth=3, tol=tolerance)
-        else
-            error("Multigrid not implemented for grid type: $(grid.grid_type)")
-        end
-    elseif solver_type == :waterlily
-        if grid.grid_type == TwoDimensional
-            mg_solver = MultiLevelPoisson(grid.nx, grid.nz, grid.dx, grid.dz, levels;  # Use XZ plane for 2D
-                                        n_smooth=3, tol=tolerance)
-        elseif grid.grid_type == ThreeDimensional
-            # For 3D, fall back to GeometricMultigrid.jl for now
-            mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
-            solver_type = :geometric
-        else
-            error("Multigrid not implemented for grid type: $(grid.grid_type)")
-        end
+    # Simplified: Try GeometricMultigrid, fallback to simple solver
+    if grid.grid_type == TwoDimensional
+        mg_solver = setup_multigrid_2d(grid, levels, smoother, cycle_type)
+    elseif grid.grid_type == ThreeDimensional
+        mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
     else
-        # Fallback to GeometricMultigrid.jl
-        if grid.grid_type == TwoDimensional
-            mg_solver = setup_multigrid_2d(grid, levels, smoother, cycle_type)
-        elseif grid.grid_type == ThreeDimensional
-            mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
-        else
-            error("Multigrid not implemented for grid type: $(grid.grid_type)")
-        end
-        solver_type = :geometric
+        error("Multigrid not implemented for grid type: $(grid.grid_type)")
     end
+    
+    # Determine solver type
+    solver_type = mg_solver isa SimpleIterativeSolver ? :simple : :geometric
     
     MultigridPoissonSolver(mg_solver, solver_type, levels, max_iterations, tolerance, smoother, cycle_type)
 end
@@ -316,38 +236,13 @@ end
 function solve_poisson!(solver::MultigridPoissonSolver, phi::Array, rhs::Array, 
                        grid::StaggeredGrid, bc::BoundaryConditions)
     
-    if solver.solver_type == :staggered
-        # Use staggered grid-aware solver
-        if grid.grid_type == TwoDimensional
-            solve_poisson_2d_staggered!(solver, phi, rhs, grid, bc)
-        else
-            error("Staggered 3D solver not yet implemented")
-        end
-    elseif solver.solver_type == :mpi_waterlily
-        # Use MPI WaterLily.jl-style solver  
-        if grid.grid_type == TwoDimensional
-            solve_poisson_2d_mpi_waterlily!(solver, phi, rhs, grid, bc)
-        elseif grid.grid_type == ThreeDimensional
-            solve_poisson_3d_mpi_waterlily!(solver, phi, rhs, grid, bc)
-        else
-            error("MPI WaterLily.jl-style solver not implemented for grid type: $(grid.grid_type)")
-        end
-    elseif solver.solver_type == :waterlily
-        # Use single-node WaterLily.jl-style solver
-        if grid.grid_type == TwoDimensional
-            solve_poisson_2d_waterlily!(solver, phi, rhs, grid, bc)
-        else
-            error("WaterLily.jl-style 3D solver not yet implemented")
-        end
+    # Simplified: Use GeometricMultigrid or simple fallback solver
+    if grid.grid_type == TwoDimensional
+        solve_poisson_2d_mg!(solver, phi, rhs, grid, bc)
+    elseif grid.grid_type == ThreeDimensional
+        solve_poisson_3d_mg!(solver, phi, rhs, grid, bc)
     else
-        # Use GeometricMultigrid.jl solver
-        if grid.grid_type == TwoDimensional
-            solve_poisson_2d_mg!(solver, phi, rhs, grid, bc)
-        elseif grid.grid_type == ThreeDimensional
-            solve_poisson_3d_mg!(solver, phi, rhs, grid, bc)
-        else
-            error("Unsupported grid type for multigrid: $(grid.grid_type)")
-        end
+        error("Unsupported grid type for multigrid: $(grid.grid_type)")
     end
 end
 
