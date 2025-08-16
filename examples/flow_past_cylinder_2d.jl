@@ -189,10 +189,8 @@ function setup_output_configuration()
     @printf "Configured output settings:\n"
     @printf "  Output interval: %.2f s\n" output_config.output_interval
     @printf "  Snapshots per file: %d\n" output_config.max_snapshots_per_file
-    @printf "  Velocity: %s, Pressure: %s, Vorticity: %s\n" 
-            output_config.save_velocity output_config.save_pressure output_config.save_vorticity
-    @printf "  Body forces: %s, Force coefficients: %s\n"
-            output_config.save_body_forces output_config.save_force_coefficients
+    @printf "  Velocity: %s, Pressure: %s, Vorticity: %s\n" output_config.save_velocity output_config.save_pressure output_config.save_vorticity
+    @printf "  Body forces: %s, Force coefficients: %s\n" output_config.save_body_forces output_config.save_force_coefficients
     @printf "  AMR data: %s\n" output_config.save_refinement_level
     
     return output_config
@@ -230,27 +228,27 @@ function run_cylinder_simulation()
     println("="^60)
     
     # Step 1: Create simulation configuration
-    println("\n1. Creating simulation configuration...")
+    println("\n 1. Creating simulation configuration...")
     config = create_cylinder_simulation()
     
     # Step 2: Create cylinder body
-    println("\n2. Creating cylinder body...")
+    println("\n 2. Creating cylinder body...")
     cylinder_bodies = create_cylinder_body()
     
     # Step 3: Setup adaptive mesh refinement
-    println("\n3. Setting up adaptive mesh refinement...")
+    println("\n 3. Setting up adaptive mesh refinement...")
     amr_criteria = setup_adaptive_refinement()
     
     # Step 4: Configure output
-    println("\n4. Configuring output...")
+    println("\n 4. Configuring output...")
     output_config = setup_output_configuration()
     
     # Step 5: Combine everything
-    println("\n5. Combining configuration...")
+    println("\n 5. Combining configuration...")
     final_config = add_bodies_and_amr!(config, cylinder_bodies, amr_criteria)
     
     # Step 6: Run simulation
-    println("\n6. Starting simulation...")
+    println("\n 6. Starting simulation...")
     println("   This may take several minutes...")
     
     start_time = time()
