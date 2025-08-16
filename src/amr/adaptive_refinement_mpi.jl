@@ -107,9 +107,14 @@ Updates global load balancing information across all MPI ranks.
 function update_global_load_info!(mpi_hierarchy::MPIAMRHierarchy)
     # Count local cells at each level
     hierarchy = mpi_hierarchy.local_hierarchy
+    
+    # FIXED: Ensure arrays are properly sized before counting
+    max_levels = length(mpi_hierarchy.local_cell_count)
+    fill!(mpi_hierarchy.local_cell_count, 0)
+    
     mpi_hierarchy.local_cell_count[1] = count_cells_at_level(hierarchy.base_level, 0)
     
-    for level = 1:hierarchy.max_level
+    for level = 1:min(hierarchy.max_level, max_levels-1)
         mpi_hierarchy.local_cell_count[level + 1] = count_cells_at_level(hierarchy.base_level, level)
     end
     
@@ -125,13 +130,28 @@ Recursively counts cells at a specific refinement level.
 """
 function count_cells_at_level(amr_level::AMRLevel, target_level::Int)
     if amr_level.level == target_level
-        return amr_level.nx * amr_level.ny
+        # FIXED: Proper cell counting for 2D and 3D
+        if amr_level.grid_type == TwoDimensional
+            return amr_level.nx * amr_level.nz  # XZ plane
+        else
+            return amr_level.nx * amr_level.ny * amr_level.nz  # 3D
+        end
     elseif amr_level.level < target_level
         # Count cells in children
         total = 0
-        for child in amr_level.children
-            if child !== nothing
-                total += count_cells_at_level(child, target_level)
+        if amr_level.grid_type == TwoDimensional
+            # Iterate over 2D children array
+            for child in amr_level.children
+                if child !== nothing
+                    total += count_cells_at_level(child, target_level)
+                end
+            end
+        else
+            # Iterate over 3D children array
+            for child in amr_level.children
+                if child !== nothing
+                    total += count_cells_at_level(child, target_level)
+                end
             end
         end
         return total

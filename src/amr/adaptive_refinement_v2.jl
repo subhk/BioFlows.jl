@@ -16,65 +16,125 @@ using LinearAlgebra
     
 Represents a single level in the AMR hierarchy with proper staggered grid support.
 """
+# FIXED: Support both 2D (XZ plane) and 3D coordinate systems
 mutable struct AMRLevel
     level::Int                          # Refinement level (0 = base)
     nx::Int                            # Number of cells in x
-    ny::Int                            # Number of cells in y
+    ny::Int                            # Number of cells in y (0 for 2D XZ plane)
+    nz::Int                            # Number of cells in z
     dx::Float64                        # Cell spacing in x
-    dy::Float64                        # Cell spacing in y
+    dy::Float64                        # Cell spacing in y (0.0 for 2D XZ plane)
+    dz::Float64                        # Cell spacing in z
+    
+    # Grid type identifier
+    grid_type::GridType                # TwoDimensional or ThreeDimensional
     
     # Staggered grid coordinates
     x_centers::Vector{Float64}         # Cell center coordinates
-    y_centers::Vector{Float64}
+    y_centers::Vector{Float64}         # For 3D (empty for 2D XZ)
+    z_centers::Vector{Float64}         # Cell center coordinates in z
     x_faces::Vector{Float64}           # x-face coordinates (for u)
-    y_faces::Vector{Float64}           # y-face coordinates (for v)
+    y_faces::Vector{Float64}           # y-face coordinates (for v in 3D, empty for 2D)
+    z_faces::Vector{Float64}           # z-face coordinates (for w in 3D, v in 2D XZ)
     
-    # Solution arrays with proper staggered sizes
-    u::Matrix{Float64}                 # u-velocity (nx+1, ny)
-    v::Matrix{Float64}                 # v-velocity (nx, ny+1)
-    p::Matrix{Float64}                 # pressure (nx, ny)
+    # Solution arrays with proper staggered sizes (unions for 2D/3D)
+    u::Union{Matrix{Float64}, Array{Float64,3}}     # u-velocity 
+    v::Union{Matrix{Float64}, Array{Float64,3}}     # v-velocity (w in XZ plane for 2D)
+    w::Union{Nothing, Array{Float64,3}}             # w-velocity (3D only)
+    p::Union{Matrix{Float64}, Array{Float64,3}}     # pressure
     
     # Refinement flags and relationships
-    needs_refinement::Matrix{Bool}     # Cells marked for refinement
-    children::Matrix{Union{Nothing, AMRLevel}}  # Child levels (2x2 blocks)
+    needs_refinement::Union{Matrix{Bool}, Array{Bool,3}}     # Cells marked for refinement
+    children::Union{Matrix{Union{Nothing, AMRLevel}}, Array{Union{Nothing, AMRLevel},3}}  # Child levels
     parent::Union{Nothing, AMRLevel}   # Parent level
     
     # Grid bounds
     x_min::Float64
     x_max::Float64
-    y_min::Float64
-    y_max::Float64
+    y_min::Float64  # For 3D (0.0 for 2D XZ)
+    y_max::Float64  # For 3D (0.0 for 2D XZ)
+    z_min::Float64
+    z_max::Float64
     
     # MPI information (if applicable)
     mpi_rank::Int
     is_ghost::Bool
 end
 
-function AMRLevel(level::Int, nx::Int, ny::Int, dx::Float64, dy::Float64,
-                 x_min::Float64, y_min::Float64; parent=nothing, mpi_rank=0)
+# FIXED: Separate constructors for 2D XZ plane and 3D
+function AMRLevel(grid_type::GridType, level::Int, nx::Int, nz::Int, 
+                 dx::Float64, dz::Float64, x_min::Float64, z_min::Float64; 
+                 parent=nothing, mpi_rank=0)
+    # 2D XZ plane constructor
+    @assert grid_type == TwoDimensional "Use 3D constructor for ThreeDimensional grids"
+    
+    ny = 0  # No y dimension for 2D XZ plane
+    dy = 0.0
+    y_min = 0.0
+    y_max = 0.0
+    
+    x_max = x_min + nx * dx
+    z_max = z_min + nz * dz
+    
+    # Cell centers
+    x_centers = [x_min + (i-0.5) * dx for i in 1:nx]
+    y_centers = Float64[]  # Empty for 2D XZ
+    z_centers = [z_min + (k-0.5) * dz for k in 1:nz]
+    
+    # Face coordinates for staggered grid (XZ plane)
+    x_faces = [x_min + i * dx for i in 0:nx]
+    y_faces = Float64[]  # Empty for 2D XZ
+    z_faces = [z_min + k * dz for k in 0:nz]
+    
+    # Initialize solution arrays with correct staggered sizes for XZ plane
+    u = zeros(nx+1, nz)      # u at x-faces
+    v = zeros(nx, nz+1)      # v represents w-velocity at z-faces
+    w = nothing              # No w-velocity for 2D
+    p = zeros(nx, nz)        # p at cell centers
+    
+    needs_refinement = falses(nx, nz)
+    children = Matrix{Union{Nothing, AMRLevel}}(nothing, nx, nz)
+    
+    AMRLevel(level, nx, ny, nz, dx, dy, dz, grid_type,
+             x_centers, y_centers, z_centers, x_faces, y_faces, z_faces,
+             u, v, w, p, needs_refinement, children, parent,
+             x_min, x_max, y_min, y_max, z_min, z_max, mpi_rank, false)
+end
+
+function AMRLevel(grid_type::GridType, level::Int, nx::Int, ny::Int, nz::Int,
+                 dx::Float64, dy::Float64, dz::Float64,
+                 x_min::Float64, y_min::Float64, z_min::Float64; 
+                 parent=nothing, mpi_rank=0)
+    # 3D constructor
+    @assert grid_type == ThreeDimensional "Use 2D constructor for TwoDimensional grids"
     
     x_max = x_min + nx * dx
     y_max = y_min + ny * dy
+    z_max = z_min + nz * dz
     
     # Cell centers
     x_centers = [x_min + (i-0.5) * dx for i in 1:nx]
     y_centers = [y_min + (j-0.5) * dy for j in 1:ny]
+    z_centers = [z_min + (k-0.5) * dz for k in 1:nz]
     
     # Face coordinates for staggered grid
     x_faces = [x_min + i * dx for i in 0:nx]
     y_faces = [y_min + j * dy for j in 0:ny]
+    z_faces = [z_min + k * dz for k in 0:nz]
     
-    # Initialize solution arrays with correct staggered sizes
-    u = zeros(nx+1, ny)      # u at x-faces
-    v = zeros(nx, ny+1)      # v at y-faces
-    p = zeros(nx, ny)        # p at cell centers
+    # Initialize solution arrays with correct staggered sizes for 3D
+    u = zeros(nx+1, ny, nz)      # u at x-faces
+    v = zeros(nx, ny+1, nz)      # v at y-faces
+    w = zeros(nx, ny, nz+1)      # w at z-faces
+    p = zeros(nx, ny, nz)        # p at cell centers
     
-    needs_refinement = falses(nx, ny)
-    children = Matrix{Union{Nothing, AMRLevel}}(nothing, nx, ny)
+    needs_refinement = falses(nx, ny, nz)
+    children = Array{Union{Nothing, AMRLevel}}(nothing, nx, ny, nz)
     
-    AMRLevel(level, nx, ny, dx, dy, x_centers, y_centers, x_faces, y_faces,
-             u, v, p, needs_refinement, children, parent,
-             x_min, x_max, y_min, y_max, mpi_rank, false)
+    AMRLevel(level, nx, ny, nz, dx, dy, dz, grid_type,
+             x_centers, y_centers, z_centers, x_faces, y_faces, z_faces,
+             u, v, w, p, needs_refinement, children, parent,
+             x_min, x_max, y_min, y_max, z_min, z_max, mpi_rank, false)
 end
 
 """
@@ -116,18 +176,30 @@ function AMRHierarchy(base_grid::StaggeredGrid;
                      regrid_interval::Int=10,
                      buffer_size::Int=1)
     
-    # Create base AMR level from staggered grid
-    base_level = AMRLevel(0, base_grid.nx, base_grid.ny, 
-                         base_grid.dx, base_grid.dy,
-                         base_grid.x[1] - base_grid.dx/2,
-                         base_grid.y[1] - base_grid.dy/2)
+    # FIXED: Create base AMR level from staggered grid with proper coordinate handling
+    if base_grid.grid_type == TwoDimensional
+        # 2D XZ plane case
+        base_level = AMRLevel(TwoDimensional, 0, base_grid.nx, base_grid.nz,
+                             base_grid.dx, base_grid.dz,
+                             base_grid.x[1] - base_grid.dx/2,
+                             base_grid.z[1] - base_grid.dz/2)
+        total_cells = base_grid.nx * base_grid.nz
+    else
+        # 3D case
+        base_level = AMRLevel(ThreeDimensional, 0, base_grid.nx, base_grid.ny, base_grid.nz,
+                             base_grid.dx, base_grid.dy, base_grid.dz,
+                             base_grid.x[1] - base_grid.dx/2,
+                             base_grid.y[1] - base_grid.dy/2,
+                             base_grid.z[1] - base_grid.dz/2)
+        total_cells = base_grid.nx * base_grid.ny * base_grid.nz
+    end
     
     hierarchy = AMRHierarchy(base_level, max_level, refinement_ratio,
                             velocity_gradient_threshold, pressure_gradient_threshold,
                             vorticity_threshold, body_distance_threshold,
                             regrid_interval, buffer_size,
                             Dict{Int, Any}(), 
-                            base_grid.nx * base_grid.ny, 0, 0)
+                            total_cells, 0, 0)
     
     # Initialize multigrid solvers for base level
     initialize_multigrid_solvers!(hierarchy)
@@ -142,12 +214,24 @@ Creates multigrid solvers for each AMR level.
 """
 function initialize_multigrid_solvers!(hierarchy::AMRHierarchy)
     function create_mg_solver_for_level(amr_level::AMRLevel)
-        # Create staggered grid for this AMR level
-        local_grid = StaggeredGrid2D(amr_level.nx, amr_level.ny,  # ny maps to nz in XZ plane
-                                    amr_level.x_max - amr_level.x_min,
-                                    amr_level.y_max - amr_level.y_min;  # y maps to z in XZ plane
-                                    origin_x=amr_level.x_min,
-                                    origin_z=amr_level.y_min)  # y_min maps to z_min in XZ plane
+        # FIXED: Create staggered grid for this AMR level with proper coordinate handling
+        if amr_level.grid_type == TwoDimensional
+            # 2D XZ plane case
+            local_grid = StaggeredGrid2D(amr_level.nx, amr_level.nz,
+                                        amr_level.x_max - amr_level.x_min,
+                                        amr_level.z_max - amr_level.z_min;
+                                        origin_x=amr_level.x_min,
+                                        origin_z=amr_level.z_min)
+        else
+            # 3D case
+            local_grid = StaggeredGrid3D(amr_level.nx, amr_level.ny, amr_level.nz,
+                                        amr_level.x_max - amr_level.x_min,
+                                        amr_level.y_max - amr_level.y_min,
+                                        amr_level.z_max - amr_level.z_min;
+                                        origin_x=amr_level.x_min,
+                                        origin_y=amr_level.y_min,
+                                        origin_z=amr_level.z_min)
+        end
         
         # Create staggered-aware multigrid solver
         return MultigridPoissonSolver(local_grid; solver_type=:staggered, tolerance=1e-8)
