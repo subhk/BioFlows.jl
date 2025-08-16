@@ -1398,7 +1398,8 @@ end
 
 Update the control system to maintain target distances between bodies.
 """
-function update_controller!(controller::FlexibleBodyController, 
+# Moved to flexible_body_controller.jl
+# function update_controller!(controller::FlexibleBodyController, 
                            current_time::Float64, dt::Float64)
     
     n = controller.n_bodies
