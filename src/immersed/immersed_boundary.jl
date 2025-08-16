@@ -41,7 +41,7 @@ function bodies_mask_2d(bodies::RigidBodyCollection, grid::StaggeredGrid)
         z = grid.z[j]  # Use z coordinate for XZ plane
         
         for body in bodies.bodies
-            if is_inside(body, x, y)
+            if is_inside_xz(body, x, z)  # Use XZ plane for 2D
                 body_mask[i, j] = true
                 break
             end
@@ -72,8 +72,8 @@ function bodies_mask_3d(bodies::RigidBodyCollection, grid::StaggeredGrid)
 end
 
 function compute_distance_function_2d(bodies::RigidBodyCollection, grid::StaggeredGrid)
-    nx, ny = grid.nx, grid.ny
-    distance_function = fill(Inf, nx, ny)
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
+    distance_function = fill(Inf, nx, nz)
     
     for j = 1:nz, i = 1:nx
         x = grid.x[i]
@@ -81,7 +81,7 @@ function compute_distance_function_2d(bodies::RigidBodyCollection, grid::Stagger
         
         min_distance = Inf
         for body in bodies.bodies
-            dist = distance_to_surface(body, x, z)
+            dist = distance_to_surface_xz(body, x, z)  # Use XZ plane version
             if abs(dist) < abs(min_distance)
                 min_distance = dist
             end
@@ -117,10 +117,10 @@ end
 
 function compute_normal_vectors_2d(bodies::RigidBodyCollection, grid::StaggeredGrid, 
                                   distance_function::Matrix{Float64})
-    nx, ny = grid.nx, grid.ny
-    normal_vectors = Array{Vector{Float64}}(undef, nx, ny)
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
+    normal_vectors = Array{Vector{Float64}}(undef, nx, nz)
     
-    for j = 1:ny, i = 1:nx
+    for j = 1:nz, i = 1:nx
         x = grid.x[i]
         z = grid.z[j]  # Use z coordinate for XZ plane
         
@@ -129,7 +129,7 @@ function compute_normal_vectors_2d(bodies::RigidBodyCollection, grid::StaggeredG
         min_distance = Inf
         
         for body in bodies.bodies
-            dist = abs(distance_to_surface(body, x, z))
+            dist = abs(distance_to_surface_xz(body, x, z))  # Use XZ plane version
             if dist < min_distance
                 min_distance = dist
                 closest_body = body
@@ -137,9 +137,9 @@ function compute_normal_vectors_2d(bodies::RigidBodyCollection, grid::StaggeredG
         end
         
         if closest_body !== nothing
-            normal_vectors[i, j] = surface_normal(closest_body, x, y)
+            normal_vectors[i, j] = surface_normal_xz(closest_body, x, z)  # Use XZ plane version
         else
-            normal_vectors[i, j] = [0.0, 0.0]
+            normal_vectors[i, j] = [0.0, 0.0]  # Normal vector in XZ plane
         end
     end
     
@@ -164,45 +164,45 @@ function generate_boundary_points_2d(bodies::RigidBodyCollection, grid::Staggere
     
     for body in bodies.bodies
         if body.shape isa Circle
-            # Generate points around circle circumference
-            n_points = max(16, Int(round(2π * body.shape.radius / min(grid.dx, grid.dy))))
+            # Generate points around circle circumference in XZ plane
+            n_points = max(16, Int(round(2π * body.shape.radius / min(grid.dx, grid.dz))))
             for i = 1:n_points
                 θ = 2π * (i-1) / n_points
                 x = body.center[1] + body.shape.radius * cos(θ + body.angle)
-                y = body.center[2] + body.shape.radius * sin(θ + body.angle)
-                push!(boundary_points, [x, y])
+                z = (length(body.center) > 2 ? body.center[3] : body.center[2]) + body.shape.radius * sin(θ + body.angle)
+                push!(boundary_points, [x, z])  # XZ plane coordinates
             end
         elseif body.shape isa Square
-            # Generate points around square perimeter
+            # Generate points around square perimeter in XZ plane
             side = body.shape.side_length
-            n_per_side = max(4, Int(round(side / min(grid.dx, grid.dy))))
+            n_per_side = max(4, Int(round(side / min(grid.dx, grid.dz))))
             
-            # Four sides of the square
+            # Four sides of the square in XZ plane
             for side_idx = 1:4
                 for i = 1:n_per_side
                     s = (i-1) / n_per_side
-                    local_x, local_y = 0.0, 0.0
+                    local_x, local_z = 0.0, 0.0
                     
-                    if side_idx == 1      # Bottom
+                    if side_idx == 1      # Bottom (in XZ plane)
                         local_x = -side/2 + s*side
-                        local_y = -side/2
+                        local_z = -side/2
                     elseif side_idx == 2  # Right
                         local_x = side/2
-                        local_y = -side/2 + s*side
+                        local_z = -side/2 + s*side
                     elseif side_idx == 3  # Top
                         local_x = side/2 - s*side
-                        local_y = side/2
+                        local_z = side/2
                     else                  # Left
                         local_x = -side/2
-                        local_y = side/2 - s*side
+                        local_z = side/2 - s*side
                     end
                     
-                    # Rotate and translate
+                    # Rotate and translate in XZ plane
                     cos_θ = cos(body.angle)
                     sin_θ = sin(body.angle)
-                    x = body.center[1] + cos_θ * local_x - sin_θ * local_y
-                    y = body.center[2] + sin_θ * local_x + cos_θ * local_y
-                    push!(boundary_points, [x, y])
+                    x = body.center[1] + cos_θ * local_x - sin_θ * local_z
+                    z = (length(body.center) > 2 ? body.center[3] : body.center[2]) + sin_θ * local_x + cos_θ * local_z
+                    push!(boundary_points, [x, z])  # XZ plane coordinates
                 end
             end
         end
@@ -241,22 +241,22 @@ function compute_forcing_points_2d(boundary_points::Vector{Vector{Float64}},
     forcing_points = Vector{Tuple{Vector{Int}, Float64}}()
     
     for bp in boundary_points
-        x, y = bp[1], bp[2]
+        x, z = bp[1], bp[2]  # XZ plane coordinates
         
         # Find surrounding grid cells and compute interpolation weights
         i = searchsortedfirst(grid.x, x)
-        j = searchsortedfirst(grid.y, y)
+        j = searchsortedfirst(grid.z, z)  # Use z coordinate for XZ plane
         
-        if i > 1 && i <= length(grid.x) && j > 1 && j <= length(grid.y)
-            # Bilinear interpolation weights
+        if i > 1 && i <= length(grid.x) && j > 1 && j <= length(grid.z)
+            # Bilinear interpolation weights in XZ plane
             dx = (x - grid.x[i-1]) / grid.dx
-            dy = (y - grid.y[j-1]) / grid.dy
+            dz = (z - grid.z[j-1]) / grid.dz  # Use dz for XZ plane
             
-            # Four surrounding points with weights
-            push!(forcing_points, ([i-1, j-1], (1-dx)*(1-dy)))
-            push!(forcing_points, ([i, j-1], dx*(1-dy)))
-            push!(forcing_points, ([i-1, j], (1-dx)*dy))
-            push!(forcing_points, ([i, j], dx*dy))
+            # Four surrounding points with weights in XZ plane
+            push!(forcing_points, ([i-1, j-1], (1-dx)*(1-dz)))
+            push!(forcing_points, ([i, j-1], dx*(1-dz)))
+            push!(forcing_points, ([i-1, j], (1-dx)*dz))
+            push!(forcing_points, ([i, j], dx*dz))
         end
     end
     
@@ -331,13 +331,14 @@ function apply_flexible_ib_forcing_2d!(state::SolutionState, bodies::FlexibleBod
                                      grid::StaggeredGrid, dt::Float64, δh::Float64)
     """
     Apply IBM forcing for flexible bodies in 2D using force spreading method.
+    For 2D XZ plane: u is x-direction velocity, w is z-direction velocity.
     """
-    nx, ny = grid.nx, grid.ny
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
     
-    # Create force field arrays
-    force_field = Array{Vector{Float64},2}(undef, nx, ny)
-    for j = 1:ny, i = 1:nx
-        force_field[i, j] = [0.0, 0.0]
+    # Create force field arrays for XZ plane
+    force_field = Array{Vector{Float64},2}(undef, nx, nz)
+    for j = 1:nz, i = 1:nx
+        force_field[i, j] = [0.0, 0.0]  # [fx, fz] forces in XZ plane
     end
     
     # Collect Lagrangian positions and forces from all flexible bodies
@@ -346,6 +347,7 @@ function apply_flexible_ib_forcing_2d!(state::SolutionState, bodies::FlexibleBod
     
     for body in bodies.bodies
         for i = 1:body.n_points
+            # For XZ plane: X[i,1] is x-position, X[i,2] is z-position
             push!(lagrangian_positions, [body.X[i, 1], body.X[i, 2]])
             push!(lagrangian_forces, [body.force[i, 1], body.force[i, 2]])
         end
@@ -356,11 +358,13 @@ function apply_flexible_ib_forcing_2d!(state::SolutionState, bodies::FlexibleBod
     
     # Add forces to momentum equations as source terms
     # For staggered grid, interpolate forces to appropriate locations
-    for j = 1:ny, i = 1:nx+1
+    
+    # u-velocity forcing (x-direction)
+    for j = 1:nz, i = 1:nx+1
         if i <= nx
-            # u-velocity forcing at (xu[i], y[j])
+            # u-velocity forcing at (xu[i], z[j])
             x_u = grid.xu[i]
-            y_u = grid.y[j]
+            z_u = grid.z[j]
             
             # Interpolate force from cell centers to u-location
             if i == 1
@@ -373,20 +377,22 @@ function apply_flexible_ib_forcing_2d!(state::SolutionState, bodies::FlexibleBod
         end
     end
     
-    for j = 1:ny+1, i = 1:nx
-        if j <= ny
-            # v-velocity forcing at (x[i], yv[j])
-            x_v = grid.x[i]
-            y_v = grid.yv[j]
+    # w-velocity forcing (z-direction) - note: state.v represents w-velocity in XZ plane
+    for j = 1:nz+1, i = 1:nx
+        if j <= nz
+            # w-velocity forcing at (x[i], zw[j])
+            x_w = grid.x[i]
+            z_w = grid.zw[j]  # Use zw for w-velocity locations
             
-            # Interpolate force from cell centers to v-location
+            # Interpolate force from cell centers to w-location
             if j == 1
-                force_v = force_field[i, j][2]
+                force_w = force_field[i, j][2]
             else
-                force_v = 0.5 * (force_field[i, j-1][2] + force_field[i, j][2])
+                force_w = 0.5 * (force_field[i, j-1][2] + force_field[i, j][2])
             end
             
-            state.v[i, j] += force_v * dt
+            # Apply to w-velocity (represented as state.v in XZ plane)
+            state.v[i, j] += force_w * dt
         end
     end
 end
@@ -426,31 +432,35 @@ end
 function apply_ib_forcing_2d!(state::SolutionState, ib_data::ImmersedBoundaryData,
                              bodies::Union{RigidBodyCollection, FlexibleBodyCollection}, grid::StaggeredGrid, dt::Float64)
     # Direct forcing method: set velocity inside bodies to body velocity
-    for j = 1:grid.ny, i = 1:grid.nx+1
+    # For 2D XZ plane flows
+    
+    # u-velocity forcing (x-direction)
+    for j = 1:grid.nz, i = 1:grid.nx+1
         if i <= grid.nx && ib_data.body_mask[i, j]
             # Find which body this point belongs to
             x = grid.xu[i]  # u-velocity location
-            y = grid.y[j]   # cell center y
+            z = grid.z[j]   # cell center z for XZ plane
             
             for body in bodies.bodies
-                if is_inside(body, x, y)
-                    body_vel = get_body_velocity_at_point(body, x, y)
-                    state.u[i, j] = body_vel[1]
+                if is_inside_xz(body, x, z)  # Use XZ plane version
+                    body_vel = get_body_velocity_at_point_xz(body, x, z)
+                    state.u[i, j] = body_vel[1]  # u-velocity (x-direction)
                     break
                 end
             end
         end
     end
     
-    for j = 1:grid.ny+1, i = 1:grid.nx
-        if j <= grid.ny && ib_data.body_mask[i, j]
+    # w-velocity forcing (z-direction) - represented as state.v in XZ plane
+    for j = 1:grid.nz+1, i = 1:grid.nx
+        if j <= grid.nz && ib_data.body_mask[i, j]
             x = grid.x[i]    # cell center x
-            y = grid.yv[j]   # v-velocity location
+            z = grid.zw[j]   # w-velocity location in z-direction
             
             for body in bodies.bodies
-                if is_inside(body, x, y)
-                    body_vel = get_body_velocity_at_point(body, x, y)
-                    state.v[i, j] = body_vel[2]
+                if is_inside_xz(body, x, z)  # Use XZ plane version
+                    body_vel = get_body_velocity_at_point_xz(body, x, z)
+                    state.v[i, j] = body_vel[2]  # w-velocity (z-direction)
                     break
                 end
             end
@@ -541,41 +551,55 @@ function get_body_velocity_at_point(body::RigidBody, x::Float64, y::Float64, z::
     return [u_body, v_body, w_body]
 end
 
+# XZ plane version for 2D flows
+function get_body_velocity_at_point_xz(body::RigidBody, x::Float64, z::Float64)
+    # For rigid body motion in XZ plane: V = V_center + ω × r
+    dx = x - body.center[1]
+    dz = z - (length(body.center) > 2 ? body.center[3] : body.center[2])  # Use z coordinate
+    
+    # Translational velocity + rotational velocity (rotation about y-axis)
+    u_body = body.velocity[1] + body.angular_velocity * dz  # u + ω × dz
+    w_body = (length(body.velocity) > 2 ? body.velocity[3] : body.velocity[2]) - body.angular_velocity * dx  # w - ω × dx
+    
+    return [u_body, w_body]  # [u, w] velocities in XZ plane
+end
+
 function apply_force_spreading_2d!(force_field::Array{Vector{Float64},2}, 
                                   lagrangian_forces::Vector{Vector{Float64}},
                                   lagrangian_positions::Vector{Vector{Float64}},
                                   grid::StaggeredGrid, δh::Float64)
     """
     Spread Lagrangian forces to Eulerian grid using regularized delta function.
+    For 2D XZ plane flows.
     """
-    nx, ny = size(force_field)
+    nx, nz = size(force_field)  # Use XZ plane dimensions
     
     # Clear force field
-    for j = 1:ny, i = 1:nx
-        force_field[i, j] = [0.0, 0.0]
+    for j = 1:nz, i = 1:nx
+        force_field[i, j] = [0.0, 0.0]  # [fx, fz] for XZ plane
     end
     
     # Spread forces from Lagrangian points to Eulerian grid
     for (pos, force) in zip(lagrangian_positions, lagrangian_forces)
-        x_lag, y_lag = pos[1], pos[2]
-        fx, fy = force[1], force[2]
+        x_lag, z_lag = pos[1], pos[2]  # XZ plane coordinates
+        fx, fz = force[1], force[2]    # XZ plane forces
         
-        # Find influence region
+        # Find influence region in XZ plane
         i_min = max(1, Int(floor((x_lag - 2*δh - grid.x[1]) / grid.dx)) + 1)
         i_max = min(nx, Int(ceil((x_lag + 2*δh - grid.x[1]) / grid.dx)) + 1)
-        j_min = max(1, Int(floor((y_lag - 2*δh - grid.y[1]) / grid.dy)) + 1)
-        j_max = min(ny, Int(ceil((y_lag + 2*δh - grid.y[1]) / grid.dy)) + 1)
+        j_min = max(1, Int(floor((z_lag - 2*δh - grid.z[1]) / grid.dz)) + 1)
+        j_max = min(nz, Int(ceil((z_lag + 2*δh - grid.z[1]) / grid.dz)) + 1)
         
         for j = j_min:j_max, i = i_min:i_max
             x_grid = grid.x[i]
-            y_grid = grid.y[j]
+            z_grid = grid.z[j]  # Use z coordinates for XZ plane
             
-            # Compute delta function value
-            δ_val = regularized_delta_2d(x_lag - x_grid, y_lag - y_grid, δh, grid.dx, grid.dy)
+            # Compute delta function value for XZ plane
+            δ_val = regularized_delta_2d(x_lag - x_grid, z_lag - z_grid, δh, grid.dx, grid.dz)
             
-            # Spread force
-            force_field[i, j][1] += fx * δ_val * grid.dx * grid.dy
-            force_field[i, j][2] += fy * δ_val * grid.dx * grid.dy
+            # Spread force in XZ plane
+            force_field[i, j][1] += fx * δ_val * grid.dx * grid.dz
+            force_field[i, j][2] += fz * δ_val * grid.dx * grid.dz
         end
     end
 end
@@ -623,6 +647,33 @@ function apply_force_spreading_3d!(force_field::Array{Vector{Float64},3},
             force_field[i, j, k][3] += fz * δ_val * vol
         end
     end
+end
+
+function regularized_delta_2d(dx::Float64, dz::Float64, δh::Float64, 
+                             grid_dx::Float64, grid_dz::Float64)
+    """
+    2D regularized delta function (Peskin's 4-point function) for XZ plane.
+    """
+    
+    # Normalize distances by delta width
+    r_x = abs(dx) / δh
+    r_z = abs(dz) / δh
+    
+    # 4-point regularized delta function (1D)
+    function δ_1d(r::Float64)
+        if r <= 1.0
+            return 0.125 * (3 - 2*r + sqrt(1 + 4*r - 4*r^2))
+        elseif r <= 2.0
+            return 0.125 * (5 - 2*r - sqrt(-7 + 12*r - 4*r^2))
+        else
+            return 0.0
+        end
+    end
+    
+    # 2D delta function is product of 1D functions
+    δ_val = δ_1d(r_x) * δ_1d(r_z) / (δh^2)
+    
+    return δ_val
 end
 
 function regularized_delta_3d(dx::Float64, dy::Float64, dz::Float64, δh::Float64, 

@@ -68,6 +68,11 @@ function is_inside(body::RigidBody, x::Float64, y::Float64, z::Float64)
     return is_inside(body.shape, body.center, body.angle, x, y, z)
 end
 
+# XZ plane version for 2D flows
+function is_inside_xz(body::RigidBody, x::Float64, z::Float64)
+    return is_inside_xz(body.shape, body.center, body.angle, x, z)
+end
+
 function is_inside(shape::Circle, center::Vector{Float64}, angle::Float64, x::Float64, y::Float64)
     dx = x - center[1]
     dy = y - center[2]
@@ -103,6 +108,42 @@ function is_inside(shape::Rectangle, center::Vector{Float64}, angle::Float64, x:
     return abs(dx_rot) <= shape.width/2 && abs(dy_rot) <= shape.height/2
 end
 
+# XZ plane versions for 2D flows
+function is_inside_xz(shape::Circle, center::Vector{Float64}, angle::Float64, x::Float64, z::Float64)
+    dx = x - center[1]
+    dz = z - (length(center) > 2 ? center[3] : center[2])  # Use z coordinate from center[3] or center[2]
+    return dx^2 + dz^2 <= shape.radius^2
+end
+
+function is_inside_xz(shape::Square, center::Vector{Float64}, angle::Float64, x::Float64, z::Float64)
+    # Transform to body-centered coordinates with rotation (in XZ plane)
+    cos_θ = cos(angle)
+    sin_θ = sin(angle)
+    
+    dx = x - center[1]
+    dz = z - (length(center) > 2 ? center[3] : center[2])  # Use z coordinate
+    
+    # Rotate coordinates in XZ plane
+    dx_rot = cos_θ * dx + sin_θ * dz
+    dz_rot = -sin_θ * dx + cos_θ * dz
+    
+    half_side = shape.side_length / 2
+    return abs(dx_rot) <= half_side && abs(dz_rot) <= half_side
+end
+
+function is_inside_xz(shape::Rectangle, center::Vector{Float64}, angle::Float64, x::Float64, z::Float64)
+    cos_θ = cos(angle)
+    sin_θ = sin(angle)
+    
+    dx = x - center[1]
+    dz = z - (length(center) > 2 ? center[3] : center[2])  # Use z coordinate
+    
+    dx_rot = cos_θ * dx + sin_θ * dz
+    dz_rot = -sin_θ * dx + cos_θ * dz
+    
+    return abs(dx_rot) <= shape.width/2 && abs(dz_rot) <= shape.height/2
+end
+
 function is_inside(shape::Circle, center::Vector{Float64}, angle::Float64, 
                   x::Float64, y::Float64, z::Float64)
     dx = x - center[1]
@@ -113,6 +154,11 @@ end
 
 function distance_to_surface(body::RigidBody, x::Float64, y::Float64)
     return distance_to_surface(body.shape, body.center, body.angle, x, y)
+end
+
+# XZ plane version for 2D flows
+function distance_to_surface_xz(body::RigidBody, x::Float64, z::Float64)
+    return distance_to_surface_xz(body.shape, body.center, body.angle, x, z)
 end
 
 function distance_to_surface(shape::Circle, center::Vector{Float64}, angle::Float64, 
@@ -151,8 +197,76 @@ function distance_to_surface(shape::Square, center::Vector{Float64}, angle::Floa
     end
 end
 
+# XZ plane distance functions for 2D flows
+function distance_to_surface_xz(shape::Circle, center::Vector{Float64}, angle::Float64, 
+                               x::Float64, z::Float64)
+    dx = x - center[1]
+    dz = z - (length(center) > 2 ? center[3] : center[2])  # Use z coordinate
+    distance_to_center = sqrt(dx^2 + dz^2)
+    return distance_to_center - shape.radius
+end
+
+function distance_to_surface_xz(shape::Square, center::Vector{Float64}, angle::Float64,
+                               x::Float64, z::Float64)
+    cos_θ = cos(angle)
+    sin_θ = sin(angle)
+    
+    dx = x - center[1]
+    dz = z - (length(center) > 2 ? center[3] : center[2])  # Use z coordinate
+    
+    dx_rot = cos_θ * dx + sin_θ * dz
+    dz_rot = -sin_θ * dx + cos_θ * dz
+    
+    half_side = shape.side_length / 2
+    
+    # Distance to closest edge
+    dist_x = abs(dx_rot) - half_side
+    dist_z = abs(dz_rot) - half_side
+    
+    if dist_x <= 0 && dist_z <= 0
+        return max(dist_x, dist_z)  # Inside
+    elseif dist_x > 0 && dist_z <= 0
+        return dist_x
+    elseif dist_x <= 0 && dist_z > 0
+        return dist_z
+    else
+        return sqrt(dist_x^2 + dist_z^2)  # Corner distance
+    end
+end
+
+function distance_to_surface_xz(shape::Rectangle, center::Vector{Float64}, angle::Float64,
+                               x::Float64, z::Float64)
+    cos_θ = cos(angle)
+    sin_θ = sin(angle)
+    
+    dx = x - center[1]
+    dz = z - (length(center) > 2 ? center[3] : center[2])  # Use z coordinate
+    
+    dx_rot = cos_θ * dx + sin_θ * dz
+    dz_rot = -sin_θ * dx + cos_θ * dz
+    
+    # Distance to closest edge
+    dist_x = abs(dx_rot) - shape.width/2
+    dist_z = abs(dz_rot) - shape.height/2
+    
+    if dist_x <= 0 && dist_z <= 0
+        return max(dist_x, dist_z)  # Inside
+    elseif dist_x > 0 && dist_z <= 0
+        return dist_x
+    elseif dist_x <= 0 && dist_z > 0
+        return dist_z
+    else
+        return sqrt(dist_x^2 + dist_z^2)  # Corner distance
+    end
+end
+
 function surface_normal(body::RigidBody, x::Float64, y::Float64)
     return surface_normal(body.shape, body.center, body.angle, x, y)
+end
+
+# XZ plane version for 2D flows
+function surface_normal_xz(body::RigidBody, x::Float64, z::Float64)
+    return surface_normal_xz(body.shape, body.center, body.angle, x, z)
 end
 
 function surface_normal(shape::Circle, center::Vector{Float64}, angle::Float64,
@@ -197,6 +311,83 @@ function surface_normal(shape::Square, center::Vector{Float64}, angle::Float64,
     ny = sin_θ * nx_local + cos_θ * ny_local
     
     return [nx, ny]
+end
+
+# XZ plane surface normal functions for 2D flows
+function surface_normal_xz(shape::Circle, center::Vector{Float64}, angle::Float64,
+                          x::Float64, z::Float64)
+    dx = x - center[1]
+    dz = z - (length(center) > 2 ? center[3] : center[2])  # Use z coordinate
+    distance = sqrt(dx^2 + dz^2)
+    
+    if distance < 1e-12
+        return [1.0, 0.0]  # Arbitrary direction for center point
+    end
+    
+    return [dx/distance, dz/distance]
+end
+
+function surface_normal_xz(shape::Square, center::Vector{Float64}, angle::Float64,
+                          x::Float64, z::Float64)
+    cos_θ = cos(angle)
+    sin_θ = sin(angle)
+    
+    dx = x - center[1]
+    dz = z - (length(center) > 2 ? center[3] : center[2])  # Use z coordinate
+    
+    dx_rot = cos_θ * dx + sin_θ * dz
+    dz_rot = -sin_θ * dx + cos_θ * dz
+    
+    half_side = shape.side_length / 2
+    
+    # Determine which face is closest
+    if abs(dx_rot) - half_side >= abs(dz_rot) - half_side
+        # Closer to vertical faces
+        nx_local = sign(dx_rot)
+        nz_local = 0.0
+    else
+        # Closer to horizontal faces
+        nx_local = 0.0
+        nz_local = sign(dz_rot)
+    end
+    
+    # Rotate normal back to global coordinates
+    nx = cos_θ * nx_local - sin_θ * nz_local
+    nz = sin_θ * nx_local + cos_θ * nz_local
+    
+    return [nx, nz]
+end
+
+function surface_normal_xz(shape::Rectangle, center::Vector{Float64}, angle::Float64,
+                          x::Float64, z::Float64)
+    cos_θ = cos(angle)
+    sin_θ = sin(angle)
+    
+    dx = x - center[1]
+    dz = z - (length(center) > 2 ? center[3] : center[2])  # Use z coordinate
+    
+    dx_rot = cos_θ * dx + sin_θ * dz
+    dz_rot = -sin_θ * dx + cos_θ * dz
+    
+    # Determine which face is closest
+    dist_x = abs(dx_rot) - shape.width/2
+    dist_z = abs(dz_rot) - shape.height/2
+    
+    if dist_x >= dist_z
+        # Closer to vertical faces
+        nx_local = sign(dx_rot)
+        nz_local = 0.0
+    else
+        # Closer to horizontal faces
+        nx_local = 0.0
+        nz_local = sign(dz_rot)
+    end
+    
+    # Rotate normal back to global coordinates
+    nx = cos_θ * nx_local - sin_θ * nz_local
+    nz = sin_θ * nx_local + cos_θ * nz_local
+    
+    return [nx, nz]
 end
 
 function update_body_motion!(body::RigidBody, dt::Float64, forces::Vector{Float64}, torque::Float64)
