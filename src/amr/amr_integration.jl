@@ -293,29 +293,29 @@ function validate_amr_integration(amr_solver::AMRIntegratedSolver)
     # Test 1: Basic AMR functionality
     println("1. Testing basic AMR functionality...")
     if !validate_amr_refinement_algorithms(amr_solver.refined_grid, amr_solver.amr_criteria)
-        println("   ❌ Basic AMR validation failed")
+        println("   FAIL: Basic AMR validation failed")
         validation_passed = false
     else
-        println("   ✅ Basic AMR validation passed")
+        println("   PASS: Basic AMR validation passed")
     end
     
     # Test 2: Solver integration
     println("2. Testing solver integration...")
     if !test_solver_integration(amr_solver)
-        println("   ❌ Solver integration test failed")
+        println("   FAIL: Solver integration test failed")
         validation_passed = false
     else
-        println("   ✅ Solver integration test passed")
+        println("   PASS: Solver integration test passed")
     end
     
     # Test 3: Advanced AMR (if available)
     if HAS_ADVANCED_AMR && amr_solver.amr_hierarchy !== nothing
         println("3. Testing advanced AMR...")
         if !test_advanced_amr_integration(amr_solver)
-            println("   ❌ Advanced AMR test failed")
+            println("   FAIL: Advanced AMR test failed")
             validation_passed = false
         else
-            println("   ✅ Advanced AMR test passed")
+            println("   PASS: Advanced AMR test passed")
         end
     end
     
@@ -323,20 +323,20 @@ function validate_amr_integration(amr_solver::AMRIntegratedSolver)
     if HAS_MPI_AMR && amr_solver.mpi_amr_hierarchy !== nothing
         println("4. Testing MPI AMR...")
         if !test_mpi_amr_integration(amr_solver)
-            println("   ❌ MPI AMR test failed")
+            println("   FAIL: MPI AMR test failed")
             validation_passed = false
         else
-            println("   ✅ MPI AMR test passed")
+            println("   PASS: MPI AMR test passed")
         end
     end
     
     # Test 5: Output integration
     println("5. Testing output integration...")
     if !test_amr_output_integration(amr_solver)
-        println("   ❌ Output integration test failed")
+        println("   FAIL: Output integration test failed")
         validation_passed = false
     else
-        println("   ✅ Output integration test passed")
+        println("   PASS: Output integration test passed")
     end
     
     if validation_passed

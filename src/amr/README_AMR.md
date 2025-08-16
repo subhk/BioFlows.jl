@@ -278,12 +278,12 @@ for step = 1:n_steps
             netcdf_writer, amr_solver.refined_grid, state_new, step, time)
         
         # GUARANTEED: output_state is on original grid
-        println("✅ Saved step $step on original grid ($(base_grid.nx)×$(base_grid.nz))")
+        println("SAVED: Step $step on original grid ($(base_grid.nx)×$(base_grid.nz))")
     end
 end
 ```
 
-## 🔍 Validation & Testing
+## Validation & Testing
 
 ### Comprehensive Test Suite
 ```bash
@@ -291,14 +291,14 @@ julia src/amr/comprehensive_amr_test.jl
 ```
 
 **Tests Include:**
-1. ✅ Basic data structure integrity
-2. ✅ Coordinate system consistency (2D XZ vs 3D)
-3. ✅ Refinement algorithm correctness
-4. ✅ Solver integration compatibility
-5. ✅ Boundary condition handling
-6. ✅ Output system integration
-7. ✅ Performance and memory characteristics
-8. ✅ Type stability validation
+1. Basic data structure integrity
+2. Coordinate system consistency (2D XZ vs 3D)
+3. Refinement algorithm correctness
+4. Solver integration compatibility
+5. Boundary condition handling
+6. Output system integration
+7. Performance and memory characteristics
+8. Type stability validation
 
 ### Validation Functions
 ```julia
@@ -312,7 +312,7 @@ success = test_amr_refinement_coarsening_cycle()
 success = validate_amr_output_consistency(refined_grid, state, output_state)
 ```
 
-## ⚡ Performance Characteristics
+## Performance Characteristics
 
 ### Computational Complexity
 - **Refinement Decision**: O(N) where N = base grid cells
@@ -321,32 +321,32 @@ success = validate_amr_output_consistency(refined_grid, state, output_state)
 - **Memory Usage**: Base grid + O(R × refinement_ratio^d) where d = dimension
 
 ### Scaling Results
-- ✅ **Strong Scaling**: 90% efficiency up to 64+ cores with MPI
-- ✅ **Memory Efficiency**: <10% overhead for typical refinement patterns
-- ✅ **Communication Overhead**: <20% of total time with optimized MPI
-- ✅ **Load Balancing**: >95% efficiency across processor counts
+- **Strong Scaling**: 90% efficiency up to 64+ cores with MPI
+- **Memory Efficiency**: <10% overhead for typical refinement patterns
+- **Communication Overhead**: <20% of total time with optimized MPI
+- **Load Balancing**: >95% efficiency across processor counts
 
-## 🚨 Important Notes
+## Important Notes
 
 ### Coordinate System Consistency
-⚠️ **Critical**: BioFlow.jl uses XZ plane for 2D flows, not XY plane
+**WARNING - Critical**: BioFlow.jl uses XZ plane for 2D flows, not XY plane
 - 2D flows: (x, z) with z as vertical direction
 - All AMR operations respect this convention
 - Velocity components: u(x-direction), v≡w(z-direction)
 
 ### Type Stability
-✅ All AMR operations maintain Julia type stability:
+All AMR operations maintain Julia type stability:
 - Dictionary keys use concrete tuple types
 - No `Any` types in hot paths
 - Separate 2D/3D code paths for optimal performance
 
 ### Conservation Properties
-✅ Mass and momentum conservation maintained:
+Mass and momentum conservation maintained:
 - Conservative restriction operators
 - Consistent boundary condition application
 - Proper ghost cell exchange in MPI
 
-## 🔧 Configuration Options
+## Configuration Options
 
 ### AMR Criteria Tuning
 ```julia
@@ -369,13 +369,13 @@ amr_solver = create_amr_integrated_solver(
 )
 ```
 
-## 📈 Usage Guidelines
+## Usage Guidelines
 
 ### When to Use AMR
-- ✅ **High Reynolds Number Flows**: Resolve boundary layers
-- ✅ **Multi-scale Physics**: Capture vortices and wakes  
-- ✅ **Complex Geometries**: Refine near immersed boundaries
-- ✅ **Transient Phenomena**: Track moving features
+- **High Reynolds Number Flows**: Resolve boundary layers
+- **Multi-scale Physics**: Capture vortices and wakes  
+- **Complex Geometries**: Refine near immersed boundaries
+- **Transient Phenomena**: Track moving features
 
 ### Best Practices
 1. **Start Conservative**: Begin with higher thresholds, refine as needed
@@ -388,15 +388,15 @@ amr_solver = create_amr_integrated_solver(
 - **Load Imbalance**: Decrease `amr_frequency` or adjust criteria
 - **Slow Performance**: Check for type instabilities or excessive refinement
 
-## 🎯 Summary
+## Summary
 
 The AMR implementation in BioFlow.jl provides:
 
-✅ **Robust & Validated**: Comprehensive test suite with 100% pass rate
-✅ **High Performance**: Optimized for both serial and parallel execution  
-✅ **Seamless Integration**: Works with existing solvers and output systems
-✅ **Flexible Configuration**: Tunable criteria for different flow physics
-✅ **Conservation Guaranteed**: Maintains physical correctness
-✅ **Production Ready**: Memory efficient and type-stable implementation
+**Robust & Validated**: Comprehensive test suite with 100% pass rate
+**High Performance**: Optimized for both serial and parallel execution  
+**Seamless Integration**: Works with existing solvers and output systems
+**Flexible Configuration**: Tunable criteria for different flow physics
+**Conservation Guaranteed**: Maintains physical correctness
+**Production Ready**: Memory efficient and type-stable implementation
 
 The adaptive mesh refinement system is **ready for production use** and will significantly improve the efficiency and accuracy of BioFlow.jl simulations, particularly for complex flows with multiple length scales.
