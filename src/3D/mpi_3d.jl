@@ -359,62 +359,6 @@ function gather_global_field_3d(decomp::MPI3DDecomposition, local_field::Array{F
     end
 end
 
-function mpi_solve_poisson_3d!(decomp::MPI3DDecomposition, phi::Array{Float64,3}, rhs::Array{Float64,3},
-                              grid, bc::BoundaryConditions; max_iter::Int=1000, tol::Float64=1e-10)
-    dx, dy, dz = grid.dx, grid.dy, grid.dz
-    nx_local, ny_local, nz_local = decomp.nx_local, decomp.ny_local, decomp.nz_local
-    
-    phi_new = copy(phi)
-    
-    for iter = 1:max_iter
-        # Jacobi iteration for 3D
-        for k = 2:nz_local-1, j = 2:ny_local-1, i = 2:nx_local-1
-            phi_new[i, j, k] = (
-                (phi[i+1, j, k] + phi[i-1, j, k]) / dx^2 + 
-                (phi[i, j+1, k] + phi[i, j-1, k]) / dy^2 +
-                (phi[i, j, k+1] + phi[i, j, k-1]) / dz^2 - 
-                rhs[i, j, k]
-            ) / (2/dx^2 + 2/dy^2 + 2/dz^2)
-        end
-        
-        # Exchange ghost cells
-        exchange_ghost_cells_3d!(decomp, phi_new)
-        
-        # Apply boundary conditions
-        if decomp.left_rank == MPI.MPI_PROC_NULL
-            phi_new[1, :, :] .= phi_new[2, :, :]
-        end
-        if decomp.right_rank == MPI.MPI_PROC_NULL
-            phi_new[nx_local, :, :] .= phi_new[nx_local-1, :, :]
-        end
-        if decomp.bottom_rank == MPI.MPI_PROC_NULL
-            phi_new[:, 1, :] .= phi_new[:, 2, :]
-        end
-        if decomp.top_rank == MPI.MPI_PROC_NULL
-            phi_new[:, ny_local, :] .= phi_new[:, ny_local-1, :]
-        end
-        if decomp.front_rank == MPI.MPI_PROC_NULL
-            phi_new[:, :, 1] .= phi_new[:, :, 2]
-        end
-        if decomp.back_rank == MPI.MPI_PROC_NULL
-            phi_new[:, :, nz_local] .= phi_new[:, :, nz_local-1]
-        end
-        
-        # Check convergence
-        residual = phi_new - phi
-        local_residual_norm = sum(residual.^2)
-        global_residual_norm = sqrt(MPI.Allreduce(local_residual_norm, MPI.SUM, decomp.comm))
-        
-        phi .= phi_new
-        
-        if global_residual_norm < tol
-            if decomp.rank == 0
-                println("MPI 3D Poisson solver converged in $iter iterations, residual: $global_residual_norm")
-            end
-            break
-        end
-    end
-end
 
 struct MPINavierStokesSolver3D <: AbstractSolver
     decomp::MPI3DDecomposition
@@ -474,8 +418,12 @@ function mpi_solve_step_3d!(solver::MPINavierStokesSolver3D, local_state_new::So
                   local_state_predictor.w, solver.local_grid)
     solver.local_rhs_p .*= 1.0 / dt
     
-    mpi_solve_poisson_3d!(decomp, solver.local_phi, solver.local_rhs_p, 
-                         solver.local_grid, solver.bc)
+    # Use MPI multigrid solver (required for optimal performance)
+    if solver.multigrid_solver !== nothing
+        solve!(solver.multigrid_solver, solver.local_phi, solver.local_rhs_p)
+    else
+        error("Multigrid solver required for MPI pressure solution. Create solver with MultigridPoissonSolver.")
+    end
     
     # Step 4: Velocity correction
     correct_velocity_3d!(local_state_new, local_state_predictor, solver.local_phi, dt, solver.local_grid)

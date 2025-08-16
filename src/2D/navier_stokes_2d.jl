@@ -87,8 +87,9 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     # Here you would call your pressure solver:
     # solve_pressure_poisson!(φ, rhs_pressure, grid, bc)
     
-    # For demonstration, use simple iterative solver
-    solve_poisson_simple!(φ, rhs_pressure, grid, bc, max_iter=100)
+    # Use multigrid solver for optimal performance
+    mg_solver = MultigridPoissonSolver(grid)
+    solve_poisson!(mg_solver, φ, rhs_pressure, grid, bc)
     
     # Step 3: Velocity correction
     # u^(n+1) = u* - dt * ∇φ
@@ -125,50 +126,6 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     println("✓ Navier-Stokes step completed cleanly!")
 end
 
-function solve_poisson_simple!(φ::Matrix{T}, rhs::Matrix{T}, grid::StaggeredGrid, 
-                              bc::BoundaryConditions; max_iter::Int=100, tol::Float64=1e-6) where T
-    """
-    Simple iterative Poisson solver for demonstration.
-    In practice, you'd use the multigrid solver.
-    """
-    
-    println("    Solving ∇²φ = rhs with simple iterations...")
-    
-    φ_new = copy(φ)
-    dx, dz = grid.dx, grid.dz  # Use dz for XZ plane
-    factor = 1.0 / (2.0/dx^2 + 2.0/dz^2)  # Use dz for XZ plane
-    
-    for iter = 1:max_iter
-        φ_old = copy(φ_new)
-        
-        # Gauss-Seidel iteration using Laplacian operator
-        lap_φ = laplacian(φ, grid)
-        
-        # Traditional point-wise update for interior
-        for j = 2:grid.nz-1, i = 2:grid.nx-1
-            φ_new[i, j] = factor * (
-                (φ[i+1, j] + φ[i-1, j]) / dx^2 + 
-                (φ[i, j+1] + φ[i, j-1]) / dz^2 -  # Use dz for XZ plane 
-                rhs[i, j]
-            )
-        end
-        
-        # Apply boundary conditions (simplified)
-        φ_new[1, :] .= φ_new[2, :]      # ∂φ/∂n = 0
-        φ_new[end, :] .= φ_new[end-1, :]
-        φ_new[:, 1] .= φ_new[:, 2]
-        φ_new[:, end] .= φ_new[:, end-1]
-        
-        # Check convergence
-        residual = maximum(abs.(φ_new - φ_old))
-        if residual < tol
-            println("    Converged in $iter iterations, residual = $(residual)")
-            break
-        end
-        
-        φ .= φ_new
-    end
-end
 
 function demonstrate_clean_vs_traditional()
     """

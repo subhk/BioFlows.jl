@@ -778,7 +778,8 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D, local_state_new::So
               solver.time_scheme, dt, solver.local_grid, solver.fluid, solver.bc)
     
     # Step 2: Apply boundary conditions to predictor velocity and exchange ghost cells
-    apply_physical_boundary_conditions_2d!(decomp, solver.local_grid, local_state_predictor, solver.bc, local_state_old.t + dt)
+    apply_physical_boundary_conditions_2d!(decomp, solver.local_grid, local_state_predictor, 
+                                        solver.bc, local_state_old.t + dt)
     exchange_ghost_cells_2d!(decomp, local_state_predictor.u)
     exchange_ghost_cells_2d!(decomp, local_state_predictor.v)
     
