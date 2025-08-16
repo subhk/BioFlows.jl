@@ -1,7 +1,7 @@
 using PencilArrays
 using MPI
 
-struct MPI2DDecomposition
+struct MPI2DDecomposition <: AbstractMPIDecomposition
     pencil::Pencil
     comm::MPI.Comm
     rank::Int

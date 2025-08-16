@@ -3,6 +3,7 @@ abstract type AbstractBody end
 abstract type AbstractBoundaryCondition end
 abstract type AbstractTimeStepping end
 abstract type AbstractSolver end
+abstract type AbstractMPIDecomposition end
 
 abstract type DensityModel end
 struct ConstantDensity <: DensityModel
@@ -72,7 +73,7 @@ mutable struct MPISolutionState2D{T<:Real}
     p::Matrix{T}     # pressure with ghost cells (nx_g, nz_g)
     t::T             # current time
     step::Int        # current step
-    decomp::Union{Nothing, Any}  # MPI decomposition info
+    decomp::Union{Nothing, AbstractMPIDecomposition}  # MPI decomposition info
 end
 
 function MPISolutionState2D(decomp, T=Float64)
@@ -96,5 +97,5 @@ mutable struct MPISolutionState3D{T<:Real}
     p::Array{T,3}    # pressure with ghost cells
     t::T             # current time
     step::Int        # current step
-    decomp::Union{Nothing, Any}  # MPI decomposition info
+    decomp::Union{Nothing, AbstractMPIDecomposition}  # MPI decomposition info
 end

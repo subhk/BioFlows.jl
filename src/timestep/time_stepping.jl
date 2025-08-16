@@ -2,7 +2,7 @@ abstract type TimeSteppingScheme <: AbstractTimeStepping end
 
 struct AdamsBashforth <: TimeSteppingScheme
     order::Int
-    history::Vector{Any}
+    history::Vector{Vector{Float64}}
     coefficients::Vector{Float64}
 end
 
@@ -23,7 +23,7 @@ function AdamsBashforth(order::Int=3)
         error("Adams-Bashforth order $order not implemented")
     end
     
-    AdamsBashforth(order, Any[], coeffs)
+    AdamsBashforth(order, Vector{Float64}[], coeffs)
 end
 
 function adams_bashforth_step!(state_new::SolutionState, state_old::SolutionState,

@@ -273,9 +273,42 @@ function interpolate_to_cell_centers(u::Array{T,3}, v::Array{T,3}, w::Array{T,3}
     return u_cc, v_cc, w_cc
 end
 
-# Convenience functions for individual components
-interpolate_u_to_cell_center(u::AbstractArray, grid::StaggeredGrid) = interpolate_to_cell_centers(u, similar(u), grid)[1]
-interpolate_v_to_cell_center(v::AbstractArray, grid::StaggeredGrid) = interpolate_to_cell_centers(similar(v), v, grid)[2]
+# Convenience functions for individual components - optimized versions
+function interpolate_u_to_cell_center(u::Matrix{T}, grid::StaggeredGrid) where T
+    nx, ny = grid.nx, grid.ny
+    u_cc = zeros(T, nx, ny)
+    @inbounds for j = 1:ny, i = 1:nx
+        u_cc[i, j] = 0.5 * (u[i, j] + u[i+1, j])
+    end
+    return u_cc
+end
+
+function interpolate_v_to_cell_center(v::Matrix{T}, grid::StaggeredGrid) where T
+    nx, ny = grid.nx, grid.ny
+    v_cc = zeros(T, nx, ny)
+    @inbounds for j = 1:ny, i = 1:nx
+        v_cc[i, j] = 0.5 * (v[i, j] + v[i, j+1])
+    end
+    return v_cc
+end
+
+function interpolate_u_to_cell_center(u::Array{T,3}, grid::StaggeredGrid) where T
+    nx, ny, nz = grid.nx, grid.ny, grid.nz
+    u_cc = zeros(T, nx, ny, nz)
+    @inbounds for k = 1:nz, j = 1:ny, i = 1:nx
+        u_cc[i, j, k] = 0.5 * (u[i, j, k] + u[i+1, j, k])
+    end
+    return u_cc
+end
+
+function interpolate_v_to_cell_center(v::Array{T,3}, grid::StaggeredGrid) where T
+    nx, ny, nz = grid.nx, grid.ny, grid.nz
+    v_cc = zeros(T, nx, ny, nz)
+    @inbounds for k = 1:nz, j = 1:ny, i = 1:nx
+        v_cc[i, j, k] = 0.5 * (v[i, j, k] + v[i, j+1, k])
+    end
+    return v_cc
+end
 
 # =============================================================================
 # Verification Functions

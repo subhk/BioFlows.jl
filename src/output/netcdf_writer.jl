@@ -57,7 +57,7 @@ mutable struct NetCDFWriter
     current_snapshot::Int
     last_save_time::Float64
     last_save_iteration::Int
-    ncfile::Any  # NetCDF file handle
+    ncfile::Union{Nothing, NetCDF.NcFile}  # NetCDF file handle
     
     function NetCDFWriter(filepath::String, grid::StaggeredGrid, config::NetCDFConfig)
         new(filepath, grid, config, 0, 0.0, 0, nothing)

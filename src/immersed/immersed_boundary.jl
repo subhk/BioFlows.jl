@@ -81,7 +81,7 @@ function compute_distance_function_2d(bodies::RigidBodyCollection, grid::Stagger
         
         min_distance = Inf
         for body in bodies.bodies
-            dist = distance_to_surface(body, x, y)
+            dist = distance_to_surface(body, x, z)
             if abs(dist) < abs(min_distance)
                 min_distance = dist
             end
@@ -120,7 +120,7 @@ function compute_normal_vectors_2d(bodies::RigidBodyCollection, grid::StaggeredG
     nx, ny = grid.nx, grid.ny
     normal_vectors = Array{Vector{Float64}}(undef, nx, ny)
     
-    for j = 1:nz, i = 1:nx
+    for j = 1:ny, i = 1:nx
         x = grid.x[i]
         z = grid.z[j]  # Use z coordinate for XZ plane
         
@@ -129,7 +129,7 @@ function compute_normal_vectors_2d(bodies::RigidBodyCollection, grid::StaggeredG
         min_distance = Inf
         
         for body in bodies.bodies
-            dist = abs(distance_to_surface(body, x, y))
+            dist = abs(distance_to_surface(body, x, z))
             if dist < min_distance
                 min_distance = dist
                 closest_body = body
