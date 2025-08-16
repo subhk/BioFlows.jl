@@ -196,22 +196,91 @@ local_state = interpolate_to_refined_grid_2d(refined_grid, base_solution, cell_i
 refined_count = coordinate_global_refinement!(mpi_hierarchy, state, bodies)
 ```
 
-## 📊 Output Integration
+## 📊 Output Integration - **ORIGINAL GRID ONLY**
 
-### NetCDF Compatibility
+### 🚨 **CRITICAL**: Data Saved on Original Grid Resolution Only
+
+**The AMR system ensures that ALL output data is saved on the original base grid resolution, never on refined grids.** This design choice provides:
+
+- ✅ **Consistent Visualization**: All output files have the same grid dimensions
+- ✅ **Tool Compatibility**: Works with existing visualization and analysis tools
+- ✅ **Time Series Consistency**: No changing grid sizes between timesteps
+- ✅ **Post-Processing Simplicity**: No need for grid interpolation or regridding
+
+### How It Works
+
 ```julia
+# AMR computation uses refined grids internally for accuracy
+amr_solve_step!(amr_solver, state_new, state_old, dt, bodies)
+
+# BUT: state_new is ALWAYS on original grid dimensions
+@assert size(state_new.u) == (original_nx + 1, original_nz)  # ✅ Original grid
+@assert size(state_new.v) == (original_nx, original_nz + 1)  # ✅ Original grid  
+@assert size(state_new.p) == (original_nx, original_nz)      # ✅ Original grid
+
+# Output preparation projects AMR data to original grid
 output_state, metadata = prepare_amr_for_netcdf_output(refined_grid, state, "output", step, time)
+# output_state is guaranteed to be on original grid resolution
 ```
 
-### Refinement Map Visualization
+### NetCDF Output Example
 ```julia
-write_amr_refinement_map(refined_grid, "refinement_map.txt")
+# Create original grid (e.g., 64×48 cells)
+base_grid = StaggeredGrid2D(64, 48, 2.0, 1.5)
+amr_solver = create_amr_integrated_solver(solver, amr_criteria)
+
+# Solve with AMR (internal refinement up to 8x finer)
+amr_solve_step!(amr_solver, state_new, state_old, dt)
+
+# Save data - ALWAYS 64×48 resolution
+output_state, metadata = prepare_amr_for_netcdf_output(amr_solver.refined_grid, state_new, "flow", step, time)
+
+# Verification: output_state dimensions = original grid dimensions
+# size(output_state.u) = (65, 48)   # 64+1 x-faces, 48 cells in z
+# size(output_state.v) = (64, 49)   # 64 cells in x, 48+1 z-faces  
+# size(output_state.p) = (64, 48)   # 64×48 cell centers
+
+save_netcdf("flow_step_$(step).nc", output_state, metadata)
+```
+
+### Refinement Pattern Visualization
+```julia
+# Refinement information saved separately for AMR analysis
+write_amr_refinement_map(refined_grid, "refinement_pattern_step_$(step).txt")
+
+# This file shows which cells were refined and to what level:
+# Format: i j refinement_level
+# 32 24 0    # Base grid cell
+# 33 24 2    # Refined to level 2 (4x finer)
+# 34 24 1    # Refined to level 1 (2x finer)
 ```
 
 ### Metadata Export
 ```julia
 metadata = create_amr_output_metadata(refined_grid)
-# Includes: grid sizes, refinement levels, coordinate system info
+# Includes:
+#   - "output_grid_type": "original_base_grid_only"
+#   - "amr_data_projected": true  
+#   - "base_grid_size": (64, 48)
+#   - "refined_cells_2d": 15
+#   - "coordinate_system": "XZ_plane"
+```
+
+### Complete Output Workflow
+```julia
+# 1. Run AMR simulation
+for step = 1:n_steps
+    amr_solve_step!(amr_solver, state_new, state_old, dt)
+    
+    # 2. Save data every N steps - ALWAYS original grid
+    if step % output_interval == 0
+        output_state = integrate_amr_with_existing_output!(
+            netcdf_writer, amr_solver.refined_grid, state_new, step, time)
+        
+        # GUARANTEED: output_state is on original grid
+        println("✅ Saved step $step on original grid ($(base_grid.nx)×$(base_grid.nz))")
+    end
+end
 ```
 
 ## 🔍 Validation & Testing

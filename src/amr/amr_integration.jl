@@ -160,6 +160,10 @@ function amr_solve_step!(amr_solver::AMRIntegratedSolver,
     
     # Step 6: Update AMR statistics
     update_amr_statistics!(amr_solver)
+    
+    # Step 7: Ensure state_new is on ORIGINAL grid for output consistency
+    # The solver always works on the original grid, refined computation is internal
+    ensure_output_on_original_grid!(amr_solver, state_new)
 end
 
 """
@@ -208,6 +212,43 @@ function update_basic_amr!(amr_solver::AMRIntegratedSolver, state::SolutionState
     # Use basic AMR from adaptive_refinement.jl
     refined_count = adapt_grid!(amr_solver.refined_grid, state, bodies, amr_solver.amr_criteria)
     amr_solver.amr_statistics["total_refinements"] += refined_count
+end
+
+"""
+    ensure_output_on_original_grid!(amr_solver, state)
+
+Ensure that the solution state is on the original base grid for consistent output.
+This is crucial - AMR computation is internal, but output must be on original grid.
+"""
+function ensure_output_on_original_grid!(amr_solver::AMRIntegratedSolver, state::SolutionState)
+    base_grid = amr_solver.refined_grid.base_grid
+    
+    # Verify that state dimensions match original base grid
+    if base_grid.grid_type == TwoDimensional
+        expected_u_size = (base_grid.nx + 1, base_grid.nz)
+        expected_v_size = (base_grid.nx, base_grid.nz + 1)
+        expected_p_size = (base_grid.nx, base_grid.nz)
+        
+        if size(state.u) != expected_u_size || size(state.v) != expected_v_size || size(state.p) != expected_p_size
+            error("AMR solver state is not on original grid! " *
+                  "Expected u:$expected_u_size, v:$expected_v_size, p:$expected_p_size, " *
+                  "got u:$(size(state.u)), v:$(size(state.v)), p:$(size(state.p))")
+        end
+    else
+        expected_u_size = (base_grid.nx + 1, base_grid.ny, base_grid.nz)
+        expected_v_size = (base_grid.nx, base_grid.ny + 1, base_grid.nz)
+        expected_w_size = (base_grid.nx, base_grid.ny, base_grid.nz + 1)
+        expected_p_size = (base_grid.nx, base_grid.ny, base_grid.nz)
+        
+        w_size = hasfield(typeof(state), :w) && state.w !== nothing ? size(state.w) : expected_w_size
+        
+        if size(state.u) != expected_u_size || size(state.v) != expected_v_size || 
+           w_size != expected_w_size || size(state.p) != expected_p_size
+            error("AMR solver state is not on original 3D grid! Check dimensions.")
+        end
+    end
+    
+    # State is verified to be on original grid - ready for output
 end
 
 """

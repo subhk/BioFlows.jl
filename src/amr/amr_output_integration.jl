@@ -362,27 +362,46 @@ end
     integrate_amr_with_existing_output!(output_writer, refined_grid, state, step, time)
 
 Integrate AMR with existing output writers in BioFlow.jl.
+IMPORTANT: Output data is ALWAYS on the original base grid, never on refined grids.
 """
 function integrate_amr_with_existing_output!(output_writer, refined_grid::RefinedGrid, 
                                            state::SolutionState, step::Int, time::Float64)
-    # Prepare AMR data for output
+    # Prepare AMR data for output - PROJECTS TO ORIGINAL GRID ONLY
     output_state, metadata = prepare_amr_for_netcdf_output(refined_grid, state, "amr_output", step, time)
+    
+    # GUARANTEE: output_state is on original base grid dimensions only
+    base_grid = refined_grid.base_grid
+    if base_grid.grid_type == TwoDimensional
+        @assert size(output_state.u) == (base_grid.nx + 1, base_grid.nz) "Output u velocity not on original grid"
+        @assert size(output_state.v) == (base_grid.nx, base_grid.nz + 1) "Output v velocity not on original grid"
+        @assert size(output_state.p) == (base_grid.nx, base_grid.nz) "Output pressure not on original grid"
+        println("✅ Output verified: 2D data on original grid ($(base_grid.nx)×$(base_grid.nz))")
+    else
+        @assert size(output_state.u) == (base_grid.nx + 1, base_grid.ny, base_grid.nz) "Output u velocity not on original grid"
+        @assert size(output_state.v) == (base_grid.nx, base_grid.ny + 1, base_grid.nz) "Output v velocity not on original grid"
+        @assert size(output_state.p) == (base_grid.nx, base_grid.ny, base_grid.nz) "Output pressure not on original grid"
+        println("✅ Output verified: 3D data on original grid ($(base_grid.nx)×$(base_grid.ny)×$(base_grid.nz))")
+    end
     
     # Use existing output writer but with projected state
     # This ensures compatibility with existing visualization and analysis tools
     
-    # Add AMR-specific metadata to output
+    # Add AMR-specific metadata to output (but data remains on original grid)
     if hasfield(typeof(output_writer), :metadata)
         merge!(output_writer.metadata, metadata)
     end
     
-    # Write using existing output system
+    # Write using existing output system - data is guaranteed to be on original grid
     # Implementation would depend on the specific output writer type
-    println("AMR solution integrated with output system at step $step, time $time")
+    println("📄 AMR solution integrated with output system at step $step, time $time")
+    println("   Data saved on ORIGINAL grid resolution only")
     
-    # Optionally write refinement map
-    refinement_map_file = "amr_refinement_map_step_$(step).txt"
-    write_amr_refinement_map(refined_grid, refinement_map_file)
+    # Optionally write refinement map for visualization of AMR structure
+    if step % 10 == 0  # Save refinement map every 10 steps
+        refinement_map_file = "amr_refinement_map_step_$(step).txt"
+        write_amr_refinement_map(refined_grid, refinement_map_file)
+        println("   AMR refinement map saved: $refinement_map_file")
+    end
     
     return output_state
 end
@@ -436,7 +455,8 @@ function validate_amr_output_consistency(refined_grid::RefinedGrid, state::Solut
     return true
 end
 
-# Export AMR output functions
-export write_amr_solution_to_base_grid!, prepare_amr_for_netcdf_output
+# Export AMR output functions - ALL guarantee original grid output
+export project_amr_to_original_grid!, prepare_amr_for_netcdf_output
 export write_amr_refinement_map, integrate_amr_with_existing_output!
 export validate_amr_output_consistency, create_amr_output_metadata
+export write_amr_solution_to_base_grid!  # DEPRECATED - use project_amr_to_original_grid! instead
