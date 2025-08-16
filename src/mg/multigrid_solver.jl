@@ -436,10 +436,16 @@ function solve_poisson_2d_mg!(solver::MultigridPoissonSolver, phi::Matrix, rhs::
     phi_vec = vec(phi)
     rhs_vec = vec(rhs_bc)
     
-    # Solve using GeometricMultigrid.jl
-    solution = GeometricMultigrid.solve(solver.mg_solver, rhs_vec, phi_vec;
-                                       maxiter=solver.max_iterations,
-                                       tolerance=solver.tolerance)
+    # Check if using fallback solver
+    if solver.mg_solver isa SimpleIterativeSolver
+        # Use fallback solver
+        solution = solve!(solver.mg_solver, phi_vec, rhs_vec, nothing)
+    else
+        # Solve using GeometricMultigrid.jl
+        solution = GeometricMultigrid.solve(solver.mg_solver, rhs_vec, phi_vec;
+                                           maxiter=solver.max_iterations,
+                                           tolerance=solver.tolerance)
+    end
     
     # Reshape back to matrix and update phi
     phi .= reshape(solution, size(phi))
@@ -459,10 +465,16 @@ function solve_poisson_3d_mg!(solver::MultigridPoissonSolver, phi::Array{T,3}, r
     phi_vec = vec(phi)
     rhs_vec = vec(rhs_bc)
     
-    # Solve using GeometricMultigrid.jl
-    solution = GeometricMultigrid.solve(solver.mg_solver, rhs_vec, phi_vec;
-                                       maxiter=solver.max_iterations,
-                                       tolerance=solver.tolerance)
+    # Check if using fallback solver
+    if solver.mg_solver isa SimpleIterativeSolver
+        # Use fallback solver
+        solution = solve!(solver.mg_solver, phi_vec, rhs_vec, nothing)
+    else
+        # Solve using GeometricMultigrid.jl
+        solution = GeometricMultigrid.solve(solver.mg_solver, rhs_vec, phi_vec;
+                                           maxiter=solver.max_iterations,
+                                           tolerance=solver.tolerance)
+    end
     
     # Reshape back to 3D array and update phi
     phi .= reshape(solution, size(phi))
