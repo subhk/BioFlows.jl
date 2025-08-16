@@ -933,6 +933,89 @@ function validate_amr_output_consistency(refined_grid::RefinedGrid, state::Solut
     return true
 end
 
+"""
+    save_amr_to_netcdf!(netcdf_writer, refined_grid, state, step, time; bodies=nothing)
+
+Complete AMR-to-NetCDF workflow:
+1. Projects AMR data back to original grid
+2. Adds AMR metadata to NetCDF file
+3. Calls existing NetCDF writer functions
+4. Saves refinement maps separately
+
+This is the main function to use for AMR output to NetCDF files.
+"""
+function save_amr_to_netcdf!(netcdf_writer, refined_grid::RefinedGrid, state::SolutionState, 
+                            step::Int, time::Float64; bodies=nothing)
+    
+    println("🔄 Processing AMR data for NetCDF output (step $step, t=$time)")
+    
+    # Step 1: Project AMR data to original grid
+    output_state, metadata = prepare_amr_for_netcdf_output(refined_grid, state, "amr_flow", step, time)
+    
+    # Step 2: Verify output is on original grid
+    base_grid = refined_grid.base_grid
+    if base_grid.grid_type == TwoDimensional
+        @assert size(output_state.u) == (base_grid.nx + 1, base_grid.nz) "AMR output u not on original grid"
+        @assert size(output_state.v) == (base_grid.nx, base_grid.nz + 1) "AMR output v not on original grid" 
+        @assert size(output_state.p) == (base_grid.nx, base_grid.nz) "AMR output p not on original grid"
+        println("   ✅ Verified: 2D data on original grid ($(base_grid.nx)×$(base_grid.nz))")
+    else
+        @assert size(output_state.u) == (base_grid.nx + 1, base_grid.ny, base_grid.nz) "AMR output u not on original grid"
+        @assert size(output_state.v) == (base_grid.nx, base_grid.ny + 1, base_grid.nz) "AMR output v not on original grid"
+        @assert size(output_state.p) == (base_grid.nx, base_grid.ny, base_grid.nz) "AMR output p not on original grid"
+        println("   ✅ Verified: 3D data on original grid ($(base_grid.nx)×$(base_grid.ny)×$(base_grid.nz))")
+    end
+    
+    # Step 3: Add AMR metadata to NetCDF file
+    if HAS_NETCDF && hasfield(typeof(netcdf_writer), :ncfile) && netcdf_writer.ncfile !== nothing
+        try
+            # Add core AMR metadata
+            NetCDF.putatt(netcdf_writer.ncfile, "Global", "amr_enabled", true)
+            NetCDF.putatt(netcdf_writer.ncfile, "Global", "amr_output_grid", "original_base_grid_only")
+            NetCDF.putatt(netcdf_writer.ncfile, "Global", "amr_coordinate_system", 
+                         base_grid.grid_type == TwoDimensional ? "XZ_plane" : "XYZ_3D")
+            
+            # Add detailed metadata
+            for (key, value) in metadata
+                if isa(value, String) || isa(value, Number) || isa(value, Bool)
+                    NetCDF.putatt(netcdf_writer.ncfile, "Global", "amr_$key", value)
+                elseif isa(value, Tuple) && length(value) <= 10  # Reasonable size limit
+                    NetCDF.putatt(netcdf_writer.ncfile, "Global", "amr_$key", collect(value))
+                end
+            end
+            println("   📝 AMR metadata added to NetCDF file")
+        catch e
+            println("   ⚠️  Warning: Could not add AMR metadata: $e")
+        end
+    end
+    
+    # Step 4: Save using existing NetCDF writer
+    success = save_snapshot!(netcdf_writer, output_state, time, step)
+    
+    if success
+        println("   ✅ AMR flow data written to NetCDF file")
+        
+        # Step 5: Save body data if provided
+        if bodies !== nothing && hasmethod(save_body_data!, (typeof(netcdf_writer), typeof(bodies), Float64, Int))
+            save_body_data!(netcdf_writer, bodies, time, step)
+            println("   ✅ AMR body data written to NetCDF file")
+        end
+        
+    else
+        println("   ⚠️  NetCDF save skipped (save conditions not met)")
+    end
+    
+    # Step 6: Save refinement map for AMR visualization
+    if step % 10 == 0  # Every 10 steps to avoid too many files
+        refinement_file = "amr_refinement_step_$(lpad(step, 6, '0')).txt"
+        write_amr_refinement_map(refined_grid, refinement_file)
+        println("   🗺️  AMR refinement map: $refinement_file")
+    end
+    
+    println("🎯 AMR-NetCDF output completed for step $step")
+    return output_state, success
+end
+
 # Export AMR output functions - ALL guarantee original grid output
 export project_amr_to_original_grid!, prepare_amr_for_netcdf_output
 export project_2d_refined_to_original!, project_3d_refined_to_original!
@@ -940,4 +1023,5 @@ export write_amr_refinement_map, integrate_amr_with_existing_output!
 export validate_amr_output_consistency, create_amr_output_metadata
 export validate_conservation_2d, get_local_refined_solution_2d, get_local_refined_solution_3d
 export project_pressure_2d!, project_x_velocity_2d!, project_w_velocity_2d!
+export save_amr_to_netcdf!  # MAIN FUNCTION: Complete AMR-to-NetCDF workflow
 export write_amr_solution_to_base_grid!  # DEPRECATED - use project_amr_to_original_grid! instead
