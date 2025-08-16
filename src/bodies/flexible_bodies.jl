@@ -1351,83 +1351,8 @@ function compute_instantaneous_power(body::FlexibleBody, grid::StaggeredGrid,
 end
 
 # ============================================================================
-# Harmonic Oscillation Control System for Multiple Flexible Bodies
+# Distance Control Functions (FlexibleBodyController is in flexible_body_controller.jl)
 # ============================================================================
-
-"""
-    FlexibleBodyController
-
-Controller for coordinating multiple flexible bodies with harmonic oscillations
-while maintaining constant distances between them.
-"""
-mutable struct FlexibleBodyController
-    # Bodies being controlled
-    bodies::Vector{FlexibleBody}
-    n_bodies::Int
-    
-    # Control parameters
-    target_distances::Matrix{Float64}      # Target distances between bodies [i,j]
-    distance_tolerance::Float64            # Acceptable distance variation
-    
-    # PID control parameters for each body pair
-    kp::Float64                           # Proportional gain
-    ki::Float64                           # Integral gain  
-    kd::Float64                           # Derivative gain
-    
-    # Control state variables
-    error_integral::Matrix{Float64}        # Accumulated error [i,j]
-    error_previous::Matrix{Float64}        # Previous error [i,j]
-    
-    # Harmonic parameters
-    base_frequency::Float64               # Base oscillation frequency
-    phase_offsets::Vector{Float64}        # Phase offset for each body
-    
-    # Adaptation parameters
-    max_amplitude::Float64                # Maximum allowed amplitude
-    min_amplitude::Float64                # Minimum allowed amplitude
-    adaptation_rate::Float64              # Rate of amplitude adjustment
-    
-    # Measurement settings
-    measurement_points::Vector{Symbol}    # :tip, :center, :quarter, etc.
-    
-    function FlexibleBodyController(bodies::Vector{FlexibleBody};
-                                   target_distances::Union{Matrix{Float64}, Nothing} = nothing,
-                                   distance_tolerance::Float64 = 0.05,
-                                   kp::Float64 = 1.0,
-                                   ki::Float64 = 0.1,
-                                   kd::Float64 = 0.05,
-                                   base_frequency::Float64 = 2.0,
-                                   max_amplitude::Float64 = 0.3,
-                                   min_amplitude::Float64 = 0.01,
-                                   adaptation_rate::Float64 = 0.1,
-                                   measurement_points::Vector{Symbol} = [:tip])
-        
-        n_bodies = length(bodies)
-        
-        # Initialize target distances if not provided
-        if target_distances === nothing
-            target_distances = zeros(n_bodies, n_bodies)
-            # Set initial target distances based on current positions
-            for i = 1:n_bodies, j = i+1:n_bodies
-                dist = compute_body_distance(bodies[i], bodies[j], :tip)
-                target_distances[i, j] = dist
-                target_distances[j, i] = dist
-            end
-        end
-        
-        # Initialize control matrices
-        error_integral = zeros(n_bodies, n_bodies)
-        error_previous = zeros(n_bodies, n_bodies)
-        
-        # Initialize phase offsets (evenly spaced)
-        phase_offsets = [2π * (i-1) / n_bodies for i = 1:n_bodies]
-        
-        new(bodies, n_bodies, target_distances, distance_tolerance,
-            kp, ki, kd, error_integral, error_previous,
-            base_frequency, phase_offsets, max_amplitude, min_amplitude, 
-            adaptation_rate, measurement_points)
-    end
-end
 
 """
     compute_body_distance(body1, body2, measurement_point)

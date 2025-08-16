@@ -3,7 +3,11 @@ Distance Measurement Utilities
 
 This module provides functions for measuring distances between flexible bodies
 and other geometric utilities needed for the control system.
+"""
 
+using Printf
+
+"""
 Functions:
 - compute_body_distance: Main distance calculation function
 - get_body_point: Extract specific points from flexible bodies
