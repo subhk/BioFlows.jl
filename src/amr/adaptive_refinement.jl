@@ -1,3 +1,6 @@
+# Temporary dummy type for FlexibleBodyCollection until circular dependencies are fixed
+struct FlexibleBodyCollection end
+
 struct AdaptiveRefinementCriteria
     velocity_gradient_threshold::Float64
     pressure_gradient_threshold::Float64
