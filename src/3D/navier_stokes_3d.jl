@@ -69,7 +69,10 @@ function NavierStokesSolver3D(grid::StaggeredGrid, fluid::FluidProperties,
     phi = zeros(nx, ny, nz)
     rhs_p = zeros(nx, ny, nz)
     
-    NavierStokesSolver3D(grid, fluid, bc, time_scheme, nothing, pressure_correction,
+    # Create multigrid solver for optimal performance
+    mg_solver = MultigridPoissonSolver(grid)
+    
+    NavierStokesSolver3D(grid, fluid, bc, time_scheme, mg_solver, pressure_correction,
                         u_star, v_star, w_star, phi, rhs_p)
 end
 
@@ -105,7 +108,12 @@ function solve_projection_step_3d!(solver::NavierStokesSolver3D, state_new::Solu
     divergence_3d!(solver.rhs_p, state_predictor.u, state_predictor.v, state_predictor.w, grid)
     solver.rhs_p .*= 1.0 / dt
     
-    solve_pressure_poisson_3d!(solver.phi, solver.rhs_p, grid, bc)
+    # Use multigrid solver for optimal performance
+    if solver.multigrid_solver !== nothing
+        solve_poisson!(solver.multigrid_solver, solver.phi, solver.rhs_p, grid, bc)
+    else
+        error("Multigrid solver required for pressure solution. Create solver with MultigridPoissonSolver.")
+    end
     
     # Step 4: Velocity correction
     correct_velocity_3d!(state_new, state_predictor, solver.phi, dt, grid)
@@ -145,40 +153,6 @@ function compute_predictor_rhs_3d(state::SolutionState, grid::StaggeredGrid,
     return (u = rhs_u, v = rhs_v, w = rhs_w)
 end
 
-function solve_pressure_poisson_3d!(phi::Array{Float64,3}, rhs::Array{Float64,3},
-                                   grid::StaggeredGrid, bc::BoundaryConditions)
-    # Placeholder for multigrid solver
-    nx, ny, nz = grid.nx, grid.ny, grid.nz
-    dx, dy, dz = grid.dx, grid.dy, grid.dz
-    
-    phi .= 0.0
-    
-    # Simple iterative solver (placeholder)
-    for iter = 1:1000
-        phi_old = copy(phi)
-        
-        for k = 2:nz-1, j = 2:ny-1, i = 2:nx-1
-            phi[i,j,k] = (
-                (phi[i+1,j,k] + phi[i-1,j,k]) / dx^2 + 
-                (phi[i,j+1,k] + phi[i,j-1,k]) / dy^2 +
-                (phi[i,j,k+1] + phi[i,j,k-1]) / dz^2 - 
-                rhs[i,j,k]
-            ) / (2/dx^2 + 2/dy^2 + 2/dz^2)
-        end
-        
-        # Apply boundary conditions (homogeneous Neumann)
-        phi[1, :, :] .= phi[2, :, :]
-        phi[nx, :, :] .= phi[nx-1, :, :]
-        phi[:, 1, :] .= phi[:, 2, :]
-        phi[:, ny, :] .= phi[:, ny-1, :]
-        phi[:, :, 1] .= phi[:, :, 2]
-        phi[:, :, nz] .= phi[:, :, nz-1]
-        
-        if maximum(abs.(phi - phi_old)) < 1e-10
-            break
-        end
-    end
-end
 
 function correct_velocity_3d!(state_new::SolutionState, state_predictor::SolutionState,
                              phi::Array{Float64,3}, dt::Float64, grid::StaggeredGrid)

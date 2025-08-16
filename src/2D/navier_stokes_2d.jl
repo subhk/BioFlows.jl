@@ -246,7 +246,10 @@ function NavierStokesSolver2D(grid::StaggeredGrid, fluid::FluidProperties,
     phi = zeros(nx, nz)
     rhs_p = zeros(nx, nz)
     
-    NavierStokesSolver2D(grid, fluid, bc, time_scheme, nothing, pressure_correction,
+    # Create multigrid solver for optimal performance
+    mg_solver = MultigridPoissonSolver(grid)
+    
+    NavierStokesSolver2D(grid, fluid, bc, time_scheme, mg_solver, pressure_correction,
                         u_star, v_star, phi, rhs_p)
 end
 
