@@ -152,11 +152,8 @@ export validate_horizontal_plane_configuration, print_horizontal_plane_analysis
 # Force coefficient calculation functions  
 export compute_drag_lift_coefficients, compute_body_coefficients_collection, compute_instantaneous_power
 
-# WaterLily.jl-style multigrid solver exports
-export MultiLevelPoisson, StaggeredMultiLevelPoisson, MPIMultiLevelPoisson
-export solve_poisson!, solve_staggered_poisson!, solve_poisson_mpi!
-export v_cycle!, staggered_v_cycle!, v_cycle_mpi!, MultigridPoissonSolver
-export create_mpi_multigrid_solver, show_solver_info  # Convenience functions for MPI multigrid
+# Simplified multigrid solver exports (WaterLily-style solvers removed)
+export MultigridPoissonSolver, solve_poisson!, show_solver_info
 export compute_pressure_gradient_to_faces!, compute_velocity_divergence_from_faces!
 
 end
