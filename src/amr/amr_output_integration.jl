@@ -838,7 +838,7 @@ function integrate_amr_with_existing_output!(output_writer, refined_grid::Refine
     # Add AMR-specific metadata to NetCDF file attributes
     if hasfield(typeof(output_writer), :metadata)
         merge!(output_writer.metadata, metadata)
-    elseif hasfield(typeof(output_writer), :ncfile) && output_writer.ncfile !== nothing
+    elseif HAS_NETCDF && hasfield(typeof(output_writer), :ncfile) && output_writer.ncfile !== nothing
         # Add AMR metadata as NetCDF global attributes
         try
             for (key, value) in metadata
@@ -848,6 +848,7 @@ function integrate_amr_with_existing_output!(output_writer, refined_grid::Refine
                     NetCDF.putatt(output_writer.ncfile, "Global", "amr_$key", collect(value))
                 end
             end
+            println("📝 Added AMR metadata to NetCDF file")
         catch e
             println("Warning: Could not add AMR metadata to NetCDF file: $e")
         end
