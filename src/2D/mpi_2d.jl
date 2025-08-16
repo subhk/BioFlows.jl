@@ -724,62 +724,6 @@ function compute_global_norm_2d(decomp::MPI2DDecomposition, local_field::Matrix{
     return sqrt(global_norm_sq)
 end
 
-function mpi_solve_poisson_2d!(decomp::MPI2DDecomposition, phi::Matrix{Float64}, rhs::Matrix{Float64},
-                              grid, bc::BoundaryConditions; max_iter::Int=1000, tol::Float64=1e-10)
-    # Parallel iterative solver for pressure Poisson equation
-    # Using Jacobi iterations with MPI communication
-    
-    dx, dz = grid.dx, grid.dz  # Use dz for XZ plane
-    nx_local, nz_local = decomp.nx_local, decomp.nz_local
-    
-    phi_new = copy(phi)
-    
-    for iter = 1:max_iter
-        # Jacobi iteration
-        for j = 2:nz_local-1, i = 2:nx_local-1
-            phi_new[i, j] = 0.25 * (
-                (phi[i+1, j] + phi[i-1, j]) / dx^2 + 
-                (phi[i, j+1] + phi[i, j-1]) / dy^2 - 
-                rhs[i, j]
-            ) / (1/dx^2 + 1/dy^2)
-        end
-        
-        # Exchange ghost cells
-        exchange_ghost_cells_2d!(decomp, phi_new)
-        
-        # Apply boundary conditions (simplified)
-        # Left boundary
-        if decomp.left_rank == MPI.MPI_PROC_NULL
-            phi_new[1, :] .= phi_new[2, :]
-        end
-        # Right boundary
-        if decomp.right_rank == MPI.MPI_PROC_NULL
-            phi_new[nx_local, :] .= phi_new[nx_local-1, :]
-        end
-        # Bottom boundary
-        if decomp.bottom_rank == MPI.MPI_PROC_NULL
-            phi_new[:, 1] .= phi_new[:, 2]
-        end
-        # Top boundary
-        if decomp.top_rank == MPI.MPI_PROC_NULL
-            phi_new[:, nz_local] .= phi_new[:, nz_local-1]
-        end
-        
-        # Check convergence
-        residual = phi_new - phi
-        local_residual_norm = sum(residual.^2)
-        global_residual_norm = sqrt(mpi_allreduce_2d(decomp, local_residual_norm, MPI.SUM))
-        
-        phi .= phi_new
-        
-        if global_residual_norm < tol
-            if decomp.rank == 0
-                println("MPI Poisson solver converged in $iter iterations, residual: $global_residual_norm")
-            end
-            break
-        end
-    end
-end
 
 struct MPINavierStokesSolver2D <: AbstractSolver
     decomp::MPI2DDecomposition
@@ -813,13 +757,8 @@ function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int, Lx::Float64, Lz
     local_phi = zeros(nx_local, nz_local)
     local_rhs_p = zeros(nx_local, nz_local)
     
-    # Create MPI multigrid solver - this will automatically use MPIMultiLevelPoisson
-    try
-        multigrid_solver = MultigridPoissonSolver(local_grid; use_mpi=true, mpi_comm=comm)
-    catch e
-        @warn "Failed to create MPI multigrid solver: $e. Falling back to iterative solver."
-        multigrid_solver = nothing
-    end
+    # Create MPI multigrid solver - REQUIRED for optimal performance
+    multigrid_solver = MultigridPoissonSolver(local_grid; use_mpi=true, mpi_comm=comm)
     
     MPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme, multigrid_solver,
                            local_u_star, local_v_star, local_phi, local_rhs_p)
@@ -847,12 +786,11 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D, local_state_new::So
     divergence_2d!(solver.local_rhs_p, local_state_predictor.u, local_state_predictor.v, solver.local_grid)
     solver.local_rhs_p .*= 1.0 / dt
     
-    # Use MPI multigrid solver if available, otherwise fall back to iterative solver
+    # Use MPI multigrid solver (required for optimal performance)
     if solver.multigrid_solver !== nothing
         solve!(solver.multigrid_solver, solver.local_phi, solver.local_rhs_p)
     else
-        mpi_solve_poisson_2d!(decomp, solver.local_phi, solver.local_rhs_p, 
-                             solver.local_grid, solver.bc)
+        error("Multigrid solver required for MPI pressure solution. Create solver with MultigridPoissonSolver.")
     end
     
     # Step 4: Velocity correction (local)
