@@ -123,7 +123,7 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     max_div = maximum(abs.(final_div))
     println("  Final divergence: max|∇·u| = $(max_div)")
     
-    println("✓ Navier-Stokes step completed cleanly!")
+    println("Navier-Stokes step completed cleanly!")
 end
 
 
@@ -185,13 +185,13 @@ function demonstrate_clean_vs_traditional()
     println("Difference: $(error_div) (should be ~0)")
     
     println("\n--- ADVANTAGES OF CLEAN APPROACH ---")
-    println("✓ More readable: div(u, v, grid) vs nested loops")
-    println("✓ Less error-prone: no manual indexing")
-    println("✓ Easier to debug: can test operators independently")
-    println("✓ Consistent staggered grid handling")
-    println("✓ Automatic boundary treatment")
-    println("✓ Operator reuse across different equations")
-    println("✓ Natural mathematical notation")
+    println("More readable: div(u, v, grid) vs nested loops")
+    println("Less error-prone: no manual indexing")
+    println("Easier to debug: can test operators independently")
+    println("Consistent staggered grid handling")
+    println("Automatic boundary treatment")
+    println("Operator reuse across different equations")
+    println("Natural mathematical notation")
     
     println("\n--- CODE READABILITY COMPARISON ---")
     
@@ -210,7 +210,7 @@ function demonstrate_clean_vs_traditional()
     println("viscous = nu * laplacian(u_cc, grid)")
     println("rhs = -advection + viscous")
     
-    println("\n✓ Clean approach clearly shows the physics!")
+    println("\nClean approach clearly shows the physics!")
 end
 
 # Essential solver components for module compatibility

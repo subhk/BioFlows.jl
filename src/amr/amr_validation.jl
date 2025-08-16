@@ -22,62 +22,62 @@ function validate_amr_refinement_algorithms(refined_grid::RefinedGrid, criteria:
         # Check XZ plane consistency
         expected_dims = (base_grid.nx, base_grid.nz)
         if !check_2d_coordinate_consistency(refined_grid, expected_dims)
-            println("   ❌ 2D XZ plane coordinate system inconsistency detected")
+            println("   FAIL: 2D XZ plane coordinate system inconsistency detected")
             validation_passed = false
         else
-            println("   ✅ 2D XZ plane coordinate system is consistent")
+            println("   PASS: 2D XZ plane coordinate system is consistent")
         end
     else
         # Check 3D consistency
         expected_dims = (base_grid.nx, base_grid.ny, base_grid.nz)
         if !check_3d_coordinate_consistency(refined_grid, expected_dims)
-            println("   ❌ 3D coordinate system inconsistency detected")
+            println("   FAIL: 3D coordinate system inconsistency detected")
             validation_passed = false
         else
-            println("   ✅ 3D coordinate system is consistent")
+            println("   PASS: 3D coordinate system is consistent")
         end
     end
     
     # Test 2: Refinement level constraints
     println("2. Testing refinement level constraints...")
     if !validate_refinement_level_constraints(refined_grid, criteria)
-        println("   ❌ Refinement level constraints violated")
+        println("   FAIL: Refinement level constraints violated")
         validation_passed = false
     else
-        println("   ✅ Refinement level constraints satisfied")
+        println("   PASS: Refinement level constraints satisfied")
     end
     
     # Test 3: Grid size constraints
     println("3. Testing grid size constraints...")
     if !validate_grid_size_constraints(refined_grid, criteria)
-        println("   ❌ Grid size constraints violated")
+        println("   FAIL: Grid size constraints violated")
         validation_passed = false
     else
-        println("   ✅ Grid size constraints satisfied")
+        println("   PASS: Grid size constraints satisfied")
     end
     
     # Test 4: Data structure integrity
     println("4. Testing data structure integrity...")
     if !validate_data_structure_integrity(refined_grid)
-        println("   ❌ Data structure integrity issues found")
+        println("   FAIL: Data structure integrity issues found")
         validation_passed = false
     else
-        println("   ✅ Data structure integrity verified")
+        println("   PASS: Data structure integrity verified")
     end
     
     # Test 5: Interpolation weight consistency
     println("5. Testing interpolation weight consistency...")
     if !validate_interpolation_weights(refined_grid)
-        println("   ❌ Interpolation weight inconsistencies found")
+        println("   FAIL: Interpolation weight inconsistencies found")
         validation_passed = false
     else
-        println("   ✅ Interpolation weights are consistent")
+        println("   PASS: Interpolation weights are consistent")
     end
     
     if validation_passed
-        println("🎉 All AMR validation tests PASSED!")
+        println("SUCCESS: All AMR validation tests PASSED!")
     else
-        println("❌ Some AMR validation tests FAILED - check implementation")
+        println("ERROR: Some AMR validation tests FAILED - check implementation")
     end
     
     return validation_passed
@@ -362,7 +362,7 @@ function test_amr_refinement_coarsening_cycle()
     
     println("1. Initial state validation...")
     if !validate_amr_refinement_algorithms(refined_grid, criteria)
-        println("❌ Initial state validation failed")
+        println("FAIL: Initial state validation failed")
         return false
     end
     
@@ -372,7 +372,7 @@ function test_amr_refinement_coarsening_cycle()
     refine_cells_2d!(refined_grid, test_cells_2d)
     
     if !validate_amr_refinement_algorithms(refined_grid, criteria)
-        println("❌ Post-refinement validation failed")
+        println("FAIL: Post-refinement validation failed")
         return false
     end
     
@@ -381,11 +381,11 @@ function test_amr_refinement_coarsening_cycle()
     coarsen_cells_2d!(refined_grid, test_cells_2d)
     
     if !validate_amr_refinement_algorithms(refined_grid, criteria)
-        println("❌ Post-coarsening validation failed")
+        println("FAIL: Post-coarsening validation failed")
         return false
     end
     
-    println("🎉 AMR refinement-coarsening cycle test PASSED!")
+    println("SUCCESS: AMR refinement-coarsening cycle test PASSED!")
     return true
 end
 

@@ -169,7 +169,7 @@ function validate_3d_grid(grid::StaggeredGrid)
     end
     
     if checks_passed
-        println("Grid validation passed ✓")
+        println("Grid validation passed")
     else
         error("Grid validation failed")
     end

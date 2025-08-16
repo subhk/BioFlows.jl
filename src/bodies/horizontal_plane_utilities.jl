@@ -121,7 +121,7 @@ function create_horizontal_distance_matrix(flag_configs::Vector,
     # Detect horizontal groups
     groups, plane_z_coords = detect_horizontal_groups(flag_configs; tolerance=tolerance)
     
-    println("📐 Detected horizontal planes:")
+    println("Detected horizontal planes:")
     for (i, (group, z_coord)) in enumerate(zip(groups, plane_z_coords))
         println("   Plane $i (z=$(z_coord)): flags $(group)")
     end

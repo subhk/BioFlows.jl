@@ -1006,21 +1006,21 @@ function save_amr_to_netcdf!(netcdf_writer, refined_grid::RefinedGrid, state::So
         # Step 5: Save body data if provided
         if bodies !== nothing && hasmethod(save_body_data!, (typeof(netcdf_writer), typeof(bodies), Float64, Int))
             save_body_data!(netcdf_writer, bodies, time, step)
-            println("   ✅ AMR body data written to NetCDF file")
+            println("   SUCCESS: AMR body data written to NetCDF file")
         end
         
     else
-        println("   ⚠️  NetCDF save skipped (save conditions not met)")
+        println("   WARNING: NetCDF save skipped (save conditions not met)")
     end
     
     # Step 6: Save refinement map for AMR visualization
     if step % 10 == 0  # Every 10 steps to avoid too many files
         refinement_file = "amr_refinement_step_$(lpad(step, 6, '0')).txt"
         write_amr_refinement_map(refined_grid, refinement_file)
-        println("   🗺️  AMR refinement map: $refinement_file")
+        println("   SAVED: AMR refinement map: $refinement_file")
     end
     
-    println("🎯 AMR-NetCDF output completed for step $step")
+    println("SUCCESS: AMR-NetCDF output completed for step $step")
     return output_state, success
 end
 
