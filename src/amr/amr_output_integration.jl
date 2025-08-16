@@ -86,7 +86,7 @@ function project_2d_refined_to_original!(output_state::SolutionState,
                 project_x_velocity_2d!(output_state, local_solution, local_grid,
                                       i_base, j_base, refinement_level, base_grid)
                 
-                project_z_velocity_2d!(output_state, local_solution, local_grid,
+                project_w_velocity_2d!(output_state, local_solution, local_grid,
                                       i_base, j_base, refinement_level, base_grid)
                 
                 println("✅ Projected refined cell ($i_base, $j_base) level $refinement_level to original grid")
@@ -116,21 +116,29 @@ function get_local_refined_solution_2d(refined_grid::RefinedGrid, cell_idx::Tupl
     
     local_nx, local_nz = local_grid.nx, local_grid.nz
     
-    # Create local solution state
+    # Create local solution state for 2D XZ plane
+    # FIXED: Use w-velocity for z-direction, not v-velocity
     local_solution = (
-        u = zeros(local_nx + 1, local_nz),      # u at x-faces
-        v = zeros(local_nx, local_nz + 1),      # v (w in XZ) at z-faces
+        u = zeros(local_nx + 1, local_nz),      # u at x-faces  
+        w = zeros(local_nx, local_nz + 1),      # w at z-faces (correct for XZ plane)
         p = zeros(local_nx, local_nz)           # p at cell centers
     )
     
     # Simple interpolation from base grid (in practice, this would be the refined solution)
     base_u_val = current_state.u[i_base, j_base]
-    base_v_val = current_state.v[i_base, j_base]
+    # FIXED: Get w-velocity for XZ plane
+    base_w_val = if hasfield(typeof(current_state), :w) && current_state.w !== nothing
+        current_state.w[i_base, j_base]
+    elseif hasfield(typeof(current_state), :v)
+        current_state.v[i_base, j_base]  # Fallback: v representing w
+    else
+        0.0
+    end
     base_p_val = current_state.p[i_base, j_base]
     
     # Fill local arrays with interpolated/refined values
     fill!(local_solution.u, base_u_val)
-    fill!(local_solution.v, base_v_val)
+    fill!(local_solution.w, base_w_val)
     fill!(local_solution.p, base_p_val)
     
     return local_solution
@@ -281,34 +289,34 @@ function project_u_right_face!(output_state::SolutionState, local_solution, loca
 end
 
 """
-    project_z_velocity_2d!(output_state, local_solution, local_grid, i_base, j_base, level, base_grid)
+    project_w_velocity_2d!(output_state, local_solution, local_grid, i_base, j_base, level, base_grid)
 
-Conservative projection of z-velocity (v, which represents w in XZ plane) from refined grid to base grid faces.
+Conservative projection of w-velocity (z-direction velocity in XZ plane) from refined grid to base grid faces.
 Preserves mass flux through z-faces.
 """
-function project_z_velocity_2d!(output_state::SolutionState, local_solution, local_grid::StaggeredGrid,
+function project_w_velocity_2d!(output_state::SolutionState, local_solution, local_grid::StaggeredGrid,
                                 i_base::Int, j_base::Int, refinement_level::Int, base_grid::StaggeredGrid)
     
     local_nx, local_nz = local_grid.nx, local_grid.nz
     nx_base, nz_base = base_grid.nx, base_grid.nz
     
-    # Project v-velocity (w in XZ plane) at bottom face of base cell
+    # Project w-velocity at bottom face of base cell
     if i_base >= 1 && i_base <= nx_base && j_base >= 1 && j_base <= nz_base
-        project_v_bottom_face!(output_state, local_solution, local_grid, i_base, j_base, base_grid)
+        project_w_bottom_face!(output_state, local_solution, local_grid, i_base, j_base, base_grid)
     end
     
-    # Project v-velocity (w in XZ plane) at top face of base cell
+    # Project w-velocity at top face of base cell
     if i_base >= 1 && i_base <= nx_base && j_base + 1 >= 1 && j_base + 1 <= nz_base + 1
-        project_v_top_face!(output_state, local_solution, local_grid, i_base, j_base, base_grid)
+        project_w_top_face!(output_state, local_solution, local_grid, i_base, j_base, base_grid)
     end
 end
 
 """
-    project_v_bottom_face!(output_state, local_solution, local_grid, i_base, j_base, base_grid)
+    project_w_bottom_face!(output_state, local_solution, local_grid, i_base, j_base, base_grid)
 
-Project v-velocity (w in XZ plane) at the bottom face of the base cell.
+Project w-velocity (z-direction velocity in XZ plane) at the bottom face of the base cell.
 """
-function project_v_bottom_face!(output_state::SolutionState, local_solution, local_grid::StaggeredGrid,
+function project_w_bottom_face!(output_state::SolutionState, local_solution, local_grid::StaggeredGrid,
                                 i_base::Int, j_base::Int, base_grid::StaggeredGrid)
     
     local_nx = local_grid.nx
@@ -324,28 +332,33 @@ function project_v_bottom_face!(output_state::SolutionState, local_solution, loc
         fine_dx = local_grid.dx
         fine_area = fine_dx
         
-        # Velocity at this fine face (v represents w-velocity in XZ plane)
-        v_fine = local_solution.v[i_local, j_local]
+        # Velocity at this fine face (w-velocity in z-direction)
+        w_fine = local_solution.w[i_local, j_local]
         
         # Mass flux through this fine face segment
-        flux = v_fine * fine_area
+        flux = w_fine * fine_area
         
         weighted_flux += flux
         total_area += fine_area
     end
     
-    # Conservative average velocity
+    # Conservative average velocity - assign to correct field
     if total_area > 0.0
-        output_state.v[i_base, j_base] = weighted_flux / total_area
+        # FIXED: Assign to w-velocity field if available, otherwise v as fallback
+        if hasfield(typeof(output_state), :w) && output_state.w !== nothing
+            output_state.w[i_base, j_base] = weighted_flux / total_area
+        elseif hasfield(typeof(output_state), :v)
+            output_state.v[i_base, j_base] = weighted_flux / total_area  # Fallback
+        end
     end
 end
 
 """
-    project_v_top_face!(output_state, local_solution, local_grid, i_base, j_base, base_grid)
+    project_w_top_face!(output_state, local_solution, local_grid, i_base, j_base, base_grid)
 
-Project v-velocity (w in XZ plane) at the top face of the base cell.
+Project w-velocity (z-direction velocity in XZ plane) at the top face of the base cell.
 """
-function project_v_top_face!(output_state::SolutionState, local_solution, local_grid::StaggeredGrid,
+function project_w_top_face!(output_state::SolutionState, local_solution, local_grid::StaggeredGrid,
                              i_base::Int, j_base::Int, base_grid::StaggeredGrid)
     
     local_nx, local_nz = local_grid.nx, local_grid.nz
@@ -361,19 +374,24 @@ function project_v_top_face!(output_state::SolutionState, local_solution, local_
         fine_dx = local_grid.dx
         fine_area = fine_dx
         
-        # Velocity at this fine face (v represents w-velocity in XZ plane)
-        v_fine = local_solution.v[i_local, j_local]
+        # Velocity at this fine face (w-velocity in z-direction)
+        w_fine = local_solution.w[i_local, j_local]
         
         # Mass flux through this fine face segment
-        flux = v_fine * fine_area
+        flux = w_fine * fine_area
         
         weighted_flux += flux
         total_area += fine_area
     end
     
-    # Conservative average velocity
-    if total_area > 0.0 && j_base + 1 <= size(output_state.v, 2)
-        output_state.v[i_base, j_base + 1] = weighted_flux / total_area
+    # Conservative average velocity - assign to correct field
+    if total_area > 0.0
+        # FIXED: Assign to w-velocity field if available, otherwise v as fallback
+        if hasfield(typeof(output_state), :w) && output_state.w !== nothing && j_base + 1 <= size(output_state.w, 2)
+            output_state.w[i_base, j_base + 1] = weighted_flux / total_area
+        elseif hasfield(typeof(output_state), :v) && j_base + 1 <= size(output_state.v, 2)
+            output_state.v[i_base, j_base + 1] = weighted_flux / total_area  # Fallback
+        end
     end
 end
 
