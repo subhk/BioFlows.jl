@@ -133,6 +133,9 @@ export update_controller!, apply_harmonic_boundary_conditions!, monitor_distance
 export create_coordinated_flag_system, setup_simple_two_flag_system, setup_multi_flag_chain
 export validate_system_configuration, print_system_summary
 
+# Simulation API integration functions
+export add_flexible_bodies_with_controller!, create_coordinated_flexible_system
+
 # Horizontal plane distance control utilities
 export detect_horizontal_groups, create_horizontal_distance_matrix, setup_horizontal_plane_system
 export validate_horizontal_plane_configuration, print_horizontal_plane_analysis
