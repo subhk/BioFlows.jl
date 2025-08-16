@@ -156,6 +156,10 @@ function distance_to_surface(body::RigidBody, x::Float64, y::Float64)
     return distance_to_surface(body.shape, body.center, body.angle, x, y)
 end
 
+function distance_to_surface_3d(body::RigidBody, x::Float64, y::Float64, z::Float64)
+    return distance_to_surface_3d(body.shape, body.center, body.angle, x, y, z)
+end
+
 # XZ plane version for 2D flows
 function distance_to_surface_xz(body::RigidBody, x::Float64, z::Float64)
     return distance_to_surface_xz(body.shape, body.center, body.angle, x, z)
@@ -257,6 +261,65 @@ function distance_to_surface_xz(shape::Rectangle, center::Vector{Float64}, angle
         return dist_z
     else
         return sqrt(dist_x^2 + dist_z^2)  # Corner distance
+    end
+end
+
+# 3D distance functions
+function distance_to_surface_3d(shape::Circle, center::Vector{Float64}, angle::Float64, 
+                               x::Float64, y::Float64, z::Float64)
+    # For sphere in 3D
+    dx = x - center[1]
+    dy = y - center[2]
+    dz = length(center) > 2 ? z - center[3] : z
+    distance_to_center = sqrt(dx^2 + dy^2 + dz^2)
+    return distance_to_center - shape.radius
+end
+
+function distance_to_surface_3d(shape::Square, center::Vector{Float64}, angle::Float64,
+                               x::Float64, y::Float64, z::Float64)
+    # For cube in 3D (simplified - no rotation about x,y axes)
+    dx = abs(x - center[1])
+    dy = abs(y - center[2])
+    dz = length(center) > 2 ? abs(z - center[3]) : abs(z)
+    
+    half_side = shape.side_length / 2
+    
+    # Distance to cube surface
+    dist_x = dx - half_side
+    dist_y = dy - half_side
+    dist_z = dz - half_side
+    
+    if dist_x <= 0 && dist_y <= 0 && dist_z <= 0
+        return max(dist_x, dist_y, dist_z)  # Inside
+    else
+        # Outside - compute distance to nearest surface/edge/corner
+        dist_x = max(0, dist_x)
+        dist_y = max(0, dist_y)
+        dist_z = max(0, dist_z)
+        return sqrt(dist_x^2 + dist_y^2 + dist_z^2)
+    end
+end
+
+function distance_to_surface_3d(shape::Rectangle, center::Vector{Float64}, angle::Float64,
+                               x::Float64, y::Float64, z::Float64)
+    # For rectangular box in 3D (simplified - no rotation)
+    dx = abs(x - center[1])
+    dy = abs(y - center[2])
+    dz = length(center) > 2 ? abs(z - center[3]) : abs(z)
+    
+    # Distance to rectangular box surface
+    dist_x = dx - shape.width/2
+    dist_y = dy - shape.height/2
+    dist_z = dz - shape.width/2  # Assume depth = width for simplicity
+    
+    if dist_x <= 0 && dist_y <= 0 && dist_z <= 0
+        return max(dist_x, dist_y, dist_z)  # Inside
+    else
+        # Outside - compute distance to nearest surface/edge/corner
+        dist_x = max(0, dist_x)
+        dist_y = max(0, dist_y)
+        dist_z = max(0, dist_z)
+        return sqrt(dist_x^2 + dist_y^2 + dist_z^2)
     end
 end
 
@@ -436,16 +499,29 @@ function get_body_velocity_at_point(body::RigidBody, x::Float64, y::Float64)
     return [u_body, v_body]
 end
 
-function bodies_mask_2d(bodies::RigidBodyCollection, grid::StaggeredGrid)
-    nx, ny = grid.nx, grid.ny
-    mask = falses(nx, ny)
+# XZ plane version for 2D flows
+function get_body_velocity_at_point_xz(body::RigidBody, x::Float64, z::Float64)
+    # Velocity of body surface at point (x,z) due to translation + rotation in XZ plane
+    dx = x - body.center[1]
+    dz = z - (length(body.center) > 2 ? body.center[3] : body.center[2])  # Use z coordinate
     
-    for j = 1:ny, i = 1:nx
+    # Translational velocity + rotational velocity (rotation about y-axis)
+    u_body = body.velocity[1] + body.angular_velocity * dz  # u + ω × dz
+    w_body = (length(body.velocity) > 2 ? body.velocity[3] : body.velocity[2]) - body.angular_velocity * dx  # w - ω × dx
+    
+    return [u_body, w_body]  # [u, w] velocities in XZ plane
+end
+
+function bodies_mask_2d(bodies::RigidBodyCollection, grid::StaggeredGrid)
+    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
+    mask = falses(nx, nz)
+    
+    for j = 1:nz, i = 1:nx
         x = grid.x[i]
-        y = grid.y[j]
+        z = grid.z[j]  # Use z coordinate for XZ plane
         
         for body in bodies.bodies
-            if is_inside(body, x, y)
+            if is_inside_xz(body, x, z)  # Use XZ plane version
                 mask[i, j] = true
                 break
             end

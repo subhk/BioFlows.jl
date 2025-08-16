@@ -103,8 +103,8 @@ function compute_distance_function_3d(bodies::RigidBodyCollection, grid::Stagger
         
         min_distance = Inf
         for body in bodies.bodies
-            # 3D distance computation would be implemented here
-            dist = distance_to_surface(body.shape, body.center, body.angle, x, y)  # Placeholder
+            # Use 3D distance computation
+            dist = distance_to_surface_3d(body, x, y, z)
             if abs(dist) < abs(min_distance)
                 min_distance = dist
             end
