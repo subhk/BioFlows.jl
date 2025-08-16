@@ -64,6 +64,22 @@ function FlexibleBody(length::Float64, n_points::Int, initial_shape::Function;
                 tension, curvature, force, acceleration_history, id)
 end
 
+# Collection for managing multiple flexible bodies
+mutable struct FlexibleBodyCollection
+    bodies::Vector{FlexibleBody}
+    n_bodies::Int
+end
+
+function FlexibleBodyCollection()
+    FlexibleBodyCollection(FlexibleBody[], 0)
+end
+
+function add_flexible_body!(collection::FlexibleBodyCollection, body::FlexibleBody)
+    push!(collection.bodies, body)
+    collection.n_bodies += 1
+    body.id = collection.n_bodies
+end
+
 function straight_filament(L::Float64, start_point::Vector{Float64}, end_point::Vector{Float64})
     return function(s::Float64)
         t = s / L  # Normalize to [0,1]
@@ -1067,22 +1083,6 @@ function interpolate_velocity(grid::StaggeredGrid, u::Array, x::Float64, y::Floa
     end
     
     return 0.0
-end
-
-# Collection for managing multiple flexible bodies
-mutable struct FlexibleBodyCollection
-    bodies::Vector{FlexibleBody}
-    n_bodies::Int
-end
-
-function FlexibleBodyCollection()
-    FlexibleBodyCollection(FlexibleBody[], 0)
-end
-
-function add_flexible_body!(collection::FlexibleBodyCollection, body::FlexibleBody)
-    push!(collection.bodies, body)
-    collection.n_bodies += 1
-    body.id = collection.n_bodies
 end
 
 # ============================================================================

@@ -9,12 +9,23 @@ using ForwardDiff
 using NetCDF
 using MPI
 
+# Core types and infrastructure first
 include("core/types.jl")
 include("core/grids.jl")
 include("core/differential_operators.jl")
 include("boundary/boundary_conditions.jl")
 include("timestep/time_stepping.jl")
 include("mg/multigrid_solver.jl")
+
+# Bodies need grids to be defined first, but come before AMR
+include("bodies/rigid_bodies.jl")
+include("bodies/flexible_bodies.jl")
+include("bodies/distance_utilities.jl")
+include("bodies/flexible_body_controller.jl")
+include("bodies/coordinated_system_factory.jl")
+include("bodies/horizontal_plane_utilities.jl")
+
+# AMR can be included after body types are defined
 include("amr/adaptive_refinement.jl")
 include("amr/adaptive_refinement_v2.jl")
 include("amr/adaptive_refinement_mpi.jl")
@@ -30,13 +41,6 @@ include("3D/grid_3d.jl")
 include("3D/discretization_3d.jl")
 include("3D/navier_stokes_3d.jl")
 include("3D/mpi_3d.jl")
-
-include("bodies/rigid_bodies.jl")
-include("bodies/flexible_bodies.jl")
-include("bodies/distance_utilities.jl")
-include("bodies/flexible_body_controller.jl")
-include("bodies/coordinated_system_factory.jl")
-include("bodies/horizontal_plane_utilities.jl")
 
 include("output/netcdf_writer.jl")
 include("api/simulation_api.jl")
@@ -62,6 +66,8 @@ export print_grid_info_2d, print_grid_info_3d, validate_2d_grid, validate_3d_gri
 # Body exports
 export RigidBody, FlexibleBody, RigidBodyCollection, FlexibleBodyCollection
 export Circle, Square, Rectangle
+export add_body!, is_inside, distance_to_surface, surface_normal
+export update_body_motion!, get_body_velocity_at_point, bodies_mask_2d, bodies_mask_3d
 export StationaryMotion, PrescribedMotion, FixedConstraint, RotationConstraint, SinusoidalConstraint
 
 # Solution and state exports
