@@ -31,7 +31,7 @@ struct SimulationConfig
     # Bodies (optional)
     rigid_bodies::Union{RigidBodyCollection, Nothing}
     flexible_bodies::Union{FlexibleBodyCollection, Nothing}
-    flexible_body_controller::Union{FlexibleBodyController, Nothing}
+    # Temporarily disabled: flexible_body_controller::Union{FlexibleBodyController, Nothing}
     
     # Solver options
     use_mpi::Bool
@@ -160,37 +160,20 @@ function create_2d_simulation_config(;
     )
 end
 
-"""
-    add_flexible_bodies_with_controller!(config::SimulationConfig, 
-                                        bodies::FlexibleBodyCollection,
-                                        controller::FlexibleBodyController)
-
-Add flexible bodies and their controller to simulation configuration.
-
-# Arguments
-- `config::SimulationConfig`: Simulation configuration to modify
-- `bodies::FlexibleBodyCollection`: Collection of flexible bodies
-- `controller::FlexibleBodyController`: Controller for coordinated motion
-"""
-function add_flexible_bodies_with_controller!(config::SimulationConfig, 
-                                            bodies::FlexibleBodyCollection,
-                                            controller::FlexibleBodyController)
-    # Update the configuration with new bodies and controller
-    new_config = SimulationConfig(
-        config.grid_type, config.nx, config.ny, config.nz, 
-        config.Lx, config.Ly, config.Lz, config.origin,
-        config.fluid, config.bc, config.time_scheme, config.dt, config.final_time,
-        config.rigid_bodies, bodies, controller,  # Add flexible bodies and controller
-        config.use_mpi, config.adaptive_refinement, config.refinement_criteria,
-        config.output_config
-    )
-    
-    # Copy fields back to original config (since structs are immutable)
-    # Note: This would require making SimulationConfig mutable, or returning the new config
-    @warn "SimulationConfig is immutable. Consider making it mutable or use the returned configuration."
-    
-    return new_config
-end
+# Temporarily disabled FlexibleBodyController functions
+# """
+#     add_flexible_bodies_with_controller!(config::SimulationConfig, 
+#                                         bodies::FlexibleBodyCollection,
+#                                         controller::FlexibleBodyController)
+# 
+# Add flexible bodies and their controller to simulation configuration.
+# """
+# function add_flexible_bodies_with_controller!(config::SimulationConfig, 
+#                                             bodies::FlexibleBodyCollection,
+#                                             controller::FlexibleBodyController)
+#     # Implementation temporarily disabled
+#     error("FlexibleBodyController support temporarily disabled")
+# end
 
 """
     create_coordinated_flexible_system(flag_configs::Vector, distance_matrix::Matrix{Float64}; kwargs...)
