@@ -520,8 +520,8 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
         end
         
         if config.flexible_bodies !== nothing
-            # Update flexible body dynamics
-            update_flexible_bodies!(config.flexible_bodies, state_new, solver.grid, dt)
+            # Update flexible body dynamics using same time scheme as fluid solver
+            update_flexible_bodies!(config.flexible_bodies, state_new, solver.grid, dt, solver.time_scheme)
             apply_flexible_body_forcing!(state_new, config.flexible_bodies, solver.grid, dt)
         end
         

@@ -1,6 +1,6 @@
 using ForwardDiff
 
-struct FlexibleBody <: AbstractBody
+mutable struct FlexibleBody <: AbstractBody
     # Lagrangian parameters
     length::Float64              # Filament length L
     n_points::Int               # Number of discretization points
@@ -23,6 +23,9 @@ struct FlexibleBody <: AbstractBody
     tension::Vector{Float64}    # Tension T(s,t)
     curvature::Vector{Float64}  # κ(s,t) 
     force::Matrix{Float64}      # Lagrangian force F(s,t) [n_points x 2]
+    
+    # Time stepping history for Adams-Bashforth
+    acceleration_history::Vector{Matrix{Float64}}  # History of accelerations for multi-step schemes
     
     id::Int
 end
@@ -53,11 +56,12 @@ function FlexibleBody(length::Float64, n_points::Int, initial_shape::Function;
     tension = zeros(n_points)
     curvature = zeros(n_points)
     force = zeros(n_points, 2)
+    acceleration_history = Vector{Matrix{Float64}}()  # Initialize empty history for Adams-Bashforth
     
     FlexibleBody(length, n_points, s * length, X, X_old, X_prev,
                 bending_rigidity, mass_per_length, thickness,
                 bc_type, amplitude, frequency,
-                tension, curvature, force, id)
+                tension, curvature, force, acceleration_history, id)
 end
 
 function straight_filament(L::Float64, start_point::Vector{Float64}, end_point::Vector{Float64})
@@ -215,8 +219,29 @@ function flexible_body_rhs!(dXdt2::Matrix{Float64}, body::FlexibleBody, dt::Floa
     dXdt2[n, :] .= 0.0    # Fixed end
 end
 
-function update_flexible_body!(body::FlexibleBody, dt::Float64)
-    # Use explicit time integration (can be replaced with Runge-Kutta)
+function update_flexible_body!(body::FlexibleBody, dt::Float64, time_scheme::TimeSteppingScheme=RungeKutta4(), t::Float64=0.0)
+    """
+    Update flexible body using specified time stepping scheme.
+    Supports Adams-Bashforth, RK3, and RK4 as specified in CLAUDE.md requirements.
+    """
+    n = body.n_points
+    
+    if time_scheme isa AdamsBashforth
+        update_flexible_body_adams_bashforth!(body, dt, time_scheme, t)
+    elseif time_scheme isa RungeKutta3
+        update_flexible_body_rk3!(body, dt, t)
+    elseif time_scheme isa RungeKutta4
+        update_flexible_body_rk4!(body, dt, t)
+    else
+        # Fallback to Verlet for compatibility
+        update_flexible_body_verlet!(body, dt, t)
+    end
+end
+
+function update_flexible_body_verlet!(body::FlexibleBody, dt::Float64, t::Float64)
+    """
+    Verlet integration for flexible body (2nd order accurate).
+    """
     n = body.n_points
     dXdt2 = zeros(n, 2)
     
@@ -233,12 +258,175 @@ function update_flexible_body!(body::FlexibleBody, dt::Float64)
     body.X .= X_new
     
     # Apply boundary conditions
-    # This would be called with appropriate time t
+    apply_boundary_conditions!(body, t + dt)
+end
+
+function update_flexible_body_rk4!(body::FlexibleBody, dt::Float64, t::Float64)
+    """
+    4th order Runge-Kutta integration for flexible body dynamics.
+    Converts 2nd order ODE to system of 1st order ODEs.
+    """
+    n = body.n_points
+    
+    # State vector: [X, Xdot] where X is position, Xdot is velocity
+    X = copy(body.X)
+    Xdot = (body.X - body.X_old) / dt  # Current velocity estimate
+    
+    # RK4 stages
+    # Stage 1
+    dXdt2_1 = zeros(n, 2)
+    flexible_body_rhs!(dXdt2_1, body, dt)
+    k1_X = Xdot
+    k1_Xdot = dXdt2_1
+    
+    # Stage 2
+    body_temp = deepcopy(body)
+    body_temp.X .= X + 0.5 * dt * k1_X
+    dXdt2_2 = zeros(n, 2)
+    flexible_body_rhs!(dXdt2_2, body_temp, dt)
+    k2_X = Xdot + 0.5 * dt * k1_Xdot
+    k2_Xdot = dXdt2_2
+    
+    # Stage 3
+    body_temp.X .= X + 0.5 * dt * k2_X
+    dXdt2_3 = zeros(n, 2)
+    flexible_body_rhs!(dXdt2_3, body_temp, dt)
+    k3_X = Xdot + 0.5 * dt * k2_Xdot
+    k3_Xdot = dXdt2_3
+    
+    # Stage 4
+    body_temp.X .= X + dt * k3_X
+    dXdt2_4 = zeros(n, 2)
+    flexible_body_rhs!(dXdt2_4, body_temp, dt)
+    k4_X = Xdot + dt * k3_Xdot
+    k4_Xdot = dXdt2_4
+    
+    # Update
+    X_new = X + (dt/6) * (k1_X + 2*k2_X + 2*k3_X + k4_X)
+    Xdot_new = Xdot + (dt/6) * (k1_Xdot + 2*k2_Xdot + 2*k3_Xdot + k4_Xdot)
+    
+    # Store states
+    body.X_prev .= body.X_old
+    body.X_old .= body.X
+    body.X .= X_new
+    
+    # Apply boundary conditions
+    apply_boundary_conditions!(body, t + dt)
+end
+
+function update_flexible_body_rk3!(body::FlexibleBody, dt::Float64, t::Float64)
+    """
+    3rd order Runge-Kutta integration for flexible body dynamics.
+    """
+    n = body.n_points
+    
+    # State vector: [X, Xdot]
+    X = copy(body.X)
+    Xdot = (body.X - body.X_old) / dt
+    
+    # Stage 1
+    dXdt2_1 = zeros(n, 2)
+    flexible_body_rhs!(dXdt2_1, body, dt)
+    k1_X = Xdot
+    k1_Xdot = dXdt2_1
+    
+    # Stage 2
+    body_temp = deepcopy(body)
+    body_temp.X .= X + 0.5 * dt * k1_X
+    dXdt2_2 = zeros(n, 2)
+    flexible_body_rhs!(dXdt2_2, body_temp, dt)
+    k2_X = Xdot + 0.5 * dt * k1_Xdot
+    k2_Xdot = dXdt2_2
+    
+    # Stage 3
+    body_temp.X .= X - dt * k1_X + 2 * dt * k2_X
+    dXdt2_3 = zeros(n, 2)
+    flexible_body_rhs!(dXdt2_3, body_temp, dt)
+    k3_X = Xdot - dt * k1_Xdot + 2 * dt * k2_Xdot
+    k3_Xdot = dXdt2_3
+    
+    # Update
+    X_new = X + (dt/6) * (k1_X + 4*k2_X + k3_X)
+    Xdot_new = Xdot + (dt/6) * (k1_Xdot + 4*k2_Xdot + k3_Xdot)
+    
+    # Store states
+    body.X_prev .= body.X_old
+    body.X_old .= body.X
+    body.X .= X_new
+    
+    # Apply boundary conditions
+    apply_boundary_conditions!(body, t + dt)
+end
+
+function update_flexible_body_adams_bashforth!(body::FlexibleBody, dt::Float64, scheme::AdamsBashforth, t::Float64)
+    """
+    Adams-Bashforth integration for flexible body dynamics.
+    Uses history of RHS evaluations for multi-step integration.
+    """
+    n = body.n_points
+    dXdt2 = zeros(n, 2)
+    
+    # Compute current RHS
+    flexible_body_rhs!(dXdt2, body, dt)
+    
+    # Store acceleration history for multi-step Adams-Bashforth
+    
+    # Store current acceleration
+    push!(body.acceleration_history, copy(dXdt2))
+    
+    # Keep only required history
+    if length(body.acceleration_history) > scheme.order
+        popfirst!(body.acceleration_history)
+    end
+    
+    # Current velocity estimate
+    Xdot = (body.X - body.X_old) / dt
+    
+    # Apply Adams-Bashforth to acceleration
+    if length(body.acceleration_history) == 1
+        # First step: use RK4 or Euler
+        Xdot_new = Xdot + dt * dXdt2
+    else
+        # Multi-step Adams-Bashforth
+        n_steps = min(length(body.acceleration_history), scheme.order)
+        coeffs = scheme.coefficients[1:n_steps]
+        
+        Xdot_new = copy(Xdot)
+        for (k, coeff) in enumerate(coeffs)
+            accel = body.acceleration_history[end-k+1]  # Most recent first
+            Xdot_new .+= dt * coeff .* accel
+        end
+    end
+    
+    # Update position
+    X_new = body.X + dt * Xdot_new
+    
+    # Store states
+    body.X_prev .= body.X_old
+    body.X_old .= body.X
+    body.X .= X_new
+    
+    # Apply boundary conditions
+    apply_boundary_conditions!(body, t + dt)
 end
 
 function get_flexible_body_points(body::FlexibleBody)
     # Return current positions of all Lagrangian points
     return [(body.X[i, 1], body.X[i, 2]) for i = 1:body.n_points]
+end
+
+function update_flexible_bodies!(bodies::FlexibleBodyCollection, state::SolutionState, grid::StaggeredGrid, dt::Float64, time_scheme::TimeSteppingScheme=RungeKutta4())
+    """
+    Update all flexible bodies in collection using specified time stepping scheme.
+    Compatible with main simulation API.
+    """
+    for body in bodies.bodies
+        # First update forces based on current fluid state
+        compute_flexible_body_forces(body, grid, state, FluidProperties(ConstantDensity(1.0), 0.01))
+        
+        # Then update body dynamics
+        update_flexible_body!(body, dt, time_scheme, state.t)
+    end
 end
 
 function compute_flexible_body_forces(body::FlexibleBody, grid::StaggeredGrid, 
