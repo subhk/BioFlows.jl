@@ -2,7 +2,7 @@ module BioFlows
 
 using LinearAlgebra
 using Statistics
-using GeometricMultigrid
+# using GeometricMultigrid  # Removed to eliminate WaterLily dependency
 using ParametricBodies
 using PencilArrays
 using ForwardDiff

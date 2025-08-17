@@ -82,163 +82,135 @@ function show_solver_info(solver::MultigridPoissonSolver)
     end
 end
 
-function setup_multigrid_2d(grid::StaggeredGrid, levels::Int, smoother::Symbol, cycle_type::Symbol)
-    nx, ny = grid.nx, grid.ny
+# Custom 2D Gauss-Seidel solver for Poisson equation  
+function gauss_seidel_2d!(phi::Matrix{T}, rhs::Matrix{T}, grid::StaggeredGrid{T}, 
+                         max_iter::Int, tol::Float64, omega::Float64=1.0) where T
+    nx, ny = size(phi)
     dx, dy = grid.dx, grid.dy
+    dx2, dy2 = dx^2, dy^2
+    factor = 1.0 / (2.0 * (1.0/dx2 + 1.0/dy2))
     
-    # Create Poisson operator for 2D with uniform grid spacing
-    function laplacian_2d(x::AbstractVector)
-        phi = reshape(x, nx, ny)
-        result = zeros(nx, ny)
+    residual = 0.0
+    for iter = 1:max_iter
+        residual = 0.0
         
         for j = 2:ny-1, i = 2:nx-1
-            result[i,j] = (phi[i+1,j] - 2*phi[i,j] + phi[i-1,j]) / dx^2 + 
-                         (phi[i,j+1] - 2*phi[i,j] + phi[i,j-1]) / dy^2
+            old_phi = phi[i, j]
+            new_phi = factor * ((phi[i+1,j] + phi[i-1,j]) / dx2 + 
+                               (phi[i,j+1] + phi[i,j-1]) / dy2 - rhs[i,j])
+            phi[i, j] = old_phi + omega * (new_phi - old_phi)
+            residual += (phi[i,j] - old_phi)^2
         end
         
-        # Apply homogeneous Neumann boundary conditions
-        result[1, :] = result[2, :] - result[1, :]
-        result[nx, :] = result[nx-1, :] - result[nx, :]
-        result[:, 1] = result[:, 2] - result[:, 1]
-        result[:, ny] = result[:, ny-1] - result[:, ny]
+        # Apply boundary conditions
+        phi[1, :] .= phi[2, :]      # ∂φ/∂x = 0 at left
+        phi[nx, :] .= phi[nx-1, :]  # ∂φ/∂x = 0 at right
+        phi[:, 1] .= phi[:, 2]      # ∂φ/∂y = 0 at bottom
+        phi[:, ny] .= phi[:, ny-1]  # ∂φ/∂y = 0 at top
         
-        return vec(result)
+        if sqrt(residual) < tol
+            break
+        end
     end
     
-    # Set up multigrid with error handling
-    try
-        # Try modern GeometricMultigrid.jl interface
-        mg = GeometricMultigrid.Multigrid(
-            operator = laplacian_2d,
-            levels = levels,
-            smoother = GeometricMultigrid.GaussSeidel(),
-            restriction = GeometricMultigrid.LinearRestriction(),
-            prolongation = GeometricMultigrid.BilinearProlongation(),
-            coarse_solver = GeometricMultigrid.DirectSolver(),
-            cycle = (cycle_type == :V) ? GeometricMultigrid.VCycle() : GeometricMultigrid.WCycle()
-        )
-        return mg
-    catch e
-        @warn "GeometricMultigrid.Multigrid not available: $e"
-        @warn "Using simple iterative solver as fallback"
-        
-        # Fallback to simple iterative solver
-        return SimpleIterativeSolver(1000, 1e-6)
-    end
+    return phi
 end
 
-function setup_multigrid_3d(grid::StaggeredGrid, levels::Int, smoother::Symbol, cycle_type::Symbol)
-    nx, ny, nz = grid.nx, grid.ny, grid.nz
+# Custom 3D Gauss-Seidel solver for Poisson equation  
+function gauss_seidel_3d!(phi::Array{T,3}, rhs::Array{T,3}, grid::StaggeredGrid{T}, 
+                         max_iter::Int, tol::Float64, omega::Float64=1.0) where T
+    nx, ny, nz = size(phi)
     dx, dy, dz = grid.dx, grid.dy, grid.dz
+    dx2, dy2, dz2 = dx^2, dy^2, dz^2
+    factor = 1.0 / (2.0 * (1.0/dx2 + 1.0/dy2 + 1.0/dz2))
     
-    # Create Poisson operator for 3D
-    function laplacian_3d(x::AbstractVector)
-        phi = reshape(x, nx, ny, nz)
-        result = zeros(nx, ny, nz)
+    residual = 0.0
+    for iter = 1:max_iter
+        residual = 0.0
         
         for k = 2:nz-1, j = 2:ny-1, i = 2:nx-1
-            result[i,j,k] = (phi[i+1,j,k] - 2*phi[i,j,k] + phi[i-1,j,k]) / dx^2 + 
-                           (phi[i,j+1,k] - 2*phi[i,j,k] + phi[i,j-1,k]) / dy^2 +
-                           (phi[i,j,k+1] - 2*phi[i,j,k] + phi[i,j,k-1]) / dz^2
+            old_phi = phi[i, j, k]
+            new_phi = factor * ((phi[i+1,j,k] + phi[i-1,j,k]) / dx2 + 
+                               (phi[i,j+1,k] + phi[i,j-1,k]) / dy2 +
+                               (phi[i,j,k+1] + phi[i,j,k-1]) / dz2 - rhs[i,j,k])
+            phi[i, j, k] = old_phi + omega * (new_phi - old_phi)
+            residual += (phi[i,j,k] - old_phi)^2
         end
         
-        # Apply homogeneous Neumann boundary conditions
-        result[1,  :, :]  = result[2, :, :]    - result[1, :, :]
-        result[nx, :, :]  = result[nx-1, :, :] - result[nx, :, :]
-        result[:,  1, :]  = result[:, 2, :]    - result[:, 1, :]
-        result[:, ny, :]  = result[:, ny-1, :] - result[:, ny, :]
-        result[:,  :, 1]  = result[:, :, 2]    - result[:, :, 1]
-        result[:,  :, nz] = result[:, :, nz-1] - result[:, :, nz]
+        # Apply boundary conditions
+        phi[1, :, :]  .= phi[2, :, :]      # ∂φ/∂x = 0 at left
+        phi[nx, :, :] .= phi[nx-1, :, :]   # ∂φ/∂x = 0 at right
+        phi[:, 1, :]  .= phi[:, 2, :]      # ∂φ/∂y = 0 at bottom
+        phi[:, ny, :] .= phi[:, ny-1, :]   # ∂φ/∂y = 0 at top
+        phi[:, :, 1]  .= phi[:, :, 2]      # ∂φ/∂z = 0 at front
+        phi[:, :, nz] .= phi[:, :, nz-1]   # ∂φ/∂z = 0 at back
         
-        return vec(result)
+        if sqrt(residual) < tol
+            break
+        end
     end
     
-    # Set up multigrid with error handling
-    try
-        mg = GeometricMultigrid.Multigrid(
-            operator = laplacian_3d,
-            levels = levels,
-            smoother = GeometricMultigrid.GaussSeidel(),
-            restriction = GeometricMultigrid.LinearRestriction(),
-            prolongation = GeometricMultigrid.TrilinearProlongation(),
-            coarse_solver = GeometricMultigrid.DirectSolver(),
-            cycle = (cycle_type == :V) ? GeometricMultigrid.VCycle() : GeometricMultigrid.WCycle()
-        )
-        return mg
-    catch e
-        @warn "GeometricMultigrid.Multigrid not available for 3D: $e"
-        @warn "Using simple iterative solver as fallback"
-        
-        return SimpleIterativeSolver(1000, 1e-6)
-    end
+    return phi
 end
 
 function solve_poisson!(solver::MultigridPoissonSolver, phi::Array, rhs::Array, 
                        grid::StaggeredGrid, bc::BoundaryConditions)
     
-    # Simplified: Use GeometricMultigrid or simple fallback solver
+    # Use custom pure Julia solver
     if grid.grid_type == TwoDimensional
-        solve_poisson_2d_mg!(solver, phi, rhs, grid, bc)
+        solve_poisson_2d_custom!(solver, phi, rhs, grid, bc)
     elseif grid.grid_type == ThreeDimensional
-        solve_poisson_3d_mg!(solver, phi, rhs, grid, bc)
+        solve_poisson_3d_custom!(solver, phi, rhs, grid, bc)
     else
         error("Unsupported grid type for multigrid: $(grid.grid_type)")
     end
 end
 
-function solve_poisson_2d_mg!(solver::MultigridPoissonSolver, phi::Matrix, rhs::Matrix,
-                             grid::StaggeredGrid, bc::BoundaryConditions)
+function solve_poisson_2d_custom!(solver::MultigridPoissonSolver, phi::Matrix, rhs::Matrix,
+                                 grid::StaggeredGrid, bc::BoundaryConditions)
     
     # Apply boundary conditions to right-hand side
     rhs_bc = copy(rhs)
     apply_poisson_rhs_bc_2d!(rhs_bc, bc, grid)
     
-    # Convert to vector format
-    phi_vec = vec(phi)
-    rhs_vec = vec(rhs_bc)
-    
-    # Check if using fallback solver
-    if solver.mg_solver isa SimpleIterativeSolver
-        # Use fallback solver
-        solution = solve!(solver.mg_solver, phi_vec, rhs_vec, nothing)
+    # Use custom Gauss-Seidel solver
+    if solver.mg_solver isa GaussSeidelSolver
+        gauss_seidel_2d!(phi, rhs_bc, grid, 
+                        solver.mg_solver.max_iterations, 
+                        solver.mg_solver.tolerance,
+                        solver.mg_solver.omega)
     else
-        # Solve using GeometricMultigrid.jl
-        solution = GeometricMultigrid.solve(solver.mg_solver, rhs_vec, phi_vec;
-                                           maxiter=solver.max_iterations,
-                                           tolerance=solver.tolerance)
+        # Use fallback solver
+        phi_vec = vec(phi)
+        rhs_vec = vec(rhs_bc)
+        solution = solve!(solver.mg_solver, phi_vec, rhs_vec, nothing)
+        phi .= reshape(solution, size(phi))
     end
-    
-    # Reshape back to matrix and update phi
-    phi .= reshape(solution, size(phi))
     
     # Apply boundary conditions to solution
     apply_poisson_bc_2d!(phi, bc, grid)
 end
 
-function solve_poisson_3d_mg!(solver::MultigridPoissonSolver, phi::Array{T,3}, rhs::Array{T,3},
-                             grid::StaggeredGrid, bc::BoundaryConditions) where T
+function solve_poisson_3d_custom!(solver::MultigridPoissonSolver, phi::Array{T,3}, rhs::Array{T,3},
+                                 grid::StaggeredGrid, bc::BoundaryConditions) where T
     
     # Apply boundary conditions to right-hand side
     rhs_bc = copy(rhs)
     apply_poisson_rhs_bc_3d!(rhs_bc, bc, grid)
     
-    # Convert to vector format
-    phi_vec = vec(phi)
-    rhs_vec = vec(rhs_bc)
-    
-    # Check if using fallback solver
-    if solver.mg_solver isa SimpleIterativeSolver
-        # Use fallback solver
-        solution = solve!(solver.mg_solver, phi_vec, rhs_vec, nothing)
+    # Use custom Gauss-Seidel solver
+    if solver.mg_solver isa GaussSeidelSolver
+        gauss_seidel_3d!(phi, rhs_bc, grid, 
+                        solver.mg_solver.max_iterations, 
+                        solver.mg_solver.tolerance,
+                        solver.mg_solver.omega)
     else
-        # Solve using GeometricMultigrid.jl
-        solution = GeometricMultigrid.solve(solver.mg_solver, rhs_vec, phi_vec;
-                                           maxiter=solver.max_iterations,
-                                           tolerance=solver.tolerance)
+        # Use fallback solver
+        phi_vec = vec(phi)
+        rhs_vec = vec(rhs_bc)
+        solution = solve!(solver.mg_solver, phi_vec, rhs_vec, nothing)
+        phi .= reshape(solution, size(phi))
     end
-    
-    # Reshape back to 3D array and update phi
-    phi .= reshape(solution, size(phi))
     
     # Apply boundary conditions to solution
     apply_poisson_bc_3d!(phi, bc, grid)
