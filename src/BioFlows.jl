@@ -3,9 +3,9 @@ module BioFlows
 using LinearAlgebra
 using Statistics
 # using GeometricMultigrid  # Removed to eliminate WaterLily dependency
-using ParametricBodies
-using PencilArrays
-using ForwardDiff
+# using ParametricBodies  # Temporarily disabled to test WaterLily source
+# using PencilArrays  # Temporarily disabled to test WaterLily source
+# using ForwardDiff  # Temporarily disabled to test WaterLily source
 using NetCDF
 using MPI
 
