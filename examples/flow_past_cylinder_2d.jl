@@ -154,44 +154,20 @@ function setup_output_configuration()
     
     # Output configuration
     output_config = NetCDFConfig(
-        filename = "cylinder_flow_2d",
-        output_interval = 0.1,               # Save every 0.1 seconds
+        "cylinder_flow_2d";
+        time_interval = 0.1,                 # Save every 0.1 seconds
         max_snapshots_per_file = 50,         # 50 snapshots per file (5 seconds)
-        
-        # Flow field variables
-        save_velocity = true,                # u, w velocity components
-        save_pressure = true,                # Pressure field
-        save_vorticity = true,               # Vorticity field
-        
-        # Additional diagnostics
-        save_velocity_magnitude = true,      # |u| field
-        save_pressure_coefficient = true,    # Cp field
-        save_streamfunction = false,         # ψ field (expensive to compute)
-        
-        # Body forces and coefficients
-        save_body_forces = true,             # Drag and lift forces
+        save_flow_field = true,              # u, w velocity components and pressure
+        save_body_positions = true,          # Body kinematic data
         save_force_coefficients = true,      # Cd and Cl coefficients
-        
-        # AMR information
-        save_refinement_level = true,        # Refinement level field
-        save_grid_metrics = true,            # Grid quality metrics
-        
-        # Compression and performance
-        compression_level = 4,               # Moderate compression
-        chunking = true,                     # Enable chunking for performance
-        
-        # Time series analysis
-        save_time_series = true,             # Body force time series
-        time_series_variables = [:drag_coefficient, :lift_coefficient, 
-                                :pressure_drop, :flow_rate]
+        reference_velocity = 1.0,            # Reference velocity for coefficients
+        flow_direction = [1.0, 0.0]          # Main flow direction (x-direction)
     )
     
     @printf "Configured output settings:\n"
-    @printf "  Output interval: %.2f s\n" output_config.output_interval
+    @printf "  Time interval: %.2f s\n" output_config.time_interval
     @printf "  Snapshots per file: %d\n" output_config.max_snapshots_per_file
-    @printf "  Velocity: %s, Pressure: %s, Vorticity: %s\n" output_config.save_velocity output_config.save_pressure output_config.save_vorticity
-    @printf "  Body forces: %s, Force coefficients: %s\n" output_config.save_body_forces output_config.save_force_coefficients
-    @printf "  AMR data: %s\n" output_config.save_refinement_level
+    @printf "  Flow field: %s, Body positions: %s, Force coefficients: %s\n" output_config.save_flow_field output_config.save_body_positions output_config.save_force_coefficients
     
     return output_config
 end

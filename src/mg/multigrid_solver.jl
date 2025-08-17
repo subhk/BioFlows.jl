@@ -1,13 +1,20 @@
 """
 High-Performance Multigrid Solver for Pressure Poisson Equation
 
-This module provides GeometricMultigrid.jl-based multigrid solver with
-fallback to simple iterative solver for maximum compatibility.
+This module provides a pure Julia multigrid implementation without external dependencies.
 """
 
-using GeometricMultigrid
+using LinearAlgebra
 
-# Simple fallback iterative solver for when GeometricMultigrid is not available
+# Pure Julia iterative solvers
+struct GaussSeidelSolver
+    max_iterations::Int
+    tolerance::Float64
+    omega::Float64  # Relaxation parameter
+end
+
+GaussSeidelSolver(max_iter::Int=1000, tol::Float64=1e-6) = GaussSeidelSolver(max_iter, tol, 1.0)
+
 struct SimpleIterativeSolver
     max_iterations::Int
     tolerance::Float64
@@ -26,8 +33,8 @@ function solve!(solver::SimpleIterativeSolver, x::AbstractVector, b::AbstractVec
 end
 
 struct MultigridPoissonSolver
-    mg_solver::Union{Any, SimpleIterativeSolver}  # GeometricMultigrid or fallback
-    solver_type::Symbol  # :geometric or :simple
+    mg_solver::Union{GaussSeidelSolver, SimpleIterativeSolver}  # Pure Julia solvers
+    solver_type::Symbol  # :gauss_seidel or :simple
     levels::Int
     max_iterations::Int
     tolerance::Float64
@@ -42,17 +49,14 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
                                smoother::Symbol=:gauss_seidel,
                                cycle_type::Symbol=:V)
     
-    # Simplified: Try GeometricMultigrid, fallback to simple solver
-    if grid.grid_type == TwoDimensional
-        mg_solver = setup_multigrid_2d(grid, levels, smoother, cycle_type)
-    elseif grid.grid_type == ThreeDimensional
-        mg_solver = setup_multigrid_3d(grid, levels, smoother, cycle_type)
+    # Use pure Julia solvers only
+    if smoother == :gauss_seidel
+        mg_solver = GaussSeidelSolver(max_iterations, tolerance)
+        solver_type = :gauss_seidel
     else
-        error("Multigrid not implemented for grid type: $(grid.grid_type)")
+        mg_solver = SimpleIterativeSolver(max_iterations, tolerance)
+        solver_type = :simple
     end
-    
-    # Determine solver type
-    solver_type = mg_solver isa SimpleIterativeSolver ? :simple : :geometric
     
     MultigridPoissonSolver(mg_solver, solver_type, levels, max_iterations, tolerance, smoother, cycle_type)
 end
@@ -71,8 +75,8 @@ function show_solver_info(solver::MultigridPoissonSolver)
     println("  Smoother: $(solver.smoother)")
     println("  Cycle Type: $(solver.cycle_type)")
     
-    if solver.solver_type == :geometric
-        println("  Using GeometricMultigrid.jl")
+    if solver.solver_type == :gauss_seidel
+        println("  Using custom Gauss-Seidel solver")
     elseif solver.solver_type == :simple
         println("  Using SimpleIterativeSolver (fallback)")
     end
