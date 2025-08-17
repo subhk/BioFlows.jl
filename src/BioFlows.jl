@@ -29,6 +29,7 @@ include("bodies/rigid_bodies.jl")
 # AMR can be included after body types are defined
 include("amr/adaptive_refinement.jl")
 include("amr/adaptive_refinement_v2.jl")
+include("amr/divergence_free_interpolation.jl")  # New divergence-free velocity interpolation
 # Temporarily disable MPI AMR to fix dependencies
 # include("amr/adaptive_refinement_mpi.jl")
 include("boundary/boundary_layer_amr.jl")
@@ -95,6 +96,10 @@ export AdaptiveRefinementCriteria, RefinedGrid, adapt_grid!
 export AMRLevel, AMRHierarchy, MPIAMRHierarchy
 export compute_refinement_indicators_amr, conservative_restriction_2d, bilinear_prolongation_2d
 export refine_amr_level!, estimate_truncation_error, coordinate_global_refinement!
+
+# Divergence-free velocity interpolation exports
+export interpolate_velocity_conservative!, interpolate_velocity_conservative_2d!
+export verify_divergence_free, compute_divergence_2d!, apply_divergence_correction_2d!
 
 # Boundary layer AMR exports
 export BoundaryLayerAMRCriteria, compute_boundary_layer_indicators
