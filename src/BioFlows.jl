@@ -30,6 +30,7 @@ include("bodies/rigid_bodies.jl")
 include("amr/adaptive_refinement.jl")
 include("amr/adaptive_refinement_v2.jl")
 include("amr/divergence_free_interpolation.jl")  # New divergence-free velocity interpolation
+include("amr/amr_pressure_solver.jl")  # Complete AMR pressure solver with interface conditions
 # Temporarily disable MPI AMR to fix dependencies
 # include("amr/adaptive_refinement_mpi.jl")
 include("boundary/boundary_layer_amr.jl")
@@ -100,6 +101,10 @@ export refine_amr_level!, estimate_truncation_error, coordinate_global_refinemen
 # Divergence-free velocity interpolation exports
 export interpolate_velocity_conservative!, interpolate_velocity_conservative_2d!
 export verify_divergence_free, compute_divergence_2d!, apply_divergence_correction_2d!
+
+# AMR pressure solver exports
+export solve_poisson_amr!, solve_poisson_level!, apply_interface_conditions!
+export compute_global_residual, compute_level_residual
 
 # Boundary layer AMR exports
 export BoundaryLayerAMRCriteria, compute_boundary_layer_indicators
