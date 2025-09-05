@@ -138,15 +138,8 @@ function create_2d_simulation_config(;
         error("Unknown time scheme: $time_scheme")
     end
     
-    # Create output configuration
-    output_config = NetCDFConfig(
-        filename=output_file,
-        output_interval=output_interval,
-        max_snapshots_per_file=100,
-        save_velocity=true,
-        save_pressure=true,
-        save_vorticity=true
-    )
+    # Create output configuration (align with NetCDFConfig signature)
+    output_config = NetCDFConfig(output_file; time_interval=output_interval)
     
     # Create refinement criteria if needed
     refinement_criteria = adaptive_refinement ? AdaptiveRefinementCriteria() : nothing
@@ -216,7 +209,7 @@ run_simulation(config)
 ```
 """
 function create_coordinated_flexible_system(flag_configs::Vector, distance_matrix::Matrix{Float64}; kwargs...)
-    return create_coordinated_flag_system(flag_configs, distance_matrix; kwargs...)
+    error("Flexible body coordination is temporarily disabled in this build. Enable flexible body includes in src/BioFlows.jl to use this API.")
 end
 
 """
@@ -311,15 +304,8 @@ function create_3d_simulation_config(;
         error("Unknown time scheme: $time_scheme")
     end
     
-    # Create output configuration
-    output_config = NetCDFConfig(
-        filename=output_file,
-        output_interval=output_interval,
-        max_snapshots_per_file=100,
-        save_velocity=true,
-        save_pressure=true,
-        save_vorticity=true
-    )
+    # Create output configuration (align with NetCDFConfig signature)
+    output_config = NetCDFConfig(output_file; time_interval=output_interval)
     
     # Create refinement criteria if needed
     refinement_criteria = adaptive_refinement ? AdaptiveRefinementCriteria() : nothing
@@ -418,47 +404,8 @@ Add a flexible body to 2D simulation (only supported in 2D).
 - `motion_frequency::Float64 = 0.0`: Frequency for sinusoidal motion
 """
 function add_flexible_body!(config::SimulationConfig, front_position::Vector{Float64}, 
-                           body_length::Float64, n_points::Int;
-                           thickness::Float64 = 0.01,
-                           rigidity::Float64 = 1.0,
-                           density::Float64 = 1.0,
-                           front_constraint::Symbol = :fixed,
-                           motion_amplitude::Float64 = 0.0,
-                           motion_frequency::Float64 = 0.0)
-    
-    if config.grid_type == ThreeDimensional
-        error("Flexible bodies are only supported for 2D simulations")
-    end
-    
-    # Create constraint based on type
-    if front_constraint == :fixed
-        constraint = FixedConstraint(front_position)
-    elseif front_constraint == :rotation
-        constraint = RotationConstraint(front_position)
-    elseif front_constraint == :sinusoidal
-        constraint = SinusoidalConstraint(front_position, motion_amplitude, motion_frequency)
-    else
-        error("Unknown front constraint: $front_constraint")
-    end
-    
-    # Create flexible body
-    body = FlexibleBody(n_points, body_length, thickness, rigidity, density, constraint)
-    
-    # Initialize body position along x-direction from front position
-    ds = body_length / (n_points - 1)
-    for i = 1:n_points
-        s = (i - 1) * ds
-        body.X[i, 1] = front_position[1] + s
-        body.X[i, 2] = front_position[2]
-    end
-    
-    if config.flexible_bodies === nothing
-        config.flexible_bodies = FlexibleBodyCollection([body])
-    else
-        push!(config.flexible_bodies.bodies, body)
-    end
-    
-    return config
+                           body_length::Float64, n_points::Int; kwargs...)
+    error("Flexible body features are temporarily disabled in this build. Enable flexible body includes in src/BioFlows.jl to use this API.")
 end
 
 """
@@ -545,7 +492,7 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
     end
     
     # Initialize output
-    writer = NetCDFWriter(config.output_config)
+    writer = NetCDFWriter("$(config.output_config.filename).nc", solver.grid, config.output_config)
     
     # Initialize adaptive refinement if needed
     refined_grid = nothing
@@ -559,9 +506,12 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
     
     t = 0.0
     step = 0
-    next_output_time = config.output_config.output_interval
+    next_output_time = config.output_config.time_interval
     
-    write_solution!(writer, state_old, t, step)
+    # Select bodies to save (if any)
+    bodies_for_output = config.rigid_bodies !== nothing ? config.rigid_bodies : (config.flexible_bodies !== nothing ? config.flexible_bodies : nothing)
+    
+    write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
     
     while t < config.final_time
         step += 1
@@ -610,8 +560,8 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
         
         # Output
         if t >= next_output_time || step % 100 == 0
-            write_solution!(writer, state_old, t, step)
-            next_output_time += config.output_config.output_interval
+            write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
+            next_output_time += config.output_config.time_interval
             
             println("Step $step: t = $(round(t, digits=4)), dt = $(round(dt, digits=6))")
             
