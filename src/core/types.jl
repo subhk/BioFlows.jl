@@ -37,8 +37,8 @@ end
 
 mutable struct SolutionState{T<:Real}
     u::Array{T}  # x-velocity
-    v::Array{T}  # y-velocity  
-    w::Array{T}  # z-velocity (3D only)
+    v::Array{T}  # y-velocity (3D) or unused (2D XZ plane)
+    w::Array{T}  # z-velocity (3D) or z-velocity in 2D XZ plane
     p::Array{T}  # pressure
     t::T         # current time
     step::Int    # current step
@@ -47,8 +47,8 @@ end
 function SolutionState2D(nx, nz, T=Float64)
     SolutionState{T}(
         zeros(T, nx+1, nz),    # u (staggered in x)
-        zeros(T, nx, nz+1),    # v (staggered in z, represents w-velocity for XZ plane)
-        zeros(T, 0, 0),        # w (not used in 2D)
+        zeros(T, 0, 0),        # v (not used in 2D XZ plane)
+        zeros(T, nx, nz+1),    # w (staggered in z, z-velocity for XZ plane)
         zeros(T, nx, nz),      # p (cell-centered)
         zero(T),               # t
         0                      # step
@@ -69,7 +69,7 @@ end
 # MPI-aware solution state with ghost cells
 mutable struct MPISolutionState2D{T<:Real}
     u::Matrix{T}     # u-velocity with ghost cells (nx_g+1, nz_g) - XZ plane
-    v::Matrix{T}     # v-velocity with ghost cells (nx_g, nz_g+1) - represents w-velocity in XZ plane
+    w::Matrix{T}     # w-velocity with ghost cells (nx_g, nz_g+1) - z-velocity in XZ plane
     p::Matrix{T}     # pressure with ghost cells (nx_g, nz_g)
     t::T             # current time
     step::Int        # current step
@@ -82,7 +82,7 @@ function MPISolutionState2D(decomp, T=Float64)
     
     MPISolutionState2D{T}(
         zeros(T, nx_g + 1, nz_g),  # u (staggered in x)
-        zeros(T, nx_g, nz_g + 1),  # v (staggered in z, represents w-velocity for XZ plane)
+        zeros(T, nx_g, nz_g + 1),  # w (staggered in z, z-velocity for XZ plane)
         zeros(T, nx_g, nz_g),      # p (cell-centered)
         zero(T),                   # t
         0,                         # step

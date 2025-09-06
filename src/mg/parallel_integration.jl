@@ -39,16 +39,16 @@ mutable struct OptimizedMPINavierStokesSolver2D <: AbstractSolver
     
     # Local work arrays (persistent to avoid allocations)
     local_u_star::Matrix{Float64}
-    local_v_star::Matrix{Float64}
+    local_w_star::Matrix{Float64}  # Fixed: w for z-velocity in XZ plane
     local_phi::Matrix{Float64}
     local_rhs_p::Matrix{Float64}
     
     # Additional optimization arrays
     local_div_u::Matrix{Float64}
     local_advection_u::Matrix{Float64}
-    local_advection_v::Matrix{Float64}
+    local_advection_w::Matrix{Float64}  # Fixed: w for z-velocity
     local_diffusion_u::Matrix{Float64}
-    local_diffusion_v::Matrix{Float64}
+    local_diffusion_w::Matrix{Float64}  # Fixed: w for z-velocity
 end
 
 function OptimizedMPINavierStokesSolver2D(nx_global::Int, nz_global::Int, 
@@ -71,25 +71,25 @@ function OptimizedMPINavierStokesSolver2D(nx_global::Int, nz_global::Int,
     
     # Pre-allocate all work arrays to eliminate runtime allocations
     local_u_star = zeros(nx_local+1, nz_local)
-    local_v_star = zeros(nx_local, nz_local+1)
+    local_w_star = zeros(nx_local, nz_local+1)  # Fixed: w for z-velocity in XZ plane
     local_phi = zeros(nx_local, nz_local)
     local_rhs_p = zeros(nx_local, nz_local)
     
     # Additional optimization arrays
     local_div_u = zeros(nx_local, nz_local)
     local_advection_u = zeros(nx_local+1, nz_local)
-    local_advection_v = zeros(nx_local, nz_local+1)
+    local_advection_w = zeros(nx_local, nz_local+1)  # Fixed: w for z-velocity
     local_diffusion_u = zeros(nx_local+1, nz_local)
-    local_diffusion_v = zeros(nx_local, nz_local+1)
+    local_diffusion_w = zeros(nx_local, nz_local+1)  # Fixed: w for z-velocity
     
     # Create multigrid solver (pure Julia implementation; works on local subdomain)
     multigrid_solver = MultigridPoissonSolver(local_grid; smoother=:staggered)
     
     OptimizedMPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme, multigrid_solver,
                                     mpi_buffers, load_balancer, comm_overlapper,
-                                    local_u_star, local_v_star, local_phi, local_rhs_p,
-                                    local_div_u, local_advection_u, local_advection_v,
-                                    local_diffusion_u, local_diffusion_v)
+                                    local_u_star, local_w_star, local_phi, local_rhs_p,
+                                    local_div_u, local_advection_u, local_advection_w,
+                                    local_diffusion_u, local_diffusion_w)
 end
 
 """
