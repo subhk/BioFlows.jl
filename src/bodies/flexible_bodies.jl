@@ -1329,10 +1329,10 @@ function get_measurement_point(body::FlexibleBody, point_type::Symbol)
     if point_type == :tip
         return [body.X[end, 1], body.X[end, 2]]
     elseif point_type == :center
-        mid_idx = div(n, 2)
+        mid_idx = max(1, div(n, 2))
         return [body.X[mid_idx, 1], body.X[mid_idx, 2]]
     elseif point_type == :quarter
-        quarter_idx = div(n, 4)
+        quarter_idx = max(1, div(n, 4))
         return [body.X[quarter_idx, 1], body.X[quarter_idx, 2]]
     elseif point_type == :root
         return [body.X[1, 1], body.X[1, 2]]
