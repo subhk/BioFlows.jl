@@ -80,6 +80,7 @@ function main()
     xc = haskey(p, "xc") ? p["xc"] : 1.2
     zc = haskey(p, "zc") ? p["zc"] : Lz/2
     config = BioFlows.add_rigid_circle!(config, [xc, zc], R)
+    bodies = config.rigid_bodies  # keep a handle for output
 
     # Create MPI solver directly from config (returns MPINavierStokesSolver2D)
     solver = BioFlows.create_solver(config)
@@ -151,13 +152,33 @@ function main()
                 @info "step=$step t=$(round(t, digits=3)) dt=$(round(dt_step, digits=4)) CFL=$(round(cfl, digits=3))"
             end
             # Global NetCDF output via writer (auto-detects MPI state)
-            BioFlows.write_solution!(writer, local_old, nothing, global_grid, solver.fluid, t, step)
+            BioFlows.write_solution!(writer, local_old, bodies, global_grid, solver.fluid, t, step)
             next_print += save_interval
         end
     end
 
     if rank == 0
         println("MPI simulation complete. Global output written to $(outfile)")
+        # Read and print final Cd/Cl from the coefficients file (if created)
+        try
+            coeff_path = replace(outfile, ".nc" => "_coeffs.nc")
+            if isfile(coeff_path)
+                nc = NetCDF.open(coeff_path)
+                time = NetCDF.readvar(nc, "time")
+                Cd = NetCDF.readvar(nc, "Cd")
+                Cl = NetCDF.readvar(nc, "Cl")
+                NetCDF.close(nc)
+                nt = length(time)
+                Cd_last = Cd[1, nt]
+                Cl_last = Cl[1, nt]
+                println("Final coefficients (body 1): Cd=$(round(Cd_last, digits=4)), Cl=$(round(Cl_last, digits=4)) at t=$(round(time[end], digits=3))")
+                println("Coefficient series saved to: $(coeff_path)")
+            else
+                @warn "Coefficient file not found: $(coeff_path)"
+            end
+        catch e
+            @warn "Could not read Cd/Cl series: $e"
+        end
     end
 
     MPI.Barrier(comm)
