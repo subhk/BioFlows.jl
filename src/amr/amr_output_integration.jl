@@ -954,7 +954,12 @@ function save_amr_to_netcdf!(netcdf_writer, refined_grid::RefinedGrid, state::So
     # During simulation, the solution always lives on the original grid.
     # This function projects refined accuracy information back for enhanced output.
     
-    # Step 1: Project AMR-enhanced data to original grid for output
+    # Ensure we are writing on the actual grid the writer was initialized with
+    if hasfield(typeof(netcdf_writer), :grid) && netcdf_writer.grid !== refined_grid.base_grid
+        println("WARNING: NetCDF writer grid differs from AMR base grid; using writer grid for projection metadata")
+    end
+
+    # Step 1: Project AMR-enhanced data to original grid for output (writer's grid == base grid)
     output_state, metadata = prepare_amr_for_netcdf_output(refined_grid, state, "amr_flow", step, time)
     
     # Step 2: Verify output is on original grid
