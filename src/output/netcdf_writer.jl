@@ -596,6 +596,12 @@ function save_complete_snapshot!(writer::NetCDFWriter, state::SolutionState,
                 catch e
                     @warn "Rigid-body coefficients not saved: $e"
                 end
+                try
+                    save_rigid_body_forces_series!(writer, bodies, grid, state, fluid,
+                                                   current_time, current_iteration)
+                catch e
+                    @warn "Rigid-body forces not saved: $e"
+                end
             end
         end
     end
@@ -794,6 +800,7 @@ end
 # ============================================================================
 
 const _RIGID_COEFF_WRITERS = Dict{String, Any}()
+const _RIGID_FORCE_WRITERS = Dict{String, Any}()
 
 mutable struct RigidCoeffWriter
     filepath::String
@@ -879,6 +886,96 @@ function save_rigid_body_coefficients_series!(writer::NetCDFWriter,
     NetCDF.putvar(cw.ncfile, "Fx", [c.Fx for c in coeffs], start=[1, idx])
     NetCDF.putvar(cw.ncfile, "Fz", [c.Fz for c in coeffs], start=[1, idx])
     println("Saved rigid-body coefficients snapshot $(idx) at t=$(current_time)")
+    return true
+end
+
+# ============================================================================
+# Rigid-body forces and torque series (separate file)
+# ============================================================================
+
+mutable struct RigidForceWriter
+    filepath::String
+    base_filepath::String
+    n_bodies::Int
+    max_snapshots::Int
+    current_snapshot::Int
+    file_index::Int
+    ncfile::Union{Nothing, NetCDF.NcFile}
+end
+
+function _create_rigid_force_writer(filepath::String, bodies::RigidBodyCollection; max_snapshots::Int=1000)
+    w = RigidForceWriter(filepath, filepath, bodies.n_bodies, max_snapshots, 0, 0, nothing)
+    _init_rigid_force_file!(w)
+    return w
+end
+
+function _init_rigid_force_file!(w::RigidForceWriter)
+    if isfile(w.filepath); rm(w.filepath); end
+    n_b = w.n_bodies
+    tdim = NetCDF.NcDim("time", w.max_snapshots)
+    bdim = NetCDF.NcDim("n_bodies", n_b)
+    vars = NetCDF.NcVar[
+        NetCDF.NcVar("time", [tdim]; t=Float64),
+        NetCDF.NcVar("Fx", [bdim, tdim]; t=Float64),
+        NetCDF.NcVar("Fz", [bdim, tdim]; t=Float64),
+        NetCDF.NcVar("Ty", [bdim, tdim]; t=Float64),
+    ]
+    nc = NetCDF.create(w.filepath, vars)
+    NetCDF.putatt(nc, "global", Dict("title"=>"Rigid body forces and torque (2D XZ)", "n_bodies"=>n_b))
+    w.ncfile = nc
+    return nc
+end
+
+function _rollover!(w::RigidForceWriter)
+    if w.current_snapshot >= w.max_snapshots
+        if w.ncfile !== nothing
+            try NetCDF.close(w.ncfile) catch; end
+            w.ncfile = nothing
+        end
+        w.file_index += 1
+        base, ext = splitext(w.base_filepath)
+        w.filepath = string(base, "_", w.file_index, ext)
+        w.current_snapshot = 0
+        _init_rigid_force_file!(w)
+        println("Rigid forces: created new file $(w.filepath)")
+    end
+end
+
+function _get_rigid_force_writer(writer::NetCDFWriter, bodies::RigidBodyCollection)
+    base, ext = splitext(writer.filepath)
+    fpath = string(base, "_forces", ext)
+    key = fpath
+    if !haskey(_RIGID_FORCE_WRITERS, key)
+        _RIGID_FORCE_WRITERS[key] = _create_rigid_force_writer(fpath, bodies; max_snapshots=writer.config.max_snapshots_per_file)
+    end
+    return _RIGID_FORCE_WRITERS[key]
+end
+
+function save_rigid_body_forces_series!(writer::NetCDFWriter,
+                                       bodies::RigidBodyCollection,
+                                       grid::StaggeredGrid, state::SolutionState,
+                                       fluid::FluidProperties,
+                                       current_time::Float64, current_iteration::Int)
+    # Only 2D XZ currently; extend to 3D as needed
+    if grid.grid_type != TwoDimensional
+        @warn "Rigid-body force writer currently supports 2D XZ only"
+        return false
+    end
+    fw = _get_rigid_force_writer(writer, bodies)
+    _rollover!(fw)
+    fw.current_snapshot += 1
+    idx = fw.current_snapshot
+    # Compute forces for each body
+    Fx = Float64[]; Fz = Float64[]; Ty = Float64[]
+    for body in bodies.bodies
+        F, torque = compute_body_forces_2d(body, grid, state, fluid)
+        push!(Fx, F[1]); push!(Fz, F[2]); push!(Ty, torque)
+    end
+    NetCDF.putvar(fw.ncfile, "time", [current_time], start=[idx])
+    NetCDF.putvar(fw.ncfile, "Fx", Fx, start=[1, idx])
+    NetCDF.putvar(fw.ncfile, "Fz", Fz, start=[1, idx])
+    NetCDF.putvar(fw.ncfile, "Ty", Ty, start=[1, idx])
+    println("Saved rigid-body forces snapshot $(idx) at t=$(current_time)")
     return true
 end
 
