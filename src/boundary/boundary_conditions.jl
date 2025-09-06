@@ -41,28 +41,28 @@ function apply_2d_boundaries!(grid::StaggeredGrid, state::SolutionState,
     if haskey(bc.conditions, (:x, :left))
         condition = bc.conditions[(:x, :left)]
         apply_u_boundary!(state.u, condition, 1, :, t, :left)
-        apply_w_boundary!(state.w, condition, 1, :, t, :left)  # w instead of v
+        apply_w_boundary!(state.v, condition, 1, :, t, :left)  # v holds vertical velocity (w) in 2D
     end
     
     # Right boundary (x=Lx)
     if haskey(bc.conditions, (:x, :right))
         condition = bc.conditions[(:x, :right)]
         apply_u_boundary!(state.u, condition, nx+1, :, t, :right)
-        apply_w_boundary!(state.w, condition, nx, :, t, :right)
+        apply_w_boundary!(state.v, condition, nx, :, t, :right)
     end
     
     # Bottom boundary (z=0)
     if haskey(bc.conditions, (:z, :bottom))
         condition = bc.conditions[(:z, :bottom)]
         apply_u_boundary!(state.u, condition, :, 1, t, :bottom)
-        apply_w_boundary!(state.w, condition, :, 1, t, :bottom)
+        apply_w_boundary!(state.v, condition, :, 1, t, :bottom)
     end
     
     # Top boundary (z=Lz)
     if haskey(bc.conditions, (:z, :top))
         condition = bc.conditions[(:z, :top)]
         apply_u_boundary!(state.u, condition, :, nz, t, :top)
-        apply_w_boundary!(state.w, condition, :, nz+1, t, :top)
+        apply_w_boundary!(state.v, condition, :, nz+1, t, :top)
     end
 end
 
@@ -70,9 +70,45 @@ end
 function apply_3d_boundaries!(grid::StaggeredGrid, state::SolutionState,
                              bc::BoundaryConditions, t::Float64)
     nx, ny, nz = grid.nx, grid.ny, grid.nz
-    
-    # Implementation for all 6 boundaries in 3D
-    # Similar pattern as 2D but with additional z-direction boundaries
+    # X-direction boundaries (left/right)
+    if haskey(bc.conditions, (:x, :left))
+        cond = bc.conditions[(:x, :left)]
+        apply_u_boundary!(state.u, cond, 1, :, :, t, :left)
+        apply_v_boundary!(state.v, cond, 1, :, :, t, :left)
+        apply_w_boundary!(state.w, cond, 1, :, :, t, :left)
+    end
+    if haskey(bc.conditions, (:x, :right))
+        cond = bc.conditions[(:x, :right)]
+        apply_u_boundary!(state.u, cond, nx+1, :, :, t, :right)
+        apply_v_boundary!(state.v, cond, nx, :, :, t, :right)
+        apply_w_boundary!(state.w, cond, nx, :, :, t, :right)
+    end
+    # Y-direction boundaries (bottom/top)
+    if haskey(bc.conditions, (:y, :bottom))
+        cond = bc.conditions[(:y, :bottom)]
+        apply_u_boundary!(state.u, cond, :, 1, :, t, :bottom)
+        apply_v_boundary!(state.v, cond, :, 1, :, t, :bottom)
+        apply_w_boundary!(state.w, cond, :, 1, :, t, :bottom)
+    end
+    if haskey(bc.conditions, (:y, :top))
+        cond = bc.conditions[(:y, :top)]
+        apply_u_boundary!(state.u, cond, :, ny, :, t, :top)
+        apply_v_boundary!(state.v, cond, :, ny+1, :, t, :top)
+        apply_w_boundary!(state.w, cond, :, ny, :, t, :top)
+    end
+    # Z-direction boundaries (front/back)
+    if haskey(bc.conditions, (:z, :front))
+        cond = bc.conditions[(:z, :front)]
+        apply_u_boundary!(state.u, cond, :, :, 1, t, :front)
+        apply_v_boundary!(state.v, cond, :, :, 1, t, :front)
+        apply_w_boundary!(state.w, cond, :, :, 1, t, :front)
+    end
+    if haskey(bc.conditions, (:z, :back))
+        cond = bc.conditions[(:z, :back)]
+        apply_u_boundary!(state.u, cond, :, :, nz, t, :back)
+        apply_v_boundary!(state.v, cond, :, :, nz, t, :back)
+        apply_w_boundary!(state.w, cond, :, :, nz+1, t, :back)
+    end
 end
 
 function apply_u_boundary!(u::Array, condition::BoundaryCondition, 
@@ -128,7 +164,7 @@ function apply_v_boundary!(v::Array, condition::BoundaryCondition,
     end
 end
 
-function apply_w_boundary!(w::Array, condition::BoundaryCondition,
+function apply_w_boundary!(w::Array, condition::BoundaryCondition, 
                           idx1, idx2, t::Float64, location::Symbol)
     # Similar to v_boundary but for z-direction
     if condition.type == NoSlip
@@ -148,6 +184,93 @@ function apply_w_boundary!(w::Array, condition::BoundaryCondition,
     elseif condition.type == Outlet
         if location == :top
             w[idx1, idx2] .= w[idx1, idx2-1]
+        end
+    end
+end
+
+# 3D variants (dispatch on 3 indices)
+function apply_u_boundary!(u::Array{T,3}, condition::BoundaryCondition, 
+                           i, j, k, t::Float64, location::Symbol) where T
+    if condition.type == NoSlip
+        u[i, j, k] = 0.0
+    elseif condition.type == FreeSlip
+        # du/dn = 0 → copy from interior cell face
+        if location == :left
+            u[1, j, k] = u[2, j, k]
+        elseif location == :right
+            u[end, j, k] = u[end-1, j, k]
+        elseif location == :bottom
+            u[:, 1, k] .= u[:, 2, k]
+        elseif location == :top
+            u[:, end, k] .= u[:, end-1, k]
+        elseif location == :front
+            u[:, j, 1] .= u[:, j, 2]
+        elseif location == :back
+            u[:, j, end] .= u[:, j, end-1]
+        end
+    elseif condition.type == Inlet
+        val = condition.value isa Function ? condition.value(t) : condition.value
+        u[i, j, k] = val
+    elseif condition.type == Outlet
+        # Zero gradient in normal direction: copy from interior
+        if location == :right
+            u[end, j, k] = u[end-1, j, k]
+        end
+    end
+end
+
+function apply_v_boundary!(v::Array{T,3}, condition::BoundaryCondition, 
+                           i, j, k, t::Float64, location::Symbol) where T
+    if condition.type == NoSlip
+        v[i, j, k] = 0.0
+    elseif condition.type == FreeSlip
+        if location == :bottom
+            v[i, 1, k] = v[i, 2, k]
+        elseif location == :top
+            v[i, end, k] = v[i, end-1, k]
+        elseif location == :left
+            v[1, :, k] .= v[2, :, k]
+        elseif location == :right
+            v[end, :, k] .= v[end-1, :, k]
+        elseif location == :front
+            v[i, j, 1] = v[i, j, 2]
+        elseif location == :back
+            v[i, j, end] = v[i, j, end-1]
+        end
+    elseif condition.type == Inlet
+        val = condition.value isa Function ? condition.value(t) : (condition.value !== nothing ? condition.value : 0.0)
+        v[i, j, k] = val
+    elseif condition.type == Outlet
+        if location == :top
+            v[i, end, k] = v[i, end-1, k]
+        end
+    end
+end
+
+function apply_w_boundary!(w::Array{T,3}, condition::BoundaryCondition, 
+                           i, j, k, t::Float64, location::Symbol) where T
+    if condition.type == NoSlip
+        w[i, j, k] = 0.0
+    elseif condition.type == FreeSlip
+        if location == :front
+            w[i, j, 1] = w[i, j, 2]
+        elseif location == :back
+            w[i, j, end] = w[i, j, end-1]
+        elseif location == :left
+            w[1, j, k] = w[2, j, k]
+        elseif location == :right
+            w[end, j, k] = w[end-1, j, k]
+        elseif location == :bottom
+            w[i, 1, k] = w[i, 2, k]
+        elseif location == :top
+            w[i, end, k] = w[i, end-1, k]
+        end
+    elseif condition.type == Inlet
+        val = condition.value isa Function ? condition.value(t) : (condition.value !== nothing ? condition.value : 0.0)
+        w[i, j, k] = val
+    elseif condition.type == Outlet
+        if location == :back
+            w[i, j, end] = w[i, j, end-1]
         end
     end
 end

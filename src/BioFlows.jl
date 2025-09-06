@@ -150,7 +150,7 @@ module BioFlows
     export compute_drag_lift_coefficients, compute_body_coefficients_collection, compute_instantaneous_power
     export add_flexible_bodies_with_controller!
 
-    # Simplified multigrid solver exports (WaterLily-style solvers removed)
+    # Multigrid solver exports
     export MultigridPoissonSolver, solve_poisson!, show_solver_info
     export compute_pressure_gradient_to_faces!, compute_velocity_divergence_from_faces!
     export create_amr_integrated_solver, amr_solve_step!
