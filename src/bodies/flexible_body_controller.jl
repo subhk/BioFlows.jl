@@ -31,6 +31,7 @@ while maintaining specified distances.
 - `control_points::Vector{Symbol}`: Which points to use for distance calculation
 - `custom_control_indices::Vector{Int}`: Custom point indices if needed
 - `control_scale_factor::Float64`: Scaling factor for control signal amplitude
+- `distance_type::Symbol`: Type of distance measurement (:euclidean, :x_distance, :z_distance)
 """
 mutable struct FlexibleBodyController
     bodies::Vector{FlexibleBody}
@@ -46,6 +47,7 @@ mutable struct FlexibleBodyController
     control_points::Vector{Symbol}
     custom_control_indices::Vector{Int}
     control_scale_factor::Float64
+    distance_type::Symbol
     
     function FlexibleBodyController(bodies::Vector{FlexibleBody};
                                   base_frequency::Float64 = 1.0,
@@ -53,7 +55,8 @@ mutable struct FlexibleBodyController
                                   ki::Float64 = 0.1,
                                   kd::Float64 = 0.05,
                                   phase_coordination::Symbol = :synchronized,
-                                  control_scale_factor::Float64 = 0.1)
+                                  control_scale_factor::Float64 = 0.1,
+                                  distance_type::Symbol = :x_distance)
         
         n_bodies = length(bodies)
         target_distances = zeros(n_bodies, n_bodies)
@@ -66,13 +69,13 @@ mutable struct FlexibleBodyController
         # Default amplitude limits (10% to 200% of original)
         amplitude_limits = [(0.1, 2.0) for _ in 1:n_bodies]
         
-        # Default to trailing edge control
-        control_points = fill(:trailing_edge, n_bodies)
+        # Default to leading edge control
+        control_points = fill(:leading_edge, n_bodies)
         custom_control_indices = Int[]
         
         new(bodies, target_distances, kp, ki, kd, error_integral, error_previous,
             base_frequency, phase_offsets, amplitude_limits, control_points, 
-            custom_control_indices, control_scale_factor)
+            custom_control_indices, control_scale_factor, distance_type)
     end
 end
 
@@ -196,7 +199,8 @@ function update_controller!(controller::FlexibleBodyController, current_time::Fl
                 current_distance = compute_body_distance(
                     controller.bodies[i], controller.bodies[j],
                     controller.control_points[i], controller.control_points[j],
-                    _get_custom_index(controller, i), _get_custom_index(controller, j)
+                    _get_custom_index(controller, i), _get_custom_index(controller, j);
+                    distance_type = controller.distance_type
                 )
                 
                 # Calculate error
@@ -314,7 +318,8 @@ function monitor_distance_control(controller::FlexibleBodyController, current_ti
             if controller.target_distances[i, j] > 0.0
                 current_distances[i, j] = compute_body_distance(
                     controller.bodies[i], controller.bodies[j],
-                    controller.control_points[i], controller.control_points[j]
+                    controller.control_points[i], controller.control_points[j];
+                    distance_type = controller.distance_type
                 )
                 distance_errors[i, j] = controller.target_distances[i, j] - current_distances[i, j]
                 control_active[i, j] = true
@@ -378,7 +383,8 @@ function print_controller_status(controller::FlexibleBodyController, current_tim
         for (i, j, target) in active_targets
             current_dist = compute_body_distance(
                 controller.bodies[i], controller.bodies[j],
-                controller.control_points[i], controller.control_points[j]
+                controller.control_points[i], controller.control_points[j];
+                distance_type = controller.distance_type
             )
             error = target - current_dist
             @printf "     Body %d--%d: target=%.3f, current=%.3f, error=%.3f\n" i j target current_dist error

@@ -18,7 +18,8 @@ Functions:
 """
     compute_body_distance(body1::FlexibleBody, body2::FlexibleBody, 
                          point1::Symbol, point2::Symbol, 
-                         custom_idx1::Int=0, custom_idx2::Int=0)
+                         custom_idx1::Int=0, custom_idx2::Int=0;
+                         distance_type::Symbol=:euclidean)
 
 Compute distance between specified points on two flexible bodies.
 
@@ -26,19 +27,26 @@ Compute distance between specified points on two flexible bodies.
 - `body1, body2::FlexibleBody`: Bodies to measure distance between
 - `point1, point2::Symbol`: Control points (:leading_edge, :trailing_edge, :center, :custom)
 - `custom_idx1, custom_idx2::Int`: Point indices if using :custom option
+- `distance_type::Symbol`: Type of distance (:euclidean, :x_distance, :z_distance)
 
 # Returns
-- `Float64`: Euclidean distance between the specified points
+- `Float64`: Distance between the specified points
 
 # Control Point Options
 - `:leading_edge`: First point (s=0) of the body
 - `:trailing_edge`: Last point (s=L) of the body  
 - `:center`: Middle point of the body
 - `:custom`: Use custom point index (requires custom_idx parameter)
+
+# Distance Types
+- `:euclidean`: Standard Euclidean distance √((x₂-x₁)² + (z₂-z₁)²)
+- `:x_distance`: Horizontal separation |x₂ - x₁| 
+- `:z_distance`: Vertical separation |z₂ - z₁|
 """
 function compute_body_distance(body1::FlexibleBody, body2::FlexibleBody, 
                               point1::Symbol, point2::Symbol, 
-                              custom_idx1::Int=0, custom_idx2::Int=0)
+                              custom_idx1::Int=0, custom_idx2::Int=0;
+                              distance_type::Symbol=:euclidean)
     
     # Get coordinates for first body
     x1, z1 = get_body_point(body1, point1, custom_idx1)
@@ -46,7 +54,15 @@ function compute_body_distance(body1::FlexibleBody, body2::FlexibleBody,
     # Get coordinates for second body  
     x2, z2 = get_body_point(body2, point2, custom_idx2)
     
-    return sqrt((x2 - x1)^2 + (z2 - z1)^2)
+    if distance_type == :euclidean
+        return sqrt((x2 - x1)^2 + (z2 - z1)^2)
+    elseif distance_type == :x_distance
+        return abs(x2 - x1)
+    elseif distance_type == :z_distance
+        return abs(z2 - z1)
+    else
+        error("Unknown distance type: $distance_type. Valid options: :euclidean, :x_distance, :z_distance")
+    end
 end
 
 """
@@ -120,7 +136,8 @@ end
 """
     compute_multi_body_distances(bodies::Vector{FlexibleBody}, 
                                 control_points::Vector{Symbol},
-                                custom_indices::Vector{Int} = Int[])
+                                custom_indices::Vector{Int} = Int[];
+                                distance_type::Symbol = :euclidean)
 
 Compute all pairwise distances between a collection of bodies.
 
@@ -128,13 +145,15 @@ Compute all pairwise distances between a collection of bodies.
 - `bodies::Vector{FlexibleBody}`: Collection of bodies
 - `control_points::Vector{Symbol}`: Control point type for each body
 - `custom_indices::Vector{Int}`: Custom indices for bodies using :custom control points
+- `distance_type::Symbol`: Type of distance (:euclidean, :x_distance, :z_distance)
 
 # Returns
 - `Matrix{Float64}`: Distance matrix [i,j] where entry is distance from body i to body j
 """
 function compute_multi_body_distances(bodies::Vector{FlexibleBody}, 
                                     control_points::Vector{Symbol},
-                                    custom_indices::Vector{Int} = Int[])
+                                    custom_indices::Vector{Int} = Int[];
+                                    distance_type::Symbol = :euclidean)
     
     n_bodies = length(bodies)
     
@@ -151,7 +170,8 @@ function compute_multi_body_distances(bodies::Vector{FlexibleBody},
             
             dist = compute_body_distance(bodies[i], bodies[j], 
                                        control_points[i], control_points[j],
-                                       custom_idx_i, custom_idx_j)
+                                       custom_idx_i, custom_idx_j;
+                                       distance_type = distance_type)
             
             distance_matrix[i, j] = dist
             distance_matrix[j, i] = dist  # Symmetric matrix
@@ -251,7 +271,8 @@ end
 """
     distance_statistics(bodies::Vector{FlexibleBody}, 
                        control_points::Vector{Symbol},
-                       reference_distances::Matrix{Float64})
+                       reference_distances::Matrix{Float64};
+                       distance_type::Symbol = :euclidean)
 
 Compute statistical measures of distance control performance.
 
@@ -259,15 +280,17 @@ Compute statistical measures of distance control performance.
 - `bodies::Vector{FlexibleBody}`: Bodies to analyze
 - `control_points::Vector{Symbol}`: Control points for each body
 - `reference_distances::Matrix{Float64}`: Target/reference distances
+- `distance_type::Symbol`: Type of distance (:euclidean, :x_distance, :z_distance)
 
 # Returns
 - `NamedTuple`: Statistics including mean error, RMS error, max error, etc.
 """
 function distance_statistics(bodies::Vector{FlexibleBody}, 
                            control_points::Vector{Symbol},
-                           reference_distances::Matrix{Float64})
+                           reference_distances::Matrix{Float64};
+                           distance_type::Symbol = :euclidean)
     
-    current_distances = compute_multi_body_distances(bodies, control_points)
+    current_distances = compute_multi_body_distances(bodies, control_points; distance_type = distance_type)
     
     n_bodies = length(bodies)
     errors = Float64[]
@@ -309,19 +332,21 @@ end
 """
     print_distance_analysis(bodies::Vector{FlexibleBody}, 
                            control_points::Vector{Symbol},
-                           target_distances::Matrix{Float64})
+                           target_distances::Matrix{Float64};
+                           distance_type::Symbol = :euclidean)
 
 Print detailed distance analysis for debugging.
 """
 function print_distance_analysis(bodies::Vector{FlexibleBody}, 
                                 control_points::Vector{Symbol},
-                                target_distances::Matrix{Float64})
+                                target_distances::Matrix{Float64};
+                                distance_type::Symbol = :euclidean)
     
     println("\nDistance Analysis:")
     println("   Bodies: $(length(bodies))")
     
-    current_distances = compute_multi_body_distances(bodies, control_points)
-    stats = distance_statistics(bodies, control_points, target_distances)
+    current_distances = compute_multi_body_distances(bodies, control_points; distance_type = distance_type)
+    stats = distance_statistics(bodies, control_points, target_distances; distance_type = distance_type)
     
     # Print pairwise distances
     n_bodies = length(bodies)
