@@ -19,12 +19,12 @@ include("mg/multigrid_solver.jl")
 
 # Bodies need grids to be defined first, but come before AMR
 include("bodies/rigid_bodies.jl")
-# Temporarily disable flexible body includes to fix circular dependencies
-# include("bodies/flexible_bodies.jl")
-# include("bodies/distance_utilities.jl")
-# include("bodies/flexible_body_controller.jl")
-# include("bodies/coordinated_system_factory.jl")
-# include("bodies/horizontal_plane_utilities.jl")
+# Flexible body features
+include("bodies/flexible_bodies.jl")
+include("bodies/distance_utilities.jl")
+include("bodies/flexible_body_controller.jl")
+include("bodies/coordinated_system_factory.jl")
+include("bodies/horizontal_plane_utilities.jl")
 
 # AMR can be included after body types are defined
 include("amr/adaptive_refinement.jl")
@@ -45,6 +45,9 @@ include("3D/grid_3d.jl")
 include("3D/discretization_3d.jl")
 include("3D/navier_stokes_3d.jl")
 include("3D/mpi_3d.jl")
+
+# AMR integration (depends on solver types above)
+include("amr/amr_integration.jl")
 
 include("output/netcdf_writer.jl")
 include("api/simulation_api.jl")
@@ -68,13 +71,16 @@ export refine_2d_grid_near_bodies, refine_3d_grid_near_bodies
 export print_grid_info_2d, print_grid_info_3d, validate_2d_grid, validate_3d_grid
 
 # Body exports  
-export RigidBody, RigidBodyCollection  # FlexibleBody temporarily disabled
+export RigidBody, RigidBodyCollection, FlexibleBody, FlexibleBodyCollection
 export Circle, Square, Rectangle
 export add_body!, is_inside, distance_to_surface, surface_normal
 export update_body_motion!, get_body_velocity_at_point, bodies_mask_2d, bodies_mask_3d
-# Temporarily disabled flexible body exports
-# export FlexibleBody, FlexibleBodyCollection
-# export StationaryMotion, PrescribedMotion, FixedConstraint, RotationConstraint, SinusoidalConstraint
+export create_flag, create_vertical_flag, create_curved_flag, create_angled_flag, create_flag_collection
+export compute_body_distance, get_body_point, validate_control_points
+export compute_multi_body_distances, find_closest_points, distance_statistics
+export compute_body_center_of_mass, compute_body_bounding_box, print_distance_analysis
+export FlexibleBodyController, set_target_distances!, set_control_parameters!, reset_controller_state!
+export update_controller!, apply_harmonic_boundary_conditions!, monitor_distance_control, print_controller_status
 
 # Solution and state exports
 export SolutionState, SolutionState2D, SolutionState3D
@@ -133,41 +139,20 @@ export compute_cfl_2d, compute_cfl_3d
 export solve_step_2d!, solve_step_3d!
 
 # Advanced force calculation exports
-# Temporarily disabled flexible-body specific exports to avoid undefined refs
-# export compute_flexible_body_forces, compute_stress_force_accurate, compute_penalty_force_accurate
-# export compute_constraint_force_accurate
-export regularized_delta_2d
-# export interpolate_with_delta_function
-# export compute_local_surface_properties, compute_adaptive_stiffness, compute_local_reynolds
+export compute_flexible_body_forces, compute_stress_force_accurate, compute_penalty_force_accurate
+export compute_constraint_force_accurate, regularized_delta_2d, interpolate_with_delta_function
+export compute_local_surface_properties, compute_adaptive_stiffness, compute_local_reynolds
 
-# Flag-specific constructor functions (temporarily disabled)
-# export create_flag, create_vertical_flag, create_curved_flag, create_angled_flag, create_flag_collection
-
-# Distance measurement utilities (temporarily disabled)
-# export compute_body_distance, get_body_point, validate_control_points
-# export compute_multi_body_distances, find_closest_points, distance_statistics
-# export compute_body_center_of_mass, compute_body_bounding_box, print_distance_analysis
-
-# Temporarily disabled flexible body controller system
-# export FlexibleBodyController, set_target_distances!, set_control_parameters!, reset_controller_state!
-# export update_controller!, apply_harmonic_boundary_conditions!, monitor_distance_control, print_controller_status
-
-# Coordinated system factory functions (temporarily disabled)
-# export create_coordinated_flag_system, setup_simple_two_flag_system, setup_multi_flag_chain
-# export validate_system_configuration, print_system_summary
-
-# Simulation API integration functions
-# Temporarily disabled: export add_flexible_bodies_with_controller!, create_coordinated_flexible_system
-
-# Horizontal plane distance control utilities (temporarily disabled)
-# export detect_horizontal_groups, create_horizontal_distance_matrix, setup_horizontal_plane_system
-# export validate_horizontal_plane_configuration, print_horizontal_plane_analysis
-
-# Force coefficient calculation functions (temporarily disabled)
-# export compute_drag_lift_coefficients, compute_body_coefficients_collection, compute_instantaneous_power
+export create_coordinated_flag_system, setup_simple_two_flag_system, setup_multi_flag_chain
+export validate_system_configuration, print_system_summary
+export detect_horizontal_groups, create_horizontal_distance_matrix, setup_horizontal_plane_system
+export validate_horizontal_plane_configuration, print_horizontal_plane_analysis
+export compute_drag_lift_coefficients, compute_body_coefficients_collection, compute_instantaneous_power
+export add_flexible_bodies_with_controller!
 
 # Simplified multigrid solver exports (WaterLily-style solvers removed)
 export MultigridPoissonSolver, solve_poisson!, show_solver_info
 export compute_pressure_gradient_to_faces!, compute_velocity_divergence_from_faces!
+export create_amr_integrated_solver, amr_solve_step!
 
 end

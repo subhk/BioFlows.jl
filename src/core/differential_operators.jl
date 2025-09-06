@@ -68,7 +68,14 @@ Compute first derivatives with 2nd order accuracy.
 """
 ddx(field::AbstractArray, grid::StaggeredGrid; boundary_order::Int=2) = derivative_1d(field, grid.dx, 1; boundary_order)
 ddy(field::AbstractArray, grid::StaggeredGrid; boundary_order::Int=2) = derivative_1d(field, grid.dy, 2; boundary_order)
-ddz(field::AbstractArray, grid::StaggeredGrid; boundary_order::Int=2) = derivative_1d(field, grid.dz, 3; boundary_order)
+function ddz(field::AbstractArray, grid::StaggeredGrid; boundary_order::Int=2)
+    # For 2D XZ-plane fields, z corresponds to dimension 2
+    if ndims(field) == 2
+        return derivative_1d(field, grid.dz, 2; boundary_order)
+    else
+        return derivative_1d(field, grid.dz, 3; boundary_order)
+    end
+end
 
 """
     derivative_at_faces(field, grid, dim)
@@ -275,21 +282,39 @@ end
 
 # Convenience functions for individual components - optimized versions
 function interpolate_u_to_cell_center(u::Matrix{T}, grid::StaggeredGrid) where T
-    nx, ny = grid.nx, grid.ny
-    u_cc = zeros(T, nx, ny)
-    @inbounds for j = 1:ny, i = 1:nx
-        u_cc[i, j] = 0.5 * (u[i, j] + u[i+1, j])
+    if grid.grid_type == TwoDimensional
+        nx, nz = grid.nx, grid.nz
+        u_cc = zeros(T, nx, nz)
+        @inbounds for j = 1:nz, i = 1:nx
+            u_cc[i, j] = 0.5 * (u[i, j] + u[i+1, j])
+        end
+        return u_cc
+    else
+        nx, ny = grid.nx, grid.ny
+        u_cc = zeros(T, nx, ny)
+        @inbounds for j = 1:ny, i = 1:nx
+            u_cc[i, j] = 0.5 * (u[i, j] + u[i+1, j])
+        end
+        return u_cc
     end
-    return u_cc
 end
 
 function interpolate_v_to_cell_center(v::Matrix{T}, grid::StaggeredGrid) where T
-    nx, ny = grid.nx, grid.ny
-    v_cc = zeros(T, nx, ny)
-    @inbounds for j = 1:ny, i = 1:nx
-        v_cc[i, j] = 0.5 * (v[i, j] + v[i, j+1])
+    if grid.grid_type == TwoDimensional
+        nx, nz = grid.nx, grid.nz
+        v_cc = zeros(T, nx, nz)
+        @inbounds for j = 1:nz, i = 1:nx
+            v_cc[i, j] = 0.5 * (v[i, j] + v[i, j+1])
+        end
+        return v_cc
+    else
+        nx, ny = grid.nx, grid.ny
+        v_cc = zeros(T, nx, ny)
+        @inbounds for j = 1:ny, i = 1:nx
+            v_cc[i, j] = 0.5 * (v[i, j] + v[i, j+1])
+        end
+        return v_cc
     end
-    return v_cc
 end
 
 function interpolate_u_to_cell_center(u::Array{T,3}, grid::StaggeredGrid) where T

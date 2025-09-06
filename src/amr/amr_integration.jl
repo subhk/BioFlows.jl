@@ -5,29 +5,47 @@ This module provides the main integration points for adaptive mesh refinement
 with the BioFlow.jl codebase, ensuring all components work together seamlessly.
 """
 
-# Include all AMR modules
-include("adaptive_refinement.jl")
-include("amr_helpers.jl")
-include("amr_validation.jl")
-include("amr_boundary_conditions.jl")
-include("amr_output_integration.jl")
+# Guarded includes to avoid double-loading when included from BioFlows.jl
+if !isdefined(@__MODULE__, :AdaptiveRefinementCriteria)
+    include("adaptive_refinement.jl")
+end
+if !isdefined(@__MODULE__, :distance_to_surface_2d)
+    include("amr_helpers.jl")
+end
+if !isdefined(@__MODULE__, :validate_amr_setup)
+    include("amr_validation.jl")
+end
+if !isdefined(@__MODULE__, :apply_boundary_conditions_amr!)
+    include("amr_boundary_conditions.jl")
+end
+if !isdefined(@__MODULE__, :ensure_output_on_original_grid!)
+    include("amr_output_integration.jl")
+end
 
 # Include advanced AMR if available
-try
-    include("adaptive_refinement_v2.jl")
+if !isdefined(@__MODULE__, :AMRHierarchy)
+    try
+        include("adaptive_refinement_v2.jl")
+        global HAS_ADVANCED_AMR = true
+    catch
+        global HAS_ADVANCED_AMR = false
+        println("Advanced AMR (v2) not available - using basic AMR only")
+    end
+else
     global HAS_ADVANCED_AMR = true
-catch
-    global HAS_ADVANCED_AMR = false
-    println("Advanced AMR (v2) not available - using basic AMR only")
 end
 
 # Include MPI AMR if MPI is available
-try
-    include("adaptive_refinement_mpi.jl")
+if !isdefined(@__MODULE__, :MPIAMRHierarchy)
+    try
+        include("adaptive_refinement_mpi.jl")
+        global HAS_MPI_AMR = true
+    catch
+        global HAS_MPI_AMR = false
+        println("MPI AMR not available - MPI support disabled for AMR")
+    end
+else
     global HAS_MPI_AMR = true
-catch
-    global HAS_MPI_AMR = false
-    println("MPI AMR not available - MPI support disabled for AMR")
 end
 
 """
@@ -185,10 +203,22 @@ function update_amr_grid!(amr_solver::AMRIntegratedSolver, state::SolutionState,
             update_basic_amr!(amr_solver, state, bodies)
         end
     elseif amr_solver.amr_hierarchy !== nothing && HAS_ADVANCED_AMR
-        # Use advanced AMR
+        # Use advanced AMR (v2): compute indicators and refine v2 hierarchy
         try
-            refined_count = adapt_grid!(amr_solver.amr_hierarchy.base_level, state, bodies, amr_solver.amr_criteria)
-            amr_solver.amr_statistics["total_refinements"] += refined_count
+            level = amr_solver.amr_hierarchy.base_level
+            inds = compute_refinement_indicators_amr(level, state, bodies, amr_solver.amr_hierarchy)
+            # Mark cells above threshold (score > 0.5)
+            marked = Tuple{Int,Int}[]
+            for j = 1:size(inds, 2), i = 1:size(inds, 1)
+                if inds[i, j] > 0.5
+                    push!(marked, (i, j))
+                end
+            end
+            # Use basic refine_cells_2d! on RefinedGrid for coupling
+            if !isempty(marked)
+                refine_cells_2d!(amr_solver.refined_grid, marked)
+            end
+            amr_solver.amr_statistics["total_refinements"] += length(marked)
         catch e
             println("Warning: Advanced AMR refinement failed: $e")
             # Fall back to basic AMR

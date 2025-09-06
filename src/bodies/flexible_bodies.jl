@@ -170,24 +170,7 @@ function solve_tension!(body::FlexibleBody, dt::Float64)
     body.tension[n] = 0.0      # Free end condition
 end
 
-function apply_boundary_conditions!(body::FlexibleBody, t::Float64)
-    if body.bc_type == :fixed_ends
-        # Both ends are fixed - no motion
-        # End positions remain unchanged
-        
-    elseif body.bc_type == :sinusoidal_front
-        # Front end has sinusoidal motion, rear end is free
-        # X(0,t) = X₀ + A*sin(ωt), ∂²X/∂s²|_{s=0} = 0
-        body.X[1, 2] += body.amplitude * sin(2π * body.frequency * t)
-        
-        # Rear end is free: ∂²X/∂s²|_{s=L} = 0 (natural boundary condition)
-        
-    elseif body.bc_type == :rotating_front
-        # Front can rotate freely, rear is free
-        # ∂²X/∂s²|_{s=0} = 0 and ∂²X/∂s²|_{s=L} = 0
-        
-    end
-end
+## apply_boundary_conditions! implemented later in file (consolidated version)
 
 function flexible_body_rhs!(dXdt2::Matrix{Float64}, body::FlexibleBody, dt::Float64)
     # Implement equation (2.5) from flexible_bodies.pdf
@@ -772,31 +755,7 @@ function apply_conservation_correction(body::FlexibleBody, force_total::Vector{F
     return force_total, torque_total
 end
 
-function regularized_delta_2d(dx::Float64, dy::Float64, δh::Float64, grid_dx::Float64, grid_dy::Float64)
-    """
-    2D regularized delta function (Peskin's 4-point function).
-    """
-    
-    # Normalize distances by delta width
-    r_x = abs(dx) / δh
-    r_y = abs(dy) / δh
-    
-    # 4-point regularized delta function
-    function δ_1d(r::Float64)
-        if r <= 1.0
-            return 0.125 * (3 - 2*r + sqrt(1 + 4*r - 4*r^2))
-        elseif r <= 2.0
-            return 0.125 * (5 - 2*r - sqrt(-7 + 12*r - 4*r^2))
-        else
-            return 0.0
-        end
-    end
-    
-    # 2D delta function is product of 1D functions
-    δ_val = δ_1d(r_x) * δ_1d(r_y) / (δh^2)
-    
-    return δ_val
-end
+## regularized_delta_2d provided by immersed/immersed_boundary.jl
 
 function interpolate_with_delta_function(grid::StaggeredGrid, field::Matrix{T}, x::Float64, y::Float64, 
                                        δh::Float64, component::Symbol) where T
@@ -1400,7 +1359,7 @@ Update the control system to maintain target distances between bodies.
 """
 # Moved to flexible_body_controller.jl
 # function update_controller!(controller::FlexibleBodyController, 
-                           current_time::Float64, dt::Float64)
+#= stale update_controller body start
     
     n = controller.n_bodies
     
@@ -1459,7 +1418,7 @@ Update the control system to maintain target distances between bodies.
             # This would require extending the FlexibleBody structure to store frequency
         end
     end
-end
+=#
 
 """
     compute_phase_error(body1, body2, current_time)
@@ -1487,7 +1446,7 @@ end
 
 Apply coordinated harmonic boundary conditions to all controlled bodies.
 """
-function apply_harmonic_boundary_conditions!(controller::FlexibleBodyController, 
+function apply_harmonic_boundary_conditions!(controller, 
                                            current_time::Float64)
     
     for (i, body) in enumerate(controller.bodies)
@@ -1593,7 +1552,7 @@ end
 
 Monitor and report the performance of distance control system.
 """
-function monitor_distance_control(controller::FlexibleBodyController, current_time::Float64)
+function monitor_distance_control(controller, current_time::Float64)
     
     distances = Dict{String, Float64}()
     errors = Dict{String, Float64}()
@@ -1864,9 +1823,14 @@ function create_flag_collection(flag_configs::Vector)
     for (i, config) in enumerate(flag_configs)
         # Convert NamedTuple to keyword arguments
         config_dict = Dict(pairs(config))
+        # Extract required positional args
+        start_point = pop!(config_dict, :start_point)
+        length = pop!(config_dict, :length)
+        width = pop!(config_dict, :width)
+        # Set id
         config_dict[:id] = i
-        
-        flag = create_flag(; config_dict...)
+        # Call constructor with positionals + remaining kwargs
+        flag = create_flag(start_point, length, width; (k => v for (k, v) in config_dict)...)
         add_flexible_body!(collection, flag)
     end
     

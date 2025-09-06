@@ -85,19 +85,19 @@ end
 # Custom 2D Gauss-Seidel solver for Poisson equation  
 function gauss_seidel_2d!(phi::Matrix{T}, rhs::Matrix{T}, grid::StaggeredGrid{T}, 
                          max_iter::Int, tol::Float64, omega::Float64=1.0) where T
-    nx, ny = size(phi)
-    dx, dy = grid.dx, grid.dy
-    dx2, dy2 = dx^2, dy^2
-    factor = 1.0 / (2.0 * (1.0/dx2 + 1.0/dy2))
+    nx, nz = size(phi)
+    dx, dz = grid.dx, grid.dz
+    dx2, dz2 = dx^2, dz^2
+    factor = 1.0 / (2.0 * (1.0/dx2 + 1.0/dz2))
     
     residual = 0.0
     for iter = 1:max_iter
         residual = 0.0
         
-        for j = 2:ny-1, i = 2:nx-1
+        for j = 2:nz-1, i = 2:nx-1
             old_phi = phi[i, j]
             new_phi = factor * ((phi[i+1,j] + phi[i-1,j]) / dx2 + 
-                               (phi[i,j+1] + phi[i,j-1]) / dy2 - rhs[i,j])
+                               (phi[i,j+1] + phi[i,j-1]) / dz2 - rhs[i,j])
             phi[i, j] = old_phi + omega * (new_phi - old_phi)
             residual += (phi[i,j] - old_phi)^2
         end
@@ -105,8 +105,8 @@ function gauss_seidel_2d!(phi::Matrix{T}, rhs::Matrix{T}, grid::StaggeredGrid{T}
         # Apply boundary conditions
         phi[1, :] .= phi[2, :]      # ∂φ/∂x = 0 at left
         phi[nx, :] .= phi[nx-1, :]  # ∂φ/∂x = 0 at right
-        phi[:, 1] .= phi[:, 2]      # ∂φ/∂y = 0 at bottom
-        phi[:, ny] .= phi[:, ny-1]  # ∂φ/∂y = 0 at top
+        phi[:, 1] .= phi[:, 2]      # ∂φ/∂z = 0 at bottom
+        phi[:, nz] .= phi[:, nz-1]  # ∂φ/∂z = 0 at top
         
         if sqrt(residual) < tol
             break
@@ -218,11 +218,9 @@ end
 
 # Helper functions for boundary condition application
 function apply_poisson_rhs_bc_2d!(rhs::Matrix, bc::BoundaryConditions, grid::StaggeredGrid)
-    # Modify RHS to incorporate boundary conditions
-    nx, ny = grid.nx, grid.ny
-    
-    # For Neumann BC, ensure compatibility condition: ∫rhs dV = 0
-    rhs_mean = sum(rhs) / (nx * ny)
+    # Modify RHS to incorporate boundary conditions (2D XZ plane)
+    nx, nz = grid.nx, grid.nz
+    rhs_mean = sum(rhs) / (nx * nz)
     rhs .-= rhs_mean
 end
 
@@ -236,13 +234,12 @@ function apply_poisson_rhs_bc_3d!(rhs::Array{T,3}, bc::BoundaryConditions, grid:
 end
 
 function apply_poisson_bc_2d!(phi::Matrix, bc::BoundaryConditions, grid::StaggeredGrid)
-    nx, ny = grid.nx, grid.ny
-    
-    # Default: homogeneous Neumann boundary conditions for pressure
-    phi[1, :] .= phi[2, :]      # ∂φ/∂x = 0 at left
-    phi[nx, :] .= phi[nx-1, :]  # ∂φ/∂x = 0 at right
-    phi[:, 1] .= phi[:, 2]      # ∂φ/∂y = 0 at bottom
-    phi[:, ny] .= phi[:, ny-1]  # ∂φ/∂y = 0 at top
+    # Homogeneous Neumann BC for XZ plane
+    nx, nz = grid.nx, grid.nz
+    phi[1, :]      .= phi[2, :]
+    phi[nx, :]     .= phi[nx-1, :]
+    phi[:, 1]      .= phi[:, 2]
+    phi[:, nz]     .= phi[:, nz-1]
 end
 
 function apply_poisson_bc_3d!(phi::Array{T,3}, bc::BoundaryConditions, grid::StaggeredGrid) where T

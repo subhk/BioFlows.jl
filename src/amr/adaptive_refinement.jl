@@ -1,5 +1,4 @@
-# Temporary dummy type for FlexibleBodyCollection until circular dependencies are fixed
-struct FlexibleBodyCollection end
+# FlexibleBodyCollection is defined in bodies/flexible_bodies.jl
 
 struct AdaptiveRefinementCriteria
     velocity_gradient_threshold::Float64
@@ -244,8 +243,8 @@ function compute_body_proximity_indicator(grid::StaggeredGrid,
             
             if bodies isa RigidBodyCollection
                 for body in bodies.bodies
-                    # FIXED: Use distance_to_surface_2d for XZ plane
-                    dist = distance_to_surface_2d(body, x, z)
+                    # Use robust XZ-plane rigid body distance
+                    dist = distance_to_surface_xz(body, x, z)
                     min_distance = min(min_distance, abs(dist))
                 end
             elseif bodies isa FlexibleBodyCollection

@@ -309,7 +309,7 @@ function validate_horizontal_plane_configuration(flag_configs::Vector,
         x_coords = [flag_configs[idx].start_point[1] for idx in group]
         sort!(x_coords)
         
-        min_spacing = minimum(diff(x_coords)) if length(x_coords) > 1 else Inf
+        min_spacing = length(x_coords) > 1 ? minimum(diff(x_coords)) : Inf
         if min_spacing < 0.05  # Very close flags
             push!(messages, "WARNING: Flags on plane $plane_idx are very close (min spacing: $(min_spacing))")
         end

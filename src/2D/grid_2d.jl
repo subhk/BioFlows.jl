@@ -69,7 +69,7 @@ function refine_2d_grid_near_bodies(base_grid::StaggeredGrid,
         
         if bodies isa RigidBodyCollection
             for body in bodies.bodies
-                dist = abs(distance_to_surface(body, x, z))
+                dist = abs(distance_to_surface_xz(body, x, z))
                 min_distance = min(min_distance, dist)
             end
         elseif bodies isa FlexibleBodyCollection

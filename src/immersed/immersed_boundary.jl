@@ -525,18 +525,6 @@ function apply_ib_forcing_3d!(state::SolutionState, ib_data::ImmersedBoundaryDat
     end
 end
 
-function get_body_velocity_at_point(body::RigidBody, x::Float64, y::Float64)
-    # For rigid body motion: V = V_center + ω × r
-    dx = x - body.center[1]
-    dy = y - body.center[2]
-    
-    # Translational velocity + rotational velocity
-    u_body = body.velocity[1] - body.angular_velocity * dy
-    v_body = body.velocity[2] + body.angular_velocity * dx
-    
-    return [u_body, v_body]
-end
-
 function get_body_velocity_at_point(body::RigidBody, x::Float64, y::Float64, z::Float64)
     # For 3D rigid body motion
     dx = x - body.center[1]
@@ -549,19 +537,6 @@ function get_body_velocity_at_point(body::RigidBody, x::Float64, y::Float64, z::
     w_body = length(body.velocity) > 2 ? body.velocity[3] : 0.0
     
     return [u_body, v_body, w_body]
-end
-
-# XZ plane version for 2D flows
-function get_body_velocity_at_point_xz(body::RigidBody, x::Float64, z::Float64)
-    # For rigid body motion in XZ plane: V = V_center + ω × r
-    dx = x - body.center[1]
-    dz = z - (length(body.center) > 2 ? body.center[3] : body.center[2])  # Use z coordinate
-    
-    # Translational velocity + rotational velocity (rotation about y-axis)
-    u_body = body.velocity[1] + body.angular_velocity * dz  # u + ω × dz
-    w_body = (length(body.velocity) > 2 ? body.velocity[3] : body.velocity[2]) - body.angular_velocity * dx  # w - ω × dx
-    
-    return [u_body, w_body]  # [u, w] velocities in XZ plane
 end
 
 function apply_force_spreading_2d!(force_field::Array{Vector{Float64},2}, 

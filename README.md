@@ -246,14 +246,6 @@ Where:
 - `ν` is the kinematic viscosity
 - `f` is the immersed boundary force
 
-### Flexible Body Dynamics
-
-Flexible bodies follow the equations from `flexible_bodies.pdf` (equations 2.5-2.9):
-
-- Lagrangian formulation with tension and bending forces
-- Constraint-based motion at the front end
-- Free rear end dynamics
-- Fluid-structure coupling via immersed boundary method
 
 ## Output Format
 
@@ -272,30 +264,82 @@ BioFlows.jl is designed for high-performance computing:
 - MPI parallelization for distributed computing
 - Adaptive mesh refinement to focus resolution where needed
 
-## Contributing
 
-Contributions are welcome! Please see the contributing guidelines and submit pull requests.
+## Examples
 
-## License
+Run examples with the project environment active:
 
-This project is licensed under the MIT License.
-
-## Citation
-
-If you use BioFlows.jl in your research, please cite:
-
-```bibtex
-@software{bioflows_jl,
-  title={BioFlows.jl: A Julia Package for Biological Flow Simulation},
-  author={Your Name},
-  year={2025},
-  url={https://github.com/yourusername/BioFlows.jl}
-}
+```bash
+julia --project examples/two_flags_controlled.jl
 ```
 
-## References
+### Flexible Bodies: Two Flags With Distance Control
 
-- Flexible body dynamics formulation: See `flexible_bodies.pdf`
-- Immersed boundary method: Peskin, C.S. (2002)
-- Reference implementations: WaterLily.jl, LUMA code
-- Documentation: `LMUAdocs.pdf`
+This example sets up two flexible flags with sinusoidal forcing and a controller that maintains a target distance between their trailing edges.
+
+```julia
+using BioFlows
+
+# 2D config (XZ plane)
+config = create_2d_simulation_config(
+    nx=64, nz=32,
+    Lx=2.0, Lz=1.0,
+    dt=0.002, final_time=0.1,
+    output_interval=0.02,
+    output_file="two_flags_controlled",
+)
+
+flag_configs = [
+    (start_point=[0.4, 0.5], length=0.25, width=0.01,
+     prescribed_motion=(type=:sinusoidal, amplitude=0.02, frequency=2.0)),
+    (start_point=[0.9, 0.5], length=0.25, width=0.01,
+     prescribed_motion=(type=:sinusoidal, amplitude=0.02, frequency=2.0)),
+]
+distances = [0.0 0.4; 0.4 0.0]
+
+bodies, controller = create_coordinated_flexible_system(flag_configs, distances;
+                                                        base_frequency=2.0,
+                                                        kp=0.5, ki=0.1, kd=0.05)
+config = add_flexible_bodies_with_controller!(config, bodies, controller)
+
+solver = create_solver(config)
+state0 = initialize_simulation(config)
+run_simulation(config, solver, state0)
+```
+
+See `examples/two_flags_controlled.jl` for the complete script.
+
+### Flexible Body: Positions-Only Output
+
+Record only the positions of a single flexible flag to a compact NetCDF file using the position-only writer.
+
+```julia
+using BioFlows
+
+config = create_2d_simulation_config(nx=64, nz=32, Lx=2.0, Lz=1.0,
+                                     dt=0.002, final_time=0.2,
+                                     output_interval=0.01,
+                                     output_file="single_flag_positions")
+
+flag = create_flag([0.4, 0.5], 0.4, 0.015;
+                   n_points=25,
+                   prescribed_motion=(type=:sinusoidal, amplitude=0.02, frequency=2.0))
+bodies = FlexibleBodyCollection()
+add_flexible_body!(bodies, flag)
+
+solver = create_solver(config)
+writer = create_position_only_writer("single_flag_positions.nc", solver.grid, bodies;
+                                     time_interval=config.output_config.time_interval,
+                                     save_mode=:time_interval)
+
+t = 0.0; iter = 0
+while t <= config.final_time
+    iter += 1
+    apply_boundary_conditions!(flag, t)
+    save_body_positions_only!(writer, bodies, t, iter)
+    t += config.dt
+end
+close!(writer)
+```
+
+See `examples/single_flag_positions.jl` for a ready-to-run version.

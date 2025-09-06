@@ -31,7 +31,7 @@ struct SimulationConfig
     # Bodies (optional)
     rigid_bodies::Union{RigidBodyCollection, Nothing}
     flexible_bodies::Union{FlexibleBodyCollection, Nothing}
-    # Temporarily disabled: flexible_body_controller::Union{FlexibleBodyController, Nothing}
+    flexible_body_controller::Union{FlexibleBodyController, Nothing}
     
     # Solver options
     use_mpi::Bool
@@ -209,7 +209,35 @@ run_simulation(config)
 ```
 """
 function create_coordinated_flexible_system(flag_configs::Vector, distance_matrix::Matrix{Float64}; kwargs...)
-    error("Flexible body coordination is temporarily disabled in this build. Enable flexible body includes in src/BioFlows.jl to use this API.")
+    return create_coordinated_flag_system(flag_configs, distance_matrix; kwargs...)
+end
+
+"""
+    add_flexible_bodies_with_controller!(config, bodies, controller)
+
+Attach flexible bodies and their controller to the simulation config.
+"""
+function add_flexible_bodies_with_controller!(config::SimulationConfig,
+                                             bodies::FlexibleBodyCollection,
+                                             controller::FlexibleBodyController)
+    return SimulationConfig(
+        config.grid_type,
+        config.nx, config.ny, config.nz,
+        config.Lx, config.Ly, config.Lz,
+        config.origin,
+        config.fluid,
+        config.bc,
+        config.time_scheme,
+        config.dt,
+        config.final_time,
+        config.rigid_bodies,
+        bodies,
+        controller,
+        config.use_mpi,
+        config.adaptive_refinement,
+        config.refinement_criteria,
+        config.output_config,
+    )
 end
 
 """
@@ -313,7 +341,7 @@ function create_3d_simulation_config(;
     return SimulationConfig(
         ThreeDimensional, nx, ny, nz, Lx, Ly, Lz, origin,
         fluid, bc, time_scheme_obj, dt, final_time,
-        nothing, nothing,  # No bodies by default
+        nothing, nothing, nothing,  # No bodies or controller by default
         use_mpi, adaptive_refinement, refinement_criteria,
         output_config
     )
@@ -332,27 +360,22 @@ Add a rigid circular body to the simulation.
 """
 function add_rigid_circle!(config::SimulationConfig, center::Vector{Float64}, radius::Float64; 
                           motion_type::Symbol = :stationary)
-    
     circle = Circle(radius)
-    
-    if motion_type == :stationary
-        motion = StationaryMotion()
-    elseif motion_type == :prescribed
-        # Default prescribed motion - user can modify later
-        motion = PrescribedMotion((t) -> [0.0, 0.0], (t) -> [0.0, 0.0])
-    else
-        error("Unknown motion type: $motion_type")
+    if motion_type == :prescribed
+        error(":prescribed motion for rigid bodies not yet implemented")
     end
+    body = RigidBody(circle, center)
+    rb = config.rigid_bodies === nothing ? RigidBodyCollection() : config.rigid_bodies
+    add_body!(rb, body)
     
-    body = RigidBody(circle, center, motion)
-    
-    if config.rigid_bodies === nothing
-        config.rigid_bodies = RigidBodyCollection([body])
-    else
-        push!(config.rigid_bodies.bodies, body)
-    end
-    
-    return config
+    return SimulationConfig(
+        config.grid_type, config.nx, config.ny, config.nz,
+        config.Lx, config.Ly, config.Lz, config.origin,
+        config.fluid, config.bc, config.time_scheme, config.dt, config.final_time,
+        rb, config.flexible_bodies, config.flexible_body_controller,
+        config.use_mpi, config.adaptive_refinement, config.refinement_criteria,
+        config.output_config
+    )
 end
 
 """
@@ -362,26 +385,22 @@ Add a rigid square body to the simulation.
 """
 function add_rigid_square!(config::SimulationConfig, center::Vector{Float64}, side_length::Float64;
                           motion_type::Symbol = :stationary)
-    
     square = Square(side_length)
-    
-    if motion_type == :stationary
-        motion = StationaryMotion()
-    elseif motion_type == :prescribed
-        motion = PrescribedMotion((t) -> [0.0, 0.0], (t) -> [0.0, 0.0])
-    else
-        error("Unknown motion type: $motion_type")
+    if motion_type == :prescribed
+        error(":prescribed motion for rigid bodies not yet implemented")
     end
+    body = RigidBody(square, center)
+    rb = config.rigid_bodies === nothing ? RigidBodyCollection() : config.rigid_bodies
+    add_body!(rb, body)
     
-    body = RigidBody(square, center, motion)
-    
-    if config.rigid_bodies === nothing
-        config.rigid_bodies = RigidBodyCollection([body])
-    else
-        push!(config.rigid_bodies.bodies, body)
-    end
-    
-    return config
+    return SimulationConfig(
+        config.grid_type, config.nx, config.ny, config.nz,
+        config.Lx, config.Ly, config.Lz, config.origin,
+        config.fluid, config.bc, config.time_scheme, config.dt, config.final_time,
+        rb, config.flexible_bodies, config.flexible_body_controller,
+        config.use_mpi, config.adaptive_refinement, config.refinement_criteria,
+        config.output_config
+    )
 end
 
 """
@@ -404,8 +423,27 @@ Add a flexible body to 2D simulation (only supported in 2D).
 - `motion_frequency::Float64 = 0.0`: Frequency for sinusoidal motion
 """
 function add_flexible_body!(config::SimulationConfig, front_position::Vector{Float64}, 
-                           body_length::Float64, n_points::Int; kwargs...)
-    error("Flexible body features are temporarily disabled in this build. Enable flexible body includes in src/BioFlows.jl to use this API.")
+                           body_length::Float64, n_points::Int;
+                           thickness::Float64 = 0.01,
+                           initial_angle::Union{Nothing, Float64} = nothing,
+                           material::Symbol = :flexible,
+                           prescribed_motion::Union{Nothing, NamedTuple} = nothing)
+    if config.grid_type == ThreeDimensional
+        error("Flexible bodies are only supported for 2D simulations")
+    end
+    # Map to flexible body flag constructor (XZ plane coordinates)
+    width = thickness
+    flag = create_flag(front_position, body_length, width;
+                       n_points=n_points,
+                       initial_angle=initial_angle,
+                       material=material,
+                       prescribed_motion=prescribed_motion)
+    if config.flexible_bodies === nothing
+        config.flexible_bodies = FlexibleBodyCollection([flag])
+    else
+        add_flexible_body!(config.flexible_bodies, flag)
+    end
+    return config
 end
 
 """
@@ -530,15 +568,17 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
         end
         
         if config.flexible_bodies !== nothing
-            # Apply controller if available
+            # Apply controller-driven boundary conditions if available
             if config.flexible_body_controller !== nothing
-                # Apply coordinated harmonic boundary conditions with controller
-                apply_harmonic_boundary_conditions!(config.flexible_body_controller, state_new.t, dt)
+                apply_harmonic_boundary_conditions!(config.flexible_body_controller, t)
             end
-            
             # Update flexible body dynamics using same time scheme as fluid solver
             update_flexible_bodies!(config.flexible_bodies, state_new, solver.grid, dt, solver.time_scheme)
-            apply_flexible_body_forcing!(state_new, config.flexible_bodies, solver.grid, dt)
+            if config.grid_type == ThreeDimensional
+                apply_flexible_ib_forcing_3d!(state_new, config.flexible_bodies, solver.grid, dt)
+            else
+                apply_flexible_ib_forcing_2d!(state_new, config.flexible_bodies, solver.grid, dt)
+            end
         end
         
         # Adaptive refinement

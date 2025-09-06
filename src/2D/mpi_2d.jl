@@ -66,8 +66,8 @@ function MPI2DDecomposition(nx_global::Int, nz_global::Int,
         dims[2] = 1
     end
     
-    cart_comm = MPI.Cart_create(comm, dims, [false, false], true)
-    coords = MPI.Cart_coords(cart_comm, rank, 2)
+    cart_comm = MPI.Cart_create(comm, dims; periodic=[false, false], reorder=true)
+    coords = MPI.Cart_coords(cart_comm, rank)
     
     # Determine local domain size (interior cells only)
     nx_local = nx_global ÷ dims[1]
@@ -101,8 +101,9 @@ function MPI2DDecomposition(nx_global::Int, nz_global::Int,
     left_rank, right_rank = MPI.Cart_shift(cart_comm, 0, 1)
     bottom_rank, top_rank = MPI.Cart_shift(cart_comm, 1, 1)
     
-    # Create pencil for PencilArrays
-    pencil = Pencil(cart_comm, (nx_global, nz_global), (coords[1]+1, coords[2]+1))
+    # Create PencilArrays topology and pencil
+    topo = PencilArrays.Pencils.MPITopology(cart_comm, (dims[1], dims[2]))
+    pencil = PencilArrays.Pencils.Pencil(topo, (nx_global, nz_global))
     
     # Initialize communication buffers with proper ghost cell sizes
     send_buffers = Dict{Symbol, Vector{Float64}}()
@@ -757,60 +758,71 @@ function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int, Lx::Float64, Lz
     local_phi = zeros(nx_local, nz_local)
     local_rhs_p = zeros(nx_local, nz_local)
     
-    # Create MPI multigrid solver - REQUIRED for optimal performance
-    multigrid_solver = MultigridPoissonSolver(local_grid; use_mpi=true, mpi_comm=comm)
+    # Create multigrid solver (pure Julia implementation; MPI integration handled at higher level)
+    multigrid_solver = MultigridPoissonSolver(local_grid)
     
     MPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme, multigrid_solver,
                            local_u_star, local_v_star, local_phi, local_rhs_p)
 end
 
-function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D, local_state_new::SolutionState,
-                           local_state_old::SolutionState, dt::Float64)
-    # Parallel solve step using projection method
+function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
+                            local_state_new,
+                            local_state_old, dt::Float64)
+    # Minimal distributed fractional step using advection + diffusion + pressure projection
     decomp = solver.decomp
-    
-    # Step 1: Predictor step (local computations)
-    predictor_rhs = compute_predictor_rhs_2d(local_state_old, solver.local_grid, solver.fluid)
-    
-    local_state_predictor = deepcopy(local_state_old)
-    time_step!(local_state_predictor, local_state_old,
-              (state, args...) -> predictor_rhs,
-              solver.time_scheme, dt, solver.local_grid, solver.fluid, solver.bc)
-    
-    # Step 2: Apply boundary conditions to predictor velocity and exchange ghost cells
-    apply_physical_boundary_conditions_2d!(decomp, solver.local_grid, local_state_predictor, 
-                                        solver.bc, local_state_old.t + dt)
-    exchange_ghost_cells_2d!(decomp, local_state_predictor.u)
-    exchange_ghost_cells_2d!(decomp, local_state_predictor.v)
-    
-    # Step 3: Solve pressure Poisson equation (parallel)
-    divergence_2d!(solver.local_rhs_p, local_state_predictor.u, local_state_predictor.v, solver.local_grid)
-    solver.local_rhs_p .*= 1.0 / dt
-    
-    # Use MPI multigrid solver (required for optimal performance)
-    if solver.multigrid_solver !== nothing
-        solve!(solver.multigrid_solver, solver.local_phi, solver.local_rhs_p)
-    else
-        error("Multigrid solver required for MPI pressure solution. Create solver with MultigridPoissonSolver.")
+    grid = solver.local_grid
+
+    # Predictor: u* = u + dt*(-adv + diff)
+    nx, nz = grid.nx, grid.nz
+    adv_u = similar(local_state_old.u)
+    adv_v = similar(local_state_old.v)
+    diff_u = similar(local_state_old.u)
+    diff_v = similar(local_state_old.v)
+
+    # Apply BC and exchange halos before computing RHS terms
+    apply_physical_boundary_conditions_2d!(decomp, grid, local_state_old, solver.bc, local_state_old.t)
+    exchange_ghost_cells_staggered_u_2d!(decomp, local_state_old.u)
+    exchange_ghost_cells_staggered_v_2d!(decomp, local_state_old.v)
+
+    advection_2d!(adv_u, adv_v, local_state_old.u, local_state_old.v, grid)
+    compute_diffusion_2d!(diff_u, diff_v, local_state_old.u, local_state_old.v, solver.fluid, grid)
+
+    @inbounds for j = 1:nz, i = 1:nx+1
+        local_state_new.u[i, j] = local_state_old.u[i, j] + dt * (-adv_u[i, j] + diff_u[i, j])
     end
-    
-    # Step 4: Velocity correction (local)
-    correct_velocity_2d!(local_state_new, local_state_predictor, solver.local_phi, dt, solver.local_grid)
-    
-    # Step 5: Pressure update
-    if solver.fluid.ρ isa ConstantDensity
-        ρ = solver.fluid.ρ.ρ
-    else
-        error("Variable density not implemented")
+    @inbounds for j = 1:nz+1, i = 1:nx
+        local_state_new.v[i, j] = local_state_old.v[i, j] + dt * (-adv_v[i, j] + diff_v[i, j])
     end
-    
+
+    # Apply BC to predictor and exchange halos before RHS
+    apply_physical_boundary_conditions_2d!(decomp, grid, local_state_new, solver.bc, local_state_old.t + dt)
+    exchange_ghost_cells_staggered_u_2d!(decomp, local_state_new.u)
+    exchange_ghost_cells_staggered_v_2d!(decomp, local_state_new.v)
+
+    # Build Poisson RHS and solve for pressure correction
+    divergence_2d!(solver.local_div_u, local_state_new.u, local_state_new.v, grid)
+    solver.local_rhs_p .= solver.local_div_u ./ dt
+
+    solve_poisson!(solver.multigrid_solver, solver.local_phi, solver.local_rhs_p, grid, solver.bc)
+
+    # Correct velocities: u = u* - dt * grad(p)
+    dpdx = zeros(size(local_state_new.u))
+    dpdz = zeros(size(local_state_new.v))
+    gradient_pressure_2d!(dpdx, dpdz, solver.local_phi, grid)
+    local_state_new.u .-= dt .* dpdx
+    local_state_new.v .-= dt .* dpdz
+
+    # Update pressure (optional projection update)
+    ρ = solver.fluid.ρ isa ConstantDensity ? solver.fluid.ρ.ρ : error("Variable density not implemented")
     local_state_new.p .= local_state_old.p .+ solver.local_phi .* ρ
+
+    # Apply BC and exchange halos after correction
+    apply_physical_boundary_conditions_2d!(decomp, grid, local_state_new, solver.bc, local_state_old.t + dt)
+    exchange_ghost_cells_staggered_u_2d!(decomp, local_state_new.u)
+    exchange_ghost_cells_staggered_v_2d!(decomp, local_state_new.v)
+    exchange_ghost_cells_2d!(decomp, local_state_new.p)
+
+    # Time bookkeeping
     local_state_new.t = local_state_old.t + dt
     local_state_new.step = local_state_old.step + 1
-    
-    # Apply final boundary conditions and ghost cell exchange
-    apply_physical_boundary_conditions_2d!(decomp, solver.local_grid, local_state_new, solver.bc, local_state_new.t)
-    exchange_ghost_cells_2d!(decomp, local_state_new.u)
-    exchange_ghost_cells_2d!(decomp, local_state_new.v)
-    exchange_ghost_cells_2d!(decomp, local_state_new.p)
 end

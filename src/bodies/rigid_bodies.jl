@@ -55,9 +55,19 @@ function RigidBodyCollection()
 end
 
 function add_body!(collection::RigidBodyCollection, body::RigidBody)
-    push!(collection.bodies, body)
-    collection.n_bodies += 1
-    body.id = collection.n_bodies
+    # Avoid mutating immutable RigidBody by creating a copy with updated id
+    new_id = collection.n_bodies + 1
+    new_body = RigidBody(body.shape, copy(body.center);
+                         velocity=copy(body.velocity),
+                         angular_velocity=body.angular_velocity,
+                         angle=body.angle,
+                         mass=body.mass,
+                         moment_inertia=body.moment_inertia,
+                         fixed=body.fixed,
+                         id=new_id)
+    push!(collection.bodies, new_body)
+    collection.n_bodies = new_id
+    return new_body
 end
 
 function is_inside(body::RigidBody, x::Float64, y::Float64)
@@ -512,41 +522,4 @@ function get_body_velocity_at_point_xz(body::RigidBody, x::Float64, z::Float64)
     return [u_body, w_body]  # [u, w] velocities in XZ plane
 end
 
-function bodies_mask_2d(bodies::RigidBodyCollection, grid::StaggeredGrid)
-    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
-    mask = falses(nx, nz)
-    
-    for j = 1:nz, i = 1:nx
-        x = grid.x[i]
-        z = grid.z[j]  # Use z coordinate for XZ plane
-        
-        for body in bodies.bodies
-            if is_inside_xz(body, x, z)  # Use XZ plane version
-                mask[i, j] = true
-                break
-            end
-        end
-    end
-    
-    return mask
-end
-
-function bodies_mask_3d(bodies::RigidBodyCollection, grid::StaggeredGrid)
-    nx, ny, nz = grid.nx, grid.ny, grid.nz
-    mask = falses(nx, ny, nz)
-    
-    for k = 1:nz, j = 1:ny, i = 1:nx
-        x = grid.x[i]
-        y = grid.y[j]
-        z = grid.z[k]
-        
-        for body in bodies.bodies
-            if is_inside(body, x, y, z)
-                mask[i, j, k] = true
-                break
-            end
-        end
-    end
-    
-    return mask
-end
+# bodies_mask_* implementations live in immersed/immersed_boundary.jl to avoid duplication

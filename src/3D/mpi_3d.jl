@@ -40,6 +40,74 @@ struct MPI3DDecomposition <: AbstractMPIDecomposition
     recv_buffers::Dict{Symbol, Array{Float64}}
 end
 
+function mpi_solve_step_3d!(solver, local_state_new, local_state_old, dt::Float64)
+    # Minimal distributed projection step with halos and physical BCs
+    decomp = solver.decomp
+    grid = solver.local_grid
+
+    # Apply BC and exchange halos on old state
+    apply_physical_boundary_conditions_3d!(decomp, grid, local_state_old, solver.bc, local_state_old.t)
+    exchange_ghost_cells_3d!(decomp, local_state_old.u)
+    exchange_ghost_cells_3d!(decomp, local_state_old.v)
+    exchange_ghost_cells_3d!(decomp, local_state_old.w)
+
+    # Predictor: u* = u + dt(-adv + diff)
+    nx, ny, nz = grid.nx, grid.ny, grid.nz
+    adv_u = similar(local_state_old.u)
+    adv_v = similar(local_state_old.v)
+    adv_w = similar(local_state_old.w)
+    diff_u = similar(local_state_old.u)
+    diff_v = similar(local_state_old.v)
+    diff_w = similar(local_state_old.w)
+
+    advection_3d!(adv_u, adv_v, adv_w, local_state_old.u, local_state_old.v, local_state_old.w, grid)
+    compute_diffusion_3d!(diff_u, diff_v, diff_w, local_state_old.u, local_state_old.v, local_state_old.w, solver.fluid, grid)
+
+    @inbounds for k = 1:nz, j = 1:ny, i = 1:nx+1
+        local_state_new.u[i, j, k] = local_state_old.u[i, j, k] + dt * (-adv_u[i, j, k] + diff_u[i, j, k])
+    end
+    @inbounds for k = 1:nz, j = 1:ny+1, i = 1:nx
+        local_state_new.v[i, j, k] = local_state_old.v[i, j, k] + dt * (-adv_v[i, j, k] + diff_v[i, j, k])
+    end
+    @inbounds for k = 1:nz+1, j = 1:ny, i = 1:nx
+        local_state_new.w[i, j, k] = local_state_old.w[i, j, k] + dt * (-adv_w[i, j, k] + diff_w[i, j, k])
+    end
+
+    # Apply BC to predictor and exchange halos
+    apply_physical_boundary_conditions_3d!(decomp, grid, local_state_new, solver.bc, local_state_old.t + dt)
+    exchange_ghost_cells_3d!(decomp, local_state_new.u)
+    exchange_ghost_cells_3d!(decomp, local_state_new.v)
+    exchange_ghost_cells_3d!(decomp, local_state_new.w)
+
+    # Build Poisson RHS and solve
+    solver.local_rhs_p = zeros(Float64, nx, ny, nz)
+    divergence_3d!(solver.local_rhs_p, local_state_new.u, local_state_new.v, local_state_new.w, grid)
+    solver.local_rhs_p .*= 1.0 / dt
+    solve_poisson!(solver.multigrid_solver, solver.local_phi, solver.local_rhs_p, grid, solver.bc)
+
+    # Correct velocities via ∇p
+    dpdx = zeros(size(local_state_new.u))
+    dpdy = zeros(size(local_state_new.v))
+    dpdz = zeros(size(local_state_new.w))
+    gradient_pressure_3d!(dpdx, dpdy, dpdz, solver.local_phi, grid)
+    local_state_new.u .-= dt .* dpdx
+    local_state_new.v .-= dt .* dpdy
+    local_state_new.w .-= dt .* dpdz
+
+    # Apply BC and exchange halos after correction
+    apply_physical_boundary_conditions_3d!(decomp, grid, local_state_new, solver.bc, local_state_old.t + dt)
+    exchange_ghost_cells_3d!(decomp, local_state_new.u)
+    exchange_ghost_cells_3d!(decomp, local_state_new.v)
+    exchange_ghost_cells_3d!(decomp, local_state_new.w)
+    exchange_ghost_cells_3d!(decomp, local_state_new.p)
+
+    # Update pressure and time
+    ρ = solver.fluid.ρ isa ConstantDensity ? solver.fluid.ρ.ρ : error("Variable density not implemented")
+    local_state_new.p .= local_state_old.p .+ solver.local_phi .* ρ
+    local_state_new.t = local_state_old.t + dt
+    local_state_new.step = local_state_old.step + 1
+end
+
 function MPI3DDecomposition(nx_global::Int, ny_global::Int, nz_global::Int, comm::MPI.Comm=MPI.COMM_WORLD)
     rank = MPI.Comm_rank(comm)
     size = MPI.Comm_size(comm)
@@ -48,9 +116,9 @@ function MPI3DDecomposition(nx_global::Int, ny_global::Int, nz_global::Int, comm
     dims = [0, 0, 0]
     MPI.Dims_create!(size, dims)
     
-    # Create Cartesian communicator
-    cart_comm = MPI.Cart_create(comm, dims, [false, false, false], true)
-    coords = MPI.Cart_coords(cart_comm, rank, 3)
+    # Create Cartesian communicator (modern MPI.jl API)
+    cart_comm = MPI.Cart_create(comm, dims; periodic=[false, false, false], reorder=true)
+    coords = MPI.Cart_coords(cart_comm, rank)
     
     # Determine local domain sizes
     nx_local = nx_global ÷ dims[1]
@@ -81,9 +149,9 @@ function MPI3DDecomposition(nx_global::Int, ny_global::Int, nz_global::Int, comm
     bottom_rank, top_rank = MPI.Cart_shift(cart_comm, 1, 1)
     front_rank, back_rank = MPI.Cart_shift(cart_comm, 2, 1)
     
-    # Create pencil for PencilArrays
-    pencil = Pencil(cart_comm, (nx_global, ny_global, nz_global), 
-                   (coords[1]+1, coords[2]+1, coords[3]+1))
+    # Create PencilArrays topology and pencil
+    topo = PencilArrays.Pencils.MPITopology(cart_comm, (dims[1], dims[2], dims[3]))
+    pencil = PencilArrays.Pencils.Pencil(topo, (nx_global, ny_global, nz_global))
     
     # Initialize communication buffers for 6 faces
     send_buffers = Dict{Symbol, Array{Float64}}()
