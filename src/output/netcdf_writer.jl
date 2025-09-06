@@ -871,6 +871,14 @@ function save_rigid_body_coefficients_series!(writer::NetCDFWriter,
                                              reference_velocity::Float64=writer.config.reference_velocity,
                                              flow_direction::Vector{Float64}=writer.config.flow_direction)
     cw = _get_rigid_coeff_writer(writer, bodies)
+    # Ensure useful metadata exists
+    try
+        _ensure_rigid_series_metadata!(cw.ncfile, bodies, fluid; 
+            reference_velocity=reference_velocity, flow_direction=flow_direction,
+            ref_lengths=[(b.shape isa Circle ? 2*(b.shape::Circle).radius : 1.0) for b in bodies.bodies])
+    catch e
+        @warn "Could not add rigid coefficients metadata: $e"
+    end
     coeffs = [compute_drag_lift_coefficients(body, grid, state, fluid;
                  reference_velocity=reference_velocity,
                  reference_length=body.shape isa Circle ? 2*(body.shape::Circle).radius : 1.0,
@@ -917,11 +925,14 @@ function _init_rigid_force_file!(w::RigidForceWriter)
     vars = NetCDF.NcVar[
         NetCDF.NcVar("time", [tdim]; t=Float64),
         NetCDF.NcVar("Fx", [bdim, tdim]; t=Float64),
+        NetCDF.NcVar("Fy", [bdim, tdim]; t=Float64),
         NetCDF.NcVar("Fz", [bdim, tdim]; t=Float64),
+        NetCDF.NcVar("Tx", [bdim, tdim]; t=Float64),
         NetCDF.NcVar("Ty", [bdim, tdim]; t=Float64),
+        NetCDF.NcVar("Tz", [bdim, tdim]; t=Float64),
     ]
     nc = NetCDF.create(w.filepath, vars)
-    NetCDF.putatt(nc, "global", Dict("title"=>"Rigid body forces and torque (2D XZ)", "n_bodies"=>n_b))
+    NetCDF.putatt(nc, "global", Dict("title"=>"Rigid body forces and torque (2D/3D)", "n_bodies"=>n_b))
     w.ncfile = nc
     return nc
 end
@@ -956,25 +967,39 @@ function save_rigid_body_forces_series!(writer::NetCDFWriter,
                                        grid::StaggeredGrid, state::SolutionState,
                                        fluid::FluidProperties,
                                        current_time::Float64, current_iteration::Int)
-    # Only 2D XZ currently; extend to 3D as needed
-    if grid.grid_type != TwoDimensional
-        @warn "Rigid-body force writer currently supports 2D XZ only"
-        return false
-    end
     fw = _get_rigid_force_writer(writer, bodies)
+    # Ensure useful metadata exists
+    try
+        _ensure_rigid_series_metadata!(fw.ncfile, bodies, fluid;
+            reference_velocity=writer.config.reference_velocity,
+            flow_direction=writer.config.flow_direction)
+    catch e
+        @warn "Could not add rigid forces metadata: $e"
+    end
     _rollover!(fw)
     fw.current_snapshot += 1
     idx = fw.current_snapshot
     # Compute forces for each body
-    Fx = Float64[]; Fz = Float64[]; Ty = Float64[]
+    Fx = Float64[]; Fy = Float64[]; Fz = Float64[]
+    Tx = Float64[]; Ty = Float64[]; Tz = Float64[]
     for body in bodies.bodies
-        F, torque = compute_body_forces_2d(body, grid, state, fluid)
-        push!(Fx, F[1]); push!(Fz, F[2]); push!(Ty, torque)
+        if grid.grid_type == TwoDimensional
+            F, torque_y = compute_body_forces_2d(body, grid, state, fluid)
+            push!(Fx, F[1]); push!(Fy, 0.0); push!(Fz, F[2])
+            push!(Tx, 0.0); push!(Ty, torque_y); push!(Tz, 0.0)
+        else
+            F, T = compute_body_forces_3d(body, grid, state, fluid)
+            push!(Fx, F[1]); push!(Fy, F[2]); push!(Fz, F[3])
+            push!(Tx, T[1]); push!(Ty, T[2]); push!(Tz, T[3])
+        end
     end
     NetCDF.putvar(fw.ncfile, "time", [current_time], start=[idx])
     NetCDF.putvar(fw.ncfile, "Fx", Fx, start=[1, idx])
+    NetCDF.putvar(fw.ncfile, "Fy", Fy, start=[1, idx])
     NetCDF.putvar(fw.ncfile, "Fz", Fz, start=[1, idx])
+    NetCDF.putvar(fw.ncfile, "Tx", Tx, start=[1, idx])
     NetCDF.putvar(fw.ncfile, "Ty", Ty, start=[1, idx])
+    NetCDF.putvar(fw.ncfile, "Tz", Tz, start=[1, idx])
     println("Saved rigid-body forces snapshot $(idx) at t=$(current_time)")
     return true
 end
