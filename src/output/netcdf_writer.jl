@@ -1183,3 +1183,87 @@ function write_solution!(writer::NetCDFWriter,
         return true
     end
 end
+
+function write_solution!(writer::NetCDFWriter,
+                        state::MPISolutionState3D,
+                        bodies::Union{Nothing, RigidBodyCollection, FlexibleBodyCollection},
+                        grid::StaggeredGrid,
+                        fluid::FluidProperties,
+                        current_time::Float64,
+                        current_iteration::Int; kwargs...)
+    HAS_MPI_WRITER || return false
+    decomp = state.decomp
+    comm = decomp.comm
+    rank = MPI.Comm_rank(comm)
+    size = MPI.Comm_size(comm)
+
+    # Global ranges
+    is, ie = decomp.i_start, decomp.i_end
+    js, je = decomp.j_start, decomp.j_end
+    ks, ke = decomp.k_start, decomp.k_end
+    nxg, nyg, nzg = decomp.nx_global, decomp.ny_global, decomp.nz_global
+
+    # Local sizes (assume no ghosts for 3D local arrays)
+    nx_loc, ny_loc, nz_loc = size(state.p)
+    # Staggered face inclusion on domain boundaries only
+    u_i_hi_loc = nx_loc + (ie == nxg ? 1 : 0)
+    v_j_hi_loc = ny_loc + (je == nyg ? 1 : 0)
+    w_k_hi_loc = nz_loc + (ke == nzg ? 1 : 0)
+
+    u_blk = @view state.u[1:u_i_hi_loc, 1:ny_loc, 1:nz_loc]
+    v_blk = @view state.v[1:nx_loc, 1:v_j_hi_loc, 1:nz_loc]
+    w_blk = @view state.w[1:nx_loc, 1:ny_loc, 1:w_k_hi_loc]
+    p_blk = @view state.p[1:nx_loc, 1:ny_loc, 1:nz_loc]
+
+    if rank == 0
+        initialize_netcdf_file!(writer)
+        u_glob = zeros(Float64, writer.grid.nx + 1, writer.grid.ny, writer.grid.nz)
+        v_glob = zeros(Float64, writer.grid.nx, writer.grid.ny + 1, writer.grid.nz)
+        w_glob = zeros(Float64, writer.grid.nx, writer.grid.ny, writer.grid.nz + 1)
+        p_glob = zeros(Float64, writer.grid.nx, writer.grid.ny, writer.grid.nz)
+
+        u_glob[is:ie + (ie == nxg ? 1 : 0), js:je, ks:ke] .= u_blk
+        v_glob[is:ie, js:je + (je == nyg ? 1 : 0), ks:ke] .= v_blk
+        w_glob[is:ie, js:je, ks:ke + (ke == nzg ? 1 : 0)] .= w_blk
+        p_glob[is:ie, js:je, ks:ke] .= p_blk
+
+        # Receive from others
+        for src in 1:size-1
+            hdr = Array{Int}(undef, 6)
+            MPI.Recv!(hdr, src, 9200, comm)
+            isrc, iesrc, jsrc, jesrc, ksrc, kesrc = hdr...
+            u_count_i = iesrc - isrc + 1 + (iesrc == nxg ? 1 : 0)
+            v_count_j = jesrc - jsrc + 1 + (jesrc == nyg ? 1 : 0)
+            w_count_k = kesrc - ksrc + 1 + (kesrc == nzg ? 1 : 0)
+            u_recv = Array{Float64}(undef, u_count_i, jesrc - jsrc + 1, kesrc - ksrc + 1)
+            v_recv = Array{Float64}(undef, iesrc - isrc + 1, v_count_j, kesrc - ksrc + 1)
+            w_recv = Array{Float64}(undef, iesrc - isrc + 1, jesrc - jsrc + 1, w_count_k)
+            p_recv = Array{Float64}(undef, iesrc - isrc + 1, jesrc - jsrc + 1, kesrc - ksrc + 1)
+            MPI.Recv!(u_recv, src, 9201, comm)
+            MPI.Recv!(v_recv, src, 9202, comm)
+            MPI.Recv!(w_recv, src, 9203, comm)
+            MPI.Recv!(p_recv, src, 9204, comm)
+            u_glob[isrc:iesrc + (iesrc == nxg ? 1 : 0), jsrc:jesrc, ksrc:kesrc] .= u_recv
+            v_glob[isrc:iesrc, jsrc:jesrc + (jesrc == nyg ? 1 : 0), ksrc:kesrc] .= v_recv
+            w_glob[isrc:iesrc, jsrc:jesrc, ksrc:kesrc + (kesrc == nzg ? 1 : 0)] .= w_recv
+            p_glob[isrc:iesrc, jsrc:jesrc, ksrc:kesrc] .= p_recv
+        end
+
+        gstate = SolutionState3D(writer.grid.nx, writer.grid.ny, writer.grid.nz)
+        gstate.u .= u_glob
+        gstate.v .= v_glob
+        gstate.w .= w_glob
+        gstate.p .= p_glob
+        gstate.t = current_time
+        gstate.step = current_iteration
+        return save_complete_snapshot!(writer, gstate, bodies, writer.grid, fluid, current_time, current_iteration; kwargs...)
+    else
+        hdr = Int[is, ie, js, je, ks, ke]
+        MPI.Send(hdr, 0, 9200, comm)
+        MPI.Send(Array(u_blk), 0, 9201, comm)
+        MPI.Send(Array(v_blk), 0, 9202, comm)
+        MPI.Send(Array(w_blk), 0, 9203, comm)
+        MPI.Send(Array(p_blk), 0, 9204, comm)
+        return true
+    end
+end

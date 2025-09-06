@@ -25,7 +25,6 @@ BioFlows.jl provides a complete framework for biological flow simulation with th
 - **MPI parallelization** using PencilArrays.jl for distributed computing
 
 ### Flexible Body Dynamics
-Based on the mathematical formulation in `flexible_bodies.pdf`, supporting:
 - Sinusoidal motion at the front with free rear end
 - Fixed front end with free motion
 - Rotational constraints with customizable parameters
@@ -52,13 +51,12 @@ Based on the mathematical formulation in `flexible_bodies.pdf`, supporting:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/yourusername/BioFlows.jl")
+Pkg.add(url="https://github.com/subhk/BioFlows.jl")
 ```
 
 ## Dependencies
 
 BioFlows.jl utilizes several specialized Julia packages:
-- `GeometricMultigrid.jl` - Multigrid pressure solver
 - `ParametricBodies.jl` - Body geometry generation
 - `PencilArrays.jl` - MPI parallelization
 - `ForwardDiff.jl` - Automatic differentiation
