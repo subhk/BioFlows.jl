@@ -201,7 +201,6 @@ config = create_3d_simulation_config(..., use_mpi = true)
 # mpirun -np 4 julia my_simulation.jl
 ```
 
-
 ## Mathematical Formulation
 
 ### Governing Equations
