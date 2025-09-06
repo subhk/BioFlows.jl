@@ -6,6 +6,19 @@ struct Circle <: RigidBodyShape
     radius::Float64
 end
 
+# Primary rigid body type must be defined before methods use it
+struct RigidBody <: AbstractBody
+    shape::RigidBodyShape
+    center::Vector{Float64}
+    velocity::Vector{Float64}
+    angular_velocity::Float64
+    angle::Float64
+    mass::Float64
+    moment_inertia::Float64
+    fixed::Bool
+    id::Int
+end
+
 # ============================================================
 # Drag/Lift Coefficients for Rigid Bodies (2D XZ plane)
 # ============================================================
@@ -136,17 +149,7 @@ struct Rectangle <: RigidBodyShape
     height::Float64
 end
 
-struct RigidBody <: AbstractBody
-    shape::RigidBodyShape
-    center::Vector{Float64}
-    velocity::Vector{Float64}
-    angular_velocity::Float64
-    angle::Float64
-    mass::Float64
-    moment_inertia::Float64
-    fixed::Bool
-    id::Int
-end
+# RigidBody type defined earlier in file
 
 function RigidBody(shape::RigidBodyShape, center::Vector{Float64}; 
                   velocity=zeros(length(center)), angular_velocity=0.0, angle=0.0,
