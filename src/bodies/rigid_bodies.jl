@@ -6,6 +6,127 @@ struct Circle <: RigidBodyShape
     radius::Float64
 end
 
+# ============================================================
+# Drag/Lift Coefficients for Rigid Bodies (2D XZ plane)
+# ============================================================
+
+"""
+    compute_drag_lift_coefficients(body::RigidBody, grid, state, fluid; reference_velocity=1.0, reference_length=1.0, flow_direction=[1.0,0.0])
+
+Compute approximate drag and lift coefficients for a rigid body in 2D XZ plane by integrating pressure and viscous stresses over a discretized boundary.
+"""
+function compute_drag_lift_coefficients(body::RigidBody, grid::StaggeredGrid,
+                                       state::SolutionState, fluid::FluidProperties;
+                                       reference_velocity::Float64 = 1.0,
+                                       reference_length::Float64 = (body.shape isa Circle ? 2*(body.shape::Circle).radius : 1.0),
+                                       flow_direction::Vector{Float64} = [1.0, 0.0])
+    @assert grid.grid_type == TwoDimensional "Rigid-body coefficients: 2D XZ implementation"
+
+    # Fluid properties
+    ρ = fluid.ρ isa ConstantDensity ? fluid.ρ.ρ : error("Variable density not supported")
+    μ = fluid.μ
+
+    # Cell-centered velocity fields and their gradients
+    u_cc = interpolate_u_to_cell_center(state.u, grid)
+    w_cc = interpolate_v_to_cell_center(state.v, grid)  # v stores w in XZ
+    dudx = ddx(u_cc, grid); dudz = ddz(u_cc, grid)
+    dwdx = ddx(w_cc, grid); dwdz = ddz(w_cc, grid)
+
+    # Boundary discretization
+    points = Vector{Vector{Float64}}()
+    if body.shape isa Circle
+        r = (body.shape::Circle).radius
+        npts = max(32, Int(round(2π * r / min(grid.dx, grid.dz))))
+        for k = 1:npts
+            θ = 2π * (k-1) / npts
+            x = body.center[1] + r * cos(θ + body.angle)
+            z = (length(body.center) > 2 ? body.center[3] : body.center[2]) + r * sin(θ + body.angle)
+            push!(points, [x, z])
+        end
+    elseif body.shape isa Square
+        side = (body.shape::Square).side_length
+        n_per = max(8, Int(round(side / min(grid.dx, grid.dz))))
+        # Four edges
+        for s in LinRange(-0.5*side, 0.5*side, n_per)
+            # bottom/top in local
+            for (lx,lz) in ((s,-0.5*side), (s,0.5*side))
+                c = cos(body.angle); sθ = sin(body.angle)
+                x = body.center[1] + c*lx - sθ*lz
+                z = (length(body.center) > 2 ? body.center[3] : body.center[2]) + sθ*lx + c*lz
+                push!(points, [x,z])
+            end
+        end
+        for s in LinRange(-0.5*side, 0.5*side, n_per)
+            # left/right
+            for (lx,lz) in ((-0.5*side,s), (0.5*side,s))
+                c = cos(body.angle); sθ = sin(body.angle)
+                x = body.center[1] + c*lx - sθ*lz
+                z = (length(body.center) > 2 ? body.center[3] : body.center[2]) + sθ*lx + c*lz
+                push!(points, [x,z])
+            end
+        end
+    else
+        # Fallback: bounding-box sampling (coarse)
+        push!(points, [body.center[1], (length(body.center)>2 ? body.center[3] : body.center[2])])
+    end
+
+    # Force accumulation
+    Fp = zeros(2)  # pressure
+    Fv = zeros(2)  # viscous
+
+    # Flow and lift directions
+    flow_dir = flow_direction / norm(flow_direction)
+    lift_dir = [-flow_dir[2], flow_dir[1]]
+
+    # Helper to clamp indices
+    clampi(i, lo, hi) = max(lo, min(hi, i))
+
+    # Integrate along boundary (trapezoidal weights)
+    np = length(points)
+    for k = 1:np
+        xk, zk = points[k]...; knext = k == np ? 1 : k+1
+        ds = hypot(points[knext][1]-xk, points[knext][2]-zk)
+        n = surface_normal_xz(body, xk, zk)
+        # Tangent direction
+        t̂ = [ -n[2], n[1] ]
+
+        # Nearest cell indices
+        ic = clampi(Int(round((xk - (grid.x[1])) / grid.dx)) + 1, 1, grid.nx)
+        jc = clampi(Int(round((zk - (grid.z[1])) / grid.dz)) + 1, 1, grid.nz)
+
+        # Local pressure and gradients (simple nearest-cell sample)
+        p_loc = state.p[ic, jc]
+        # Rate-of-strain tensor E ≈ [[dudx, 0.5(dudz+dwdx)],[0.5(dudz+dwdx), dwdz]] at cell center
+        exx = dudx[ic, jc]
+        ezz = dwdz[ic, jc]
+        exz = 0.5 * (dudz[ic, jc] + dwdx[ic, jc])
+        # Traction vector τ·n = -p n + 2μ E·n
+        En = [exx*n[1] + exz*n[2], exz*n[1] + ezz*n[2]]
+        traction = -p_loc .* n .+ 2μ .* En
+
+        # Integrate
+        Fp .+= (-p_loc .* n) .* ds
+        Fv .+= (2μ .* En) .* ds
+    end
+
+    F = Fp + Fv
+    # Project to drag and lift
+    D = dot(F, flow_dir)
+    L = dot(F, lift_dir)
+    Dp = dot(Fp, flow_dir)
+    Dv = dot(Fv, flow_dir)
+
+    qref = 0.5 * ρ * reference_velocity^2
+    Cd = D / (qref * reference_length)
+    Cl = L / (qref * reference_length)
+    Cd_p = Dp / (qref * reference_length)
+    Cd_v = Dv / (qref * reference_length)
+
+    return (Cd=Cd, Cl=Cl, Fx=F[1], Fz=F[2], Cd_pressure=Cd_p, Cd_viscous=Cd_v,
+            reference_velocity=reference_velocity, reference_length=reference_length,
+            dynamic_pressure=qref)
+end
+
 struct Square <: RigidBodyShape
     side_length::Float64
 end
