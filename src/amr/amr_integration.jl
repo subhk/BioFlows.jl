@@ -170,8 +170,13 @@ function amr_solve_step!(amr_solver::AMRIntegratedSolver,
                                   amr_solver.base_solver.bc, state_old.t)
     amr_solver.amr_timing["boundary_conditions"] += time() - amr_timing_start
     
-    # Step 4: Solve using the base solver
-    solve_step!(amr_solver.base_solver, state_new, state_old, dt)
+    # Step 4: Solve using the base solver (dispatch by grid dimensionality)
+    base_grid = amr_solver.refined_grid.base_grid
+    if base_grid.grid_type == TwoDimensional
+        solve_step_2d!(amr_solver.base_solver, state_new, state_old, dt)
+    else
+        solve_step_3d!(amr_solver.base_solver, state_new, state_old, dt)
+    end
     
     # Step 5: Enforce AMR boundary continuity
     enforce_boundary_continuity_amr!(amr_solver.refined_grid, state_new)

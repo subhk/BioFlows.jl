@@ -30,12 +30,9 @@ function project_amr_to_original_grid!(output_state::SolutionState,
     if base_grid.grid_type == TwoDimensional
         # Copy base grid data to output (2D XZ plane)
         output_state.u .= current_state.u
-        # FIXED: For 2D XZ plane, we should have w-velocity, not v-velocity
-        if hasfield(typeof(output_state), :w) && output_state.w !== nothing
-            output_state.w .= current_state.w  # w-velocity in z-direction
-        elseif hasfield(typeof(output_state), :v) && hasfield(typeof(current_state), :v)
-            # Fallback: if using v to represent w in XZ plane (legacy compatibility)
-            output_state.v .= current_state.v  # v representing w in XZ plane
+        # In 2D, the vertical velocity is stored in state.v (w-equivalent)
+        if hasfield(typeof(output_state), :v) && hasfield(typeof(current_state), :v)
+            output_state.v .= current_state.v
         end
         output_state.p .= current_state.p
         
@@ -416,11 +413,11 @@ function project_w_bottom_face!(output_state::SolutionState, local_solution, loc
     
     # Conservative average velocity - assign to correct field
     if total_area > 0.0
-        # FIXED: Assign to w-velocity field if available, otherwise v as fallback
-        if hasfield(typeof(output_state), :w) && output_state.w !== nothing
+        # Assign to w-velocity field if it exists and has nonzero size; otherwise use v (2D convention)
+        if hasfield(typeof(output_state), :w) && size(output_state.w, 1) > 0 && size(output_state.w, 2) > 0
             output_state.w[i_base, j_base] = weighted_flux / total_area
         elseif hasfield(typeof(output_state), :v)
-            output_state.v[i_base, j_base] = weighted_flux / total_area  # Fallback
+            output_state.v[i_base, j_base] = weighted_flux / total_area
         end
     end
 end
@@ -458,11 +455,11 @@ function project_w_top_face!(output_state::SolutionState, local_solution, local_
     
     # Conservative average velocity - assign to correct field
     if total_area > 0.0
-        # FIXED: Assign to w-velocity field if available, otherwise v as fallback
-        if hasfield(typeof(output_state), :w) && output_state.w !== nothing && j_base + 1 <= size(output_state.w, 2)
+        # Assign to w-velocity field if it exists and has nonzero size; otherwise use v (2D convention)
+        if hasfield(typeof(output_state), :w) && size(output_state.w, 1) > 0 && j_base + 1 <= size(output_state.w, 2)
             output_state.w[i_base, j_base + 1] = weighted_flux / total_area
         elseif hasfield(typeof(output_state), :v) && j_base + 1 <= size(output_state.v, 2)
-            output_state.v[i_base, j_base + 1] = weighted_flux / total_area  # Fallback
+            output_state.v[i_base, j_base + 1] = weighted_flux / total_area
         end
     end
 end

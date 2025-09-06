@@ -531,11 +531,14 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
     
     # Initialize output
     writer = NetCDFWriter("$(config.output_config.filename).nc", solver.grid, config.output_config)
-    
+
     # Initialize adaptive refinement if needed
     refined_grid = nothing
+    amr_solver = nothing
     if config.adaptive_refinement
-        refined_grid = RefinedGrid(solver.grid)
+        # Create AMR-integrated solver for consistent 2D AMR handling
+        amr_solver = create_amr_integrated_solver(solver, config.refinement_criteria; amr_frequency=10)
+        refined_grid = amr_solver.refined_grid
     end
     
     # Time stepping loop
@@ -549,17 +552,26 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
     # Select bodies to save (if any)
     bodies_for_output = config.rigid_bodies !== nothing ? config.rigid_bodies : (config.flexible_bodies !== nothing ? config.flexible_bodies : nothing)
     
-    write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
+    if config.adaptive_refinement
+        # Project AMR-enhanced data to original grid and save
+        save_amr_to_netcdf!(writer, refined_grid, state_old, step, t; bodies=bodies_for_output)
+    else
+        write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
+    end
     
     while t < config.final_time
         step += 1
         dt = min(config.dt, config.final_time - t)
         
-        # Solve one time step
-        if config.grid_type == ThreeDimensional
-            solve_step_3d!(solver, state_new, state_old, dt)
+        # Solve one time step (AMR-aware if enabled)
+        if config.adaptive_refinement && amr_solver !== nothing
+            amr_solve_step!(amr_solver, state_new, state_old, dt)
         else
-            solve_step_2d!(solver, state_new, state_old, dt)
+            if config.grid_type == ThreeDimensional
+                solve_step_3d!(solver, state_new, state_old, dt)
+            else
+                solve_step_2d!(solver, state_new, state_old, dt)
+            end
         end
         
         # Apply immersed boundary forcing
@@ -581,26 +593,18 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
             end
         end
         
-        # Adaptive refinement
-        if config.adaptive_refinement && step % 10 == 0
-            all_bodies = nothing
-            if config.rigid_bodies !== nothing && config.flexible_bodies !== nothing
-                # Would need to combine collections
-            elseif config.rigid_bodies !== nothing
-                all_bodies = config.rigid_bodies
-            elseif config.flexible_bodies !== nothing
-                all_bodies = config.flexible_bodies
-            end
-            
-            adapt_grid!(refined_grid, state_new, all_bodies, config.refinement_criteria)
-        end
+        # Adaptive refinement handled inside AMR-integrated solver; no-op here
         
         t += dt
         state_old, state_new = state_new, state_old  # Swap states
         
         # Output
         if t >= next_output_time || step % 100 == 0
-            write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
+            if config.adaptive_refinement
+                save_amr_to_netcdf!(writer, refined_grid, state_old, step, t; bodies=bodies_for_output)
+            else
+                write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
+            end
             next_output_time += config.output_config.time_interval
             
             println("Step $step: t = $(round(t, digits=4)), dt = $(round(dt, digits=6))")
@@ -616,7 +620,11 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
     end
     
     # Final output
-    write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
+    if config.adaptive_refinement
+        save_amr_to_netcdf!(writer, refined_grid, state_old, step, t; bodies=bodies_for_output)
+    else
+        write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
+    end
     close!(writer)
     
     println("Simulation completed!")
