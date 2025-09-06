@@ -138,7 +138,7 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
         else
             # 2D XZ plane: use z as vertical dimension
             NetCDF.defVar(ncfile, "u", Float64, ("nx_u", "nz", "time"))
-            NetCDF.defVar(ncfile, "v", Float64, ("nx", "nz_w", "time"))
+            NetCDF.defVar(ncfile, "w", Float64, ("nx", "nz_w", "time"))
             NetCDF.defVar(ncfile, "p", Float64, ("nx", "nz", "time"))
         end
 
@@ -148,7 +148,7 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
             NetCDF.putatt(ncfile, "v", Dict("long_name" => "y-velocity", "units" => "m/s"))
             NetCDF.putatt(ncfile, "w", Dict("long_name" => "z-velocity", "units" => "m/s"))
         else
-            NetCDF.putatt(ncfile, "v", Dict("long_name" => "vertical velocity (z)", "units" => "m/s"))
+            NetCDF.putatt(ncfile, "w", Dict("long_name" => "vertical velocity (z)", "units" => "m/s"))
         end
         NetCDF.putatt(ncfile, "p", Dict("long_name" => "pressure", "units" => "Pa"))
     end
@@ -242,7 +242,8 @@ function save_snapshot!(writer::NetCDFWriter, state::SolutionState, current_time
                 NetCDF.putvar(writer.ncfile, "p", state.p, start=[1, 1, 1, snapshot_idx])
             else
                 NetCDF.putvar(writer.ncfile, "u", state.u, start=[1, 1, snapshot_idx])
-                NetCDF.putvar(writer.ncfile, "v", state.v, start=[1, 1, snapshot_idx])
+                # 2D vertical velocity is stored as "w" and comes from state.v array
+                NetCDF.putvar(writer.ncfile, "w", state.v, start=[1, 1, snapshot_idx])
                 NetCDF.putvar(writer.ncfile, "p", state.p, start=[1, 1, snapshot_idx])
             end
         end
@@ -836,13 +837,11 @@ function read_netcdf_data(filepath::String)
     time_data = NetCDF.readvar(ncfile, "time")
     
     # Read solution variables
-    u_data = NetCDF.readvar(ncfile, "u")
-    v_data = NetCDF.readvar(ncfile, "v")
-    p_data = NetCDF.readvar(ncfile, "p")
-    
-    # Check if 3D
-    has_w = haskey(ncfile.vars, "w")
-    w_data = has_w ? NetCDF.readvar(ncfile, "w") : nothing
+    u_data = haskey(ncfile.vars, "u") ? NetCDF.readvar(ncfile, "u") : nothing
+    v_data = haskey(ncfile.vars, "v") ? NetCDF.readvar(ncfile, "v") : nothing
+    p_data = haskey(ncfile.vars, "p") ? NetCDF.readvar(ncfile, "p") : nothing
+    # 2D stores vertical velocity as "w"
+    w_data = haskey(ncfile.vars, "w") ? NetCDF.readvar(ncfile, "w") : nothing
     
     NetCDF.close(ncfile)
     
