@@ -120,10 +120,10 @@ efficiency = theoretical_single_time / (max_time * nprocs)
 
 | Grid Size | Processes | Solver Type | Status |
 |-----------|-----------|-------------|---------|
-| < 64×64   | Any       | Single-node | ✅ Optimal |
-| 64×64 - 512×512 | 1-4 | MPI WaterLily | ✅ Efficient |
-| > 512×512 | 4-64      | MPI WaterLily | ✅ Scalable |
-| 3D        | Any       | GeometricMultigrid | ✅ Fallback |
+| < 64×64   | Any       | Single-node | Optimal |
+| 64×64 - 512×512 | 1-4 | MPI WaterLily | Efficient |
+| > 512×512 | 4-64      | MPI WaterLily | Scalable |
+| 3D        | Any       | GeometricMultigrid | Fallback |
 
 ## Advanced Features
 
@@ -175,10 +175,10 @@ Multigrid algorithm is naturally scalable
 
 The PencilArrays.jl-compatible WaterLily.jl-style multigrid solver provides:
 
-✅ **Full MPI Compatibility**: Works seamlessly with PencilArrays.jl
-✅ **Performance Preservation**: Maintains WaterLily.jl efficiency
-✅ **Automatic Integration**: Drop-in replacement for single-node version
-✅ **Scalable Architecture**: Efficient from 1 to 100+ processes
-✅ **Production Ready**: Comprehensive error handling and optimization
+**Full MPI Compatibility**: Works seamlessly with PencilArrays.jl
+**Performance Preservation**: Maintains WaterLily.jl efficiency
+**Automatic Integration**: Drop-in replacement for single-node version
+**Scalable Architecture**: Efficient from 1 to 100+ processes
+**Production Ready**: Comprehensive error handling and optimization
 
 This implementation enables high-performance biological flow simulations on distributed systems while maintaining the clean, intuitive interface of the original WaterLily.jl approach.
