@@ -634,6 +634,13 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
         write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
     end
     
+    # Diagnostics step frequency (env override: BIOFLOWS_DIAG_EVERY)
+    diag_steps = try
+        parse(Int, get(ENV, "BIOFLOWS_DIAG_EVERY", "100"))
+    catch
+        100
+    end
+
     while t < config.final_time
         step += 1
         dt = min(config.dt, config.final_time - t)
@@ -674,7 +681,7 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
         state_old, state_new = state_new, state_old  # Swap states
         
         # Output
-        if t >= next_output_time || step % 100 == 0
+        if t >= next_output_time || (diag_steps > 0 && step % diag_steps == 0)
             if config.adaptive_refinement
                 save_amr_to_netcdf!(writer, refined_grid, state_old, step, t; bodies=bodies_for_output)
             else
