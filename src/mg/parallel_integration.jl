@@ -107,17 +107,17 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
     decomp = solver.decomp
     
     # STEP 1: Optimized predictor step with pre-allocated arrays
-    compute_optimized_predictor_rhs_2d!(solver, local_state_old, dt)
+    compute_predictor_rhs_2d!(solver, local_state_old, dt)
     
     # STEP 2: Apply boundary conditions with minimal communication
     apply_physical_boundary_conditions_2d!(decomp, solver.local_grid, local_state_old, solver.bc, local_state_old.t)
     
     # STEP 3: Optimized ghost cell exchange using persistent buffers
-    optimized_ghost_exchange_2d!(local_state_old.u, decomp, solver.mpi_buffers)
-    optimized_ghost_exchange_2d!(local_state_old.v, decomp, solver.mpi_buffers)
+    ghost_exchange_2d!(local_state_old.u, decomp, solver.mpi_buffers)
+    ghost_exchange_2d!(local_state_old.v, decomp, solver.mpi_buffers)
     
     # STEP 4: Compute divergence with optimized operations
-    compute_optimized_divergence_2d!(solver.local_div_u, local_state_old.u, local_state_old.v, solver.local_grid)
+    compute_divergence_2d!(solver.local_div_u, local_state_old.u, local_state_old.v, solver.local_grid)
     
     # STEP 5: Solve pressure Poisson with optimized multigrid
     solver.local_rhs_p .= solver.local_div_u ./ dt
@@ -127,7 +127,7 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
                   solver.local_grid, solver.bc)
     
     # STEP 6: Velocity correction with vectorized operations
-    correct_velocity_optimized_2d!(local_state_new, local_state_old, solver.local_phi, dt, solver.local_grid)
+    correct_velocity_2d!(local_state_new, local_state_old, solver.local_phi, dt, solver.local_grid)
     
     # STEP 7: Pressure update
     if solver.fluid.ρ isa ConstantDensity
@@ -141,9 +141,9 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
     local_state_new.step = local_state_old.step + 1
     
     # STEP 8: Final optimized ghost cell exchange
-    optimized_ghost_exchange_2d!(local_state_new.u, decomp, solver.mpi_buffers)
-    optimized_ghost_exchange_2d!(local_state_new.v, decomp, solver.mpi_buffers)
-    optimized_ghost_exchange_2d!(local_state_new.p, decomp, solver.mpi_buffers)
+    ghost_exchange_2d!(local_state_new.u, decomp, solver.mpi_buffers)
+    ghost_exchange_2d!(local_state_new.v, decomp, solver.mpi_buffers)
+    ghost_exchange_2d!(local_state_new.p, decomp, solver.mpi_buffers)
     
     # OPTIMIZATION: Load balancing analysis
     step_time = time() - step_start_time
@@ -155,12 +155,12 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
 end
 
 """
-    compute_optimized_predictor_rhs_2d!(solver, state, dt)
+    compute_predictor_rhs_2d!(solver, state, dt)
 
 Optimized predictor RHS computation with vectorized operations and minimal allocations.
 """
-function compute_optimized_predictor_rhs_2d!(solver::OptimizedMPINavierStokesSolver2D, 
-                                           state::SolutionState, dt::Float64)
+function compute_predictor_rhs_2d!(solver::MPINavierStokesSolver2D, 
+                                   state::SolutionState, dt::Float64)
     grid = solver.local_grid
     fluid = solver.fluid
     
@@ -190,12 +190,12 @@ function compute_optimized_predictor_rhs_2d!(solver::OptimizedMPINavierStokesSol
 end
 
 """
-    compute_optimized_divergence_2d!(div_u, u, v, grid)
+    compute_divergence_2d!(div_u, u, v, grid)
 
 Optimized divergence computation with better cache efficiency.
 """
-function compute_optimized_divergence_2d!(div_u::Matrix{Float64}, u::Matrix{Float64}, 
-                                        v::Matrix{Float64}, grid::StaggeredGrid)
+function compute_divergence_2d!(div_u::Matrix{Float64}, u::Matrix{Float64}, 
+                                 v::Matrix{Float64}, grid::StaggeredGrid)
     nx, nz = grid.nx, grid.nz
     dx, dz = grid.dx, grid.dz
     
@@ -208,12 +208,12 @@ function compute_optimized_divergence_2d!(div_u::Matrix{Float64}, u::Matrix{Floa
 end
 
 """
-    correct_velocity_optimized_2d!(state_new, state_old, phi, dt, grid)
+    correct_velocity_2d!(state_new, state_old, phi, dt, grid)
 
 Optimized velocity correction with vectorized pressure gradient computation.
 """
-function correct_velocity_optimized_2d!(state_new::SolutionState, state_old::SolutionState,
-                                       phi::Matrix{Float64}, dt::Float64, grid::StaggeredGrid)
+function correct_velocity_2d!(state_new::SolutionState, state_old::SolutionState,
+                               phi::Matrix{Float64}, dt::Float64, grid::StaggeredGrid)
     nx, nz = grid.nx, grid.nz
     dx, dz = grid.dx, grid.dz
     
@@ -242,12 +242,12 @@ function correct_velocity_optimized_2d!(state_new::SolutionState, state_old::Sol
 end
 
 """
-    compute_global_cfl_optimized_2d(solver, local_u, local_v, dt)
+    compute_global_cfl_2d(solver, local_u, local_v, dt)
 
 Optimized global CFL computation with reduced collective operations.
 """
-function compute_global_cfl_optimized_2d(solver::OptimizedMPINavierStokesSolver2D,
-                                        local_u::Matrix{Float64}, local_v::Matrix{Float64}, dt::Float64)
+function compute_global_cfl_2d(solver::MPINavierStokesSolver2D,
+                                local_u::Matrix{Float64}, local_v::Matrix{Float64}, dt::Float64)
     grid = solver.local_grid
     dx, dz = grid.dx, grid.dz
     
@@ -258,7 +258,7 @@ function compute_global_cfl_optimized_2d(solver::OptimizedMPINavierStokesSolver2
     local_cfl = max(max_u * dt / dx, max_v * dt / dz)
     
     # OPTIMIZATION: Use optimized collective operation
-    global_cfl = optimized_collective_sum(local_cfl, solver.decomp.comm, solver.mpi_buffers)
+    global_cfl = collective_sum(local_cfl, solver.decomp.comm, solver.mpi_buffers)
     return global_cfl
 end
 
@@ -285,8 +285,8 @@ end
 Analyze and report parallel performance characteristics.
 """
 function analyze_parallel_performance!(monitor::ParallelPerformanceMonitor,
-                                     solver::OptimizedMPINavierStokesSolver2D,
-                                     step_time::Float64)
+                                      solver::MPINavierStokesSolver2D,
+                                      step_time::Float64)
     # Estimate communication vs computation time
     nprocs = MPI.Comm_size(solver.decomp.comm)
     
@@ -311,7 +311,7 @@ function analyze_parallel_performance!(monitor::ParallelPerformanceMonitor,
     end
 end
 
-# Export optimized functions
-export OptimizedMPINavierStokesSolver2D, optimized_mpi_solve_step_2d!
-export compute_global_cfl_optimized_2d
+# Export functions
+export MPINavierStokesSolver2D, mpi_solve_step_2d!
+export compute_global_cfl_2d
 export ParallelPerformanceMonitor, analyze_parallel_performance!

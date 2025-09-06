@@ -125,18 +125,18 @@ function return_to_pool!(manager::MemoryPoolManager{T}, pool_name::Symbol) where
 end
 
 """
-    OptimizedAsyncCommunicator
+    AsyncCommunicator
 
 Manages asynchronous communication with optimal overlapping strategies.
 """
-mutable struct OptimizedAsyncCommunicator
+mutable struct AsyncCommunicator
     active_requests::Vector{MPI.Request}
     request_tags::Vector{Symbol}
     send_buffers::Dict{Symbol, Vector{Float64}}
     recv_buffers::Dict{Symbol, Vector{Float64}}
     completion_callbacks::Dict{Symbol, Function}
     
-    function OptimizedAsyncCommunicator()
+    function AsyncCommunicator()
         new(MPI.Request[], Symbol[], 
             Dict{Symbol, Vector{Float64}}(),
             Dict{Symbol, Vector{Float64}}(),
@@ -149,7 +149,7 @@ end
 
 Start asynchronous ghost cell exchange with optimal buffering.
 """
-function start_async_ghost_exchange!(comm::OptimizedAsyncCommunicator,
+function start_async_ghost_exchange!(comm::AsyncCommunicator,
                                     field::Matrix{Float64}, 
                                     decomp, tag::Symbol)
     # Implementation of optimized async communication
@@ -175,7 +175,7 @@ end
 
 Complete all pending asynchronous operations.
 """
-function complete_async_operations!(comm::OptimizedAsyncCommunicator)
+function complete_async_operations!(comm::AsyncCommunicator)
     if !isempty(comm.active_requests)
         MPI.Waitall(comm.active_requests)
         
@@ -376,6 +376,6 @@ end
 # Export all optimization functions
 export CommunicationProfiler, profile_communication!
 export MemoryPoolManager, allocate_from_pool!, return_to_pool!
-export OptimizedAsyncCommunicator, start_async_ghost_exchange!, complete_async_operations!
+export AsyncCommunicator, start_async_ghost_exchange!, complete_async_operations!
 export VectorizedOperations
 export ParallelismDiagnostics, diagnose_parallel_performance!, apply_runtime_optimizations!

@@ -19,11 +19,11 @@ using MPI
 using PencilArrays
 
 """
-    OptimizedMPIBuffers{T,N}
+    MPIBuffers{T,N}
 
 Persistent buffer pool for MPI communications to eliminate allocations.
 """
-mutable struct OptimizedMPIBuffers{T,N}
+mutable struct MPIBuffers{T,N}
     # Ghost cell exchange buffers
     send_x_left::Vector{T}
     send_x_right::Vector{T}
@@ -48,7 +48,7 @@ mutable struct OptimizedMPIBuffers{T,N}
     request_pool::Vector{MPI.Request}
     active_requests::Int
     
-    function OptimizedMPIBuffers{T,N}(grid_dims::NTuple{N,Int}, n_ghost::Int=1) where {T,N}
+    function MPIBuffers{T,N}(grid_dims::NTuple{N,Int}, n_ghost::Int=1) where {T,N}
         nx, ny = grid_dims[1], grid_dims[2]
         nz = N == 3 ? grid_dims[3] : 1
         
@@ -90,14 +90,14 @@ mutable struct OptimizedMPIBuffers{T,N}
 end
 
 """
-    optimized_ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::OptimizedMPIBuffers{T,2})
+    ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::MPIBuffers{T,2})
 
 Highly optimized 2D ghost cell exchange with:
 - Zero memory allocations using persistent buffers
 - Vectorized packing/unpacking operations
 - Overlapped communication where possible
 """
-function optimized_ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::OptimizedMPIBuffers{T,2}) where T
+function ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::MPIBuffers{T,2}) where T
     nx_local, nz_local = size(field)
     n_ghost = decomp.n_ghost
     
@@ -216,11 +216,11 @@ function optimized_ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::Optimiz
 end
 
 """
-    optimized_collective_sum(local_value::T, comm::MPI.Comm, buffers::OptimizedMPIBuffers{T}) where T
+    collective_sum(local_value::T, comm::MPI.Comm, buffers::MPIBuffers{T}) where T
 
 Optimized collective reduction using persistent buffers.
 """
-function optimized_collective_sum(local_value::T, comm::MPI.Comm, buffers::OptimizedMPIBuffers{T}) where T
+function collective_sum(local_value::T, comm::MPI.Comm, buffers::MPIBuffers{T}) where T
     buffers.local_reduction_buffer[1] = local_value
     global_sum = MPI.Allreduce(buffers.local_reduction_buffer[1], MPI.SUM, comm)
     return global_sum
@@ -351,8 +351,8 @@ function update_tolerance!(manager::AdaptiveToleranceManager, residual::Float64,
     end
 end
 
-# Export optimized functions
-export OptimizedMPIBuffers, optimized_ghost_exchange_2d!, optimized_collective_sum
+# Export functions
+export MPIBuffers, ghost_exchange_2d!, collective_sum
 export LoadBalancingInfo, analyze_load_balance!
 export ComputationCommunicationOverlapper, start_async_communication!, finish_async_communication!
 export AdaptiveToleranceManager, should_check_convergence, update_tolerance!
