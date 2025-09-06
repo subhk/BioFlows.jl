@@ -585,9 +585,18 @@ function save_complete_snapshot!(writer::NetCDFWriter, state::SolutionState,
         save_body_data!(writer, bodies, current_time, current_iteration)
         
         # Save force coefficients if requested
-        if save_coefficients && bodies isa FlexibleBodyCollection
-            save_body_force_coefficients!(writer, bodies, grid, state, fluid, 
-                                        current_time, current_iteration; kwargs...)
+        if save_coefficients
+            if bodies isa FlexibleBodyCollection
+                save_body_force_coefficients!(writer, bodies, grid, state, fluid, 
+                                            current_time, current_iteration; kwargs...)
+            elseif bodies isa RigidBodyCollection
+                try
+                    save_rigid_body_coefficients_series!(writer, bodies, grid, state, fluid,
+                                                         current_time, current_iteration; kwargs...)
+                catch e
+                    @warn "Rigid-body coefficients not saved: $e"
+                end
+            end
         end
     end
     
@@ -777,6 +786,99 @@ function save_flexible_body_positions!(writer::NetCDFWriter,
     writer.last_save_time = current_time
     writer.last_save_iteration = current_iteration
     println("Saved detailed positions for $(n_bodies) flexible bodies at time $(current_time)")
+    return true
+end
+
+# ============================================================================
+# Rigid-body coefficient series to a separate NetCDF file
+# ============================================================================
+
+const _RIGID_COEFF_WRITERS = Dict{String, Any}()
+
+mutable struct RigidCoeffWriter
+    filepath::String
+    base_filepath::String
+    n_bodies::Int
+    max_snapshots::Int
+    current_snapshot::Int
+    file_index::Int
+    ncfile::Union{Nothing, NetCDF.NcFile}
+end
+
+function _create_rigid_coeff_writer(filepath::String, bodies::RigidBodyCollection; max_snapshots::Int=1000)
+    w = RigidCoeffWriter(filepath, filepath, bodies.n_bodies, max_snapshots, 0, 0, nothing)
+    _init_rigid_coeff_file!(w)
+    return w
+end
+
+function _init_rigid_coeff_file!(w::RigidCoeffWriter)
+    if isfile(w.filepath); rm(w.filepath); end
+    n_b = w.n_bodies
+    tdim = NetCDF.NcDim("time", w.max_snapshots)
+    bdim = NetCDF.NcDim("n_bodies", n_b)
+    vars = NetCDF.NcVar[
+        NetCDF.NcVar("time", [tdim]; t=Float64),
+        NetCDF.NcVar("Cd", [bdim, tdim]; t=Float64),
+        NetCDF.NcVar("Cl", [bdim, tdim]; t=Float64),
+        NetCDF.NcVar("Cd_pressure", [bdim, tdim]; t=Float64),
+        NetCDF.NcVar("Cd_viscous", [bdim, tdim]; t=Float64),
+        NetCDF.NcVar("Fx", [bdim, tdim]; t=Float64),
+        NetCDF.NcVar("Fz", [bdim, tdim]; t=Float64),
+    ]
+    nc = NetCDF.create(w.filepath, vars)
+    NetCDF.putatt(nc, "global", Dict("title"=>"Rigid body force coefficients", "n_bodies"=>n_b))
+    w.ncfile = nc
+    return nc
+end
+
+function _rollover!(w::RigidCoeffWriter)
+    if w.current_snapshot >= w.max_snapshots
+        if w.ncfile !== nothing
+            try NetCDF.close(w.ncfile) catch; end
+            w.ncfile = nothing
+        end
+        w.file_index += 1
+        base, ext = splitext(w.base_filepath)
+        w.filepath = string(base, "_", w.file_index, ext)
+        w.current_snapshot = 0
+        _init_rigid_coeff_file!(w)
+        println("Rigid coefficients: created new file $(w.filepath)")
+    end
+end
+
+function _get_rigid_coeff_writer(writer::NetCDFWriter, bodies::RigidBodyCollection)
+    base, ext = splitext(writer.filepath)
+    coeff_path = string(base, "_coeffs", ext)
+    key = coeff_path
+    if !haskey(_RIGID_COEFF_WRITERS, key)
+        _RIGID_COEFF_WRITERS[key] = _create_rigid_coeff_writer(coeff_path, bodies; max_snapshots=writer.config.max_snapshots_per_file)
+    end
+    return _RIGID_COEFF_WRITERS[key]
+end
+
+function save_rigid_body_coefficients_series!(writer::NetCDFWriter,
+                                             bodies::RigidBodyCollection,
+                                             grid::StaggeredGrid, state::SolutionState,
+                                             fluid::FluidProperties,
+                                             current_time::Float64, current_iteration::Int;
+                                             reference_velocity::Float64=writer.config.reference_velocity,
+                                             flow_direction::Vector{Float64}=writer.config.flow_direction)
+    cw = _get_rigid_coeff_writer(writer, bodies)
+    coeffs = [compute_drag_lift_coefficients(body, grid, state, fluid;
+                 reference_velocity=reference_velocity,
+                 reference_length=body.shape isa Circle ? 2*(body.shape::Circle).radius : 1.0,
+                 flow_direction=flow_direction) for body in bodies.bodies]
+    _rollover!(cw)
+    cw.current_snapshot += 1
+    idx = cw.current_snapshot
+    NetCDF.putvar(cw.ncfile, "time", [current_time], start=[idx])
+    NetCDF.putvar(cw.ncfile, "Cd", [c.Cd for c in coeffs], start=[1, idx])
+    NetCDF.putvar(cw.ncfile, "Cl", [c.Cl for c in coeffs], start=[1, idx])
+    NetCDF.putvar(cw.ncfile, "Cd_pressure", [c.Cd_pressure for c in coeffs], start=[1, idx])
+    NetCDF.putvar(cw.ncfile, "Cd_viscous", [c.Cd_viscous for c in coeffs], start=[1, idx])
+    NetCDF.putvar(cw.ncfile, "Fx", [c.Fx for c in coeffs], start=[1, idx])
+    NetCDF.putvar(cw.ncfile, "Fz", [c.Fz for c in coeffs], start=[1, idx])
+    println("Saved rigid-body coefficients snapshot $(idx) at t=$(current_time)")
     return true
 end
 
