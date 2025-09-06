@@ -5,7 +5,109 @@ This module provides a pure Julia multigrid implementation without external depe
 """
 
 using LinearAlgebra
+using SparseArrays
 
+# Optional IterativeSolvers for Krylov methods
+const HAS_ITERATIVE_SOLVERS = let ok = false
+    try
+        @eval using IterativeSolvers
+        ok = true
+    catch
+        ok = false
+    end
+    ok
+end
+
+# Build sparse Laplacian (Neumann) for 2D XZ plane
+function _build_laplacian_matrix_2d(grid::StaggeredGrid)
+    nx, nz = grid.nx, grid.nz
+    N = nx * nz
+    dx2 = grid.dx^2
+    dz2 = grid.dz^2
+    rows = Int[]; cols = Int[]; vals = Float64[]
+    lin = (i,j)-> i + (j-1)*nx
+    for j=1:nz, i=1:nx
+        k = lin(i,j)
+        diag = 0.0
+        # Left/Right
+        if i>1
+            push!(rows,k); push!(cols,lin(i-1,j)); push!(vals, 1.0/dx2)
+            diag -= 1.0/dx2
+        else
+            # Neumann: φ(0)=φ(1) → contribution: -1/dx2
+            diag -= 1.0/dx2
+        end
+        if i<nx
+            push!(rows,k); push!(cols,lin(i+1,j)); push!(vals, 1.0/dx2)
+            diag -= 1.0/dx2
+        else
+            diag -= 1.0/dx2
+        end
+        # Bottom/Top
+        if j>1
+            push!(rows,k); push!(cols,lin(i,j-1)); push!(vals, 1.0/dz2)
+            diag -= 1.0/dz2
+        else
+            diag -= 1.0/dz2
+        end
+        if j<nz
+            push!(rows,k); push!(cols,lin(i,j+1)); push!(vals, 1.0/dz2)
+            diag -= 1.0/dz2
+        else
+            diag -= 1.0/dz2
+        end
+        push!(rows,k); push!(cols,k); push!(vals, -diag)
+    end
+    return sparse(rows, cols, vals, N, N)
+end
+
+# Build sparse Laplacian (Neumann) for 3D
+function _build_laplacian_matrix_3d(grid::StaggeredGrid)
+    nx, ny, nz = grid.nx, grid.ny, grid.nz
+    N = nx*ny*nz
+    dx2 = grid.dx^2; dy2 = grid.dy^2; dz2 = grid.dz^2
+    rows = Int[]; cols = Int[]; vals = Float64[]
+    lin = (i,j,k)-> i + (j-1)*nx + (k-1)*nx*ny
+    for k=1:nz, j=1:ny, i=1:nx
+        idx = lin(i,j,k)
+        diag = 0.0
+        # X neighbors
+        if i>1
+            push!(rows,idx); push!(cols,lin(i-1,j,k)); push!(vals, 1.0/dx2); diag -= 1.0/dx2
+        else
+            diag -= 1.0/dx2
+        end
+        if i<nx
+            push!(rows,idx); push!(cols,lin(i+1,j,k)); push!(vals, 1.0/dx2); diag -= 1.0/dx2
+        else
+            diag -= 1.0/dx2
+        end
+        # Y neighbors
+        if j>1
+            push!(rows,idx); push!(cols,lin(i,j-1,k)); push!(vals, 1.0/dy2); diag -= 1.0/dy2
+        else
+            diag -= 1.0/dy2
+        end
+        if j<ny
+            push!(rows,idx); push!(cols,lin(i,j+1,k)); push!(vals, 1.0/dy2); diag -= 1.0/dy2
+        else
+            diag -= 1.0/dy2
+        end
+        # Z neighbors
+        if k>1
+            push!(rows,idx); push!(cols,lin(i,j,k-1)); push!(vals, 1.0/dz2); diag -= 1.0/dz2
+        else
+            diag -= 1.0/dz2
+        end
+        if k<nz
+            push!(rows,idx); push!(cols,lin(i,j,k+1)); push!(vals, 1.0/dz2); diag -= 1.0/dz2
+        else
+            diag -= 1.0/dz2
+        end
+        push!(rows,idx); push!(cols,idx); push!(vals, -diag)
+    end
+    return sparse(rows, cols, vals, N, N)
+end
 # Pure Julia iterative solvers
 struct GaussSeidelSolver
     max_iterations::Int
@@ -21,13 +123,49 @@ struct SimpleIterativeSolver
 end
 
 function solve!(solver::SimpleIterativeSolver, x::AbstractVector, b::AbstractVector, A)
-    @warn "Using simple iterative solver fallback - performance may be poor"
-    # Simple direct solve as fallback
-    try
-        x .= A \ b
-    catch
-        # If A is not provided, just use direct solve on b
-        x .= b  # Placeholder - would normally solve Ax = b
+    tol = solver.tolerance
+    maxit = solver.max_iterations
+    # Build a multiplication closure for A
+    mulA = nothing
+    if A === nothing
+        # No operator: best fallback is to return RHS (caller should avoid this path)
+        @warn "SimpleIterativeSolver: no operator provided; returning RHS directly"
+        x .= b
+        return x
+    elseif A isa AbstractMatrix
+        mulA = v -> A * v
+    elseif A isa Function
+        mulA = A
+    else
+        try
+            mulA = v -> A * v
+        catch
+            @warn "SimpleIterativeSolver: unrecognized operator type; returning RHS"
+            x .= b
+            return x
+        end
+    end
+
+    # Conjugate Gradient for SPD systems (e.g., Poisson)
+    r = similar(x); r .= b .- mulA(x)
+    p = copy(r)
+    rsold = dot(r, r)
+    if sqrt(rsold) < tol
+        return x
+    end
+    Ap = similar(x)
+    for k = 1:maxit
+        Ap .= mulA(p)
+        α = rsold / dot(p, Ap)
+        @. x = x + α * p
+        @. r = r - α * Ap
+        rsnew = dot(r, r)
+        if sqrt(rsnew) < tol
+            break
+        end
+        β = rsnew / rsold
+        @. p = r + β * p
+        rsold = rsnew
     end
     return x
 end
@@ -210,7 +348,23 @@ function solve_poisson_2d_custom!(solver::MultigridPoissonSolver, phi::Matrix, r
         return sqrt(s)
     end
     r0 = _residual_norm_2d(phi, rhs_bc)
+    # Try IterativeSolvers if requested via env (and available)
+    use_iter = lowercase(get(ENV, "BIOFLOWS_USE_ITERATIVE", "")) in ("1","true","yes") && HAS_ITERATIVE_SOLVERS
+    if use_iter
+        # Build sparse Laplacian with Neumann BC
+        A = _build_laplacian_matrix_2d(grid)
+        xvec = vec(copy(phi))
+        bvec = vec(rhs_bc)
+        try
+            IterativeSolvers.cg!(xvec, A, bvec; maxiter=solver.max_iterations, atol=solver.tolerance, verbose=verbose)
+            phi .= reshape(xvec, size(phi))
+        catch e
+            @warn "IterativeSolvers.cg! failed ($e); falling back to MG"
+            use_iter = false
+        end
+    end
     # Use staggered multigrid if requested, otherwise Gauss-Seidel
+    if !use_iter
     if solver.solver_type == :staggered
         mg = StaggeredMultiLevelPoisson(grid, solver.levels; tol=solver.tolerance)
         solve_staggered_poisson!(phi, rhs_bc, mg; max_iter=solver.max_iterations)
@@ -233,6 +387,7 @@ function solve_poisson_2d_custom!(solver::MultigridPoissonSolver, phi::Matrix, r
         rhs_vec = vec(rhs_bc)
         solution = solve!(solver.mg_solver, phi_vec, rhs_vec, nothing)
         phi .= reshape(solution, size(phi))
+    end
     end
     
     # Apply boundary conditions to solution
@@ -260,7 +415,22 @@ function solve_poisson_3d_custom!(solver::MultigridPoissonSolver, phi::Array{T,3
         return sqrt(s)
     end
     r0 = _residual_norm_3d(phi, rhs_bc)
+    # Try IterativeSolvers if requested via env (and available)
+    use_iter = lowercase(get(ENV, "BIOFLOWS_USE_ITERATIVE", "")) in ("1","true","yes") && HAS_ITERATIVE_SOLVERS
+    if use_iter
+        A = _build_laplacian_matrix_3d(grid)
+        xvec = vec(copy(phi))
+        bvec = vec(rhs_bc)
+        try
+            IterativeSolvers.cg!(xvec, A, bvec; maxiter=solver.max_iterations, atol=solver.tolerance, verbose=verbose)
+            phi .= reshape(xvec, size(phi))
+        catch e
+            @warn "IterativeSolvers.cg! (3D) failed ($e); falling back to MG"
+            use_iter = false
+        end
+    end
     # Use staggered multigrid if requested, otherwise Gauss-Seidel
+    if !use_iter
     if solver.smoother == :staggered
         mg = StaggeredMultiLevelPoisson3D(grid, solver.levels; tol=solver.tolerance)
         solve_staggered_poisson_3d!(phi, rhs_bc, mg; max_iter=solver.max_iterations)
@@ -283,6 +453,7 @@ function solve_poisson_3d_custom!(solver::MultigridPoissonSolver, phi::Array{T,3
         rhs_vec = vec(rhs_bc)
         solution = solve!(solver.mg_solver, phi_vec, rhs_vec, nothing)
         phi .= reshape(solution, size(phi))
+    end
     end
     
     # Apply boundary conditions to solution
