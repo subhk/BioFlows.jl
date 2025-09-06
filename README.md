@@ -30,23 +30,6 @@ BioFlows.jl provides a complete framework for biological flow simulation with th
 - Rotational constraints with customizable parameters
 - Variable thickness, rigidity, and density along the body
 
-### Output and Visualization
-- **NetCDF format** output with configurable snapshots
-- Time interval and iteration-based saving options
-- Support for velocity, pressure, vorticity, and body motion data
-
-## Repository Structure
-
-- `src/core`: Core types, grids, and differential operators
-- `src/boundary`: Boundary conditions and boundary-layer AMR utilities
-- `src/amr`: Adaptive mesh refinement implementations (base, v2, MPI)
-- `src/mg`: Multigrid solvers (staggered, WaterLily-style, MPI)
-- `src/immersed`: Immersed boundary method utilities
-- `src/api`: High-level simulation API
-- `src/2D`, `src/3D`: Dimension-specific grids, discretizations, and solvers
-- `src/bodies`: Rigid and flexible bodies and controllers
-- `src/output`: NetCDF writer and I/O helpers
-
 ## Installation
 
 ```julia
