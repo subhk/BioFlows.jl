@@ -84,7 +84,7 @@ function compute_drag_lift_coefficients(body::RigidBody, grid::StaggeredGrid,
     # Integrate along boundary (trapezoidal weights)
     np = length(points)
     for k = 1:np
-        xk, zk = points[k]...; knext = k == np ? 1 : k+1
+        xk, zk = points[k]; knext = k == np ? 1 : k+1
         ds = hypot(points[knext][1]-xk, points[knext][2]-zk)
         n = surface_normal_xz(body, xk, zk)
         # Tangent direction
@@ -656,7 +656,7 @@ function compute_body_forces_2d(body::RigidBody, grid::StaggeredGrid, state::Sol
     z0 = (length(body.center) > 2 ? body.center[3] : body.center[2])
 
     for k = 1:np
-        xk, zk = boundary_pts[k]...; knext = k == np ? 1 : k+1
+        xk, zk = boundary_pts[k]; knext = k == np ? 1 : k+1
         ds = hypot(boundary_pts[knext][1]-xk, boundary_pts[knext][2]-zk)
         n = surface_normal_xz(body, xk, zk)
         # Nearest cell
