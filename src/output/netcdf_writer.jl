@@ -78,18 +78,18 @@ end
 
 function initialize_netcdf_file!(writer::NetCDFWriter)
     # Create NetCDF file with appropriate dimensions and variables
-    nx, ny = writer.grid.nx, writer.grid.ny
+    nx = writer.grid.nx
     is_3d = writer.grid.grid_type == ThreeDimensional
-    nz = is_3d ? writer.grid.nz : 1
+    ny = is_3d ? writer.grid.ny : 0
+    nz = writer.grid.nz
     
     # Remove existing file if it exists
     if isfile(writer.filepath)
         rm(writer.filepath)
     end
     
-    # Minimal definition for position-only mode
+    # Minimal definition for position-only mode (no flow field)
     if !writer.config.save_flow_field
-        # Define only time dimension and variable; body-specific dims/vars added later
         tdim = NetCDF.NcDim("time", writer.config.max_snapshots_per_file)
         timevar = NetCDF.NcVar("time", [tdim]; t=Float64)
         ncfile = NetCDF.create(writer.filepath, timevar)
@@ -99,28 +99,36 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
 
     # Define coordinate variables and dims for flow-field saving
     ncfile = NetCDF.create(writer.filepath)
-    NetCDF.defVar(ncfile, "x", Float64, ("nx",))
-    NetCDF.defVar(ncfile, "y", Float64, ("ny",))
+    # Core dims
+    NetCDF.defDim(ncfile, "nx", nx)
     if is_3d
-        NetCDF.defVar(ncfile, "z", Float64, ("nz",))
+        NetCDF.defDim(ncfile, "ny", ny)
     end
-    NetCDF.defVar(ncfile, "time", Float64, ("time",))
-    
-    # Define staggered grid coordinates
-    # Add staggered dimensions
+    NetCDF.defDim(ncfile, "nz", nz)
+    NetCDF.defDim(ncfile, "time", writer.config.max_snapshots_per_file)
+    # Staggered dims
     NetCDF.defDim(ncfile, "nx_u", nx + 1)
-    NetCDF.defDim(ncfile, "ny_v", ny + 1)
     if is_3d
-        NetCDF.defDim(ncfile, "nz_w", nz + 1)
+        NetCDF.defDim(ncfile, "ny_v", ny + 1)
     end
-    
+    NetCDF.defDim(ncfile, "nz_w", nz + 1)
+
+    # Coordinate vars
+    NetCDF.defVar(ncfile, "x", Float64, ("nx",))
+    if is_3d
+        NetCDF.defVar(ncfile, "y", Float64, ("ny",))
+    end
+    NetCDF.defVar(ncfile, "z", Float64, ("nz",))
+    NetCDF.defVar(ncfile, "time", Float64, ("time",))
+
+    # Staggered coordinate vars
     NetCDF.defVar(ncfile, "xu", Float64, ("nx_u",))
-    NetCDF.defVar(ncfile, "yv", Float64, ("ny_v",))
     if is_3d
-        NetCDF.defVar(ncfile, "zw", Float64, ("nz_w",))
+        NetCDF.defVar(ncfile, "yv", Float64, ("ny_v",))
     end
-    
-    # Define solution variables only if flow field saving is enabled
+    NetCDF.defVar(ncfile, "zw", Float64, ("nz_w",))
+
+    # Flow-field vars
     if writer.config.save_flow_field
         if is_3d
             NetCDF.defVar(ncfile, "u", Float64, ("nx_u", "ny", "nz", "time"))
@@ -128,29 +136,34 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
             NetCDF.defVar(ncfile, "w", Float64, ("nx", "ny", "nz_w", "time"))
             NetCDF.defVar(ncfile, "p", Float64, ("nx", "ny", "nz", "time"))
         else
-            NetCDF.defVar(ncfile, "u", Float64, ("nx_u", "ny", "time"))
-            NetCDF.defVar(ncfile, "v", Float64, ("nx", "ny_v", "time"))
-            NetCDF.defVar(ncfile, "p", Float64, ("nx", "ny", "time"))
+            # 2D XZ plane: use z as vertical dimension
+            NetCDF.defVar(ncfile, "u", Float64, ("nx_u", "nz", "time"))
+            NetCDF.defVar(ncfile, "v", Float64, ("nx", "nz_w", "time"))
+            NetCDF.defVar(ncfile, "p", Float64, ("nx", "nz", "time"))
         end
-        
-        # Add variable attributes
+
+        # Attributes
         NetCDF.putatt(ncfile, "u", Dict("long_name" => "x-velocity", "units" => "m/s"))
-        NetCDF.putatt(ncfile, "v", Dict("long_name" => "y-velocity", "units" => "m/s"))
-        NetCDF.putatt(ncfile, "p", Dict("long_name" => "pressure", "units" => "Pa"))
         if is_3d
+            NetCDF.putatt(ncfile, "v", Dict("long_name" => "y-velocity", "units" => "m/s"))
             NetCDF.putatt(ncfile, "w", Dict("long_name" => "z-velocity", "units" => "m/s"))
+        else
+            NetCDF.putatt(ncfile, "v", Dict("long_name" => "vertical velocity (z)", "units" => "m/s"))
         end
+        NetCDF.putatt(ncfile, "p", Dict("long_name" => "pressure", "units" => "Pa"))
     end
-    
+
     # Write coordinate data
     NetCDF.putvar(ncfile, "x", writer.grid.x)
-    NetCDF.putvar(ncfile, "y", writer.grid.y)
-    NetCDF.putvar(ncfile, "xu", writer.grid.xu)
-    NetCDF.putvar(ncfile, "yv", writer.grid.yv)
     if is_3d
-        NetCDF.putvar(ncfile, "z", writer.grid.z)
-        NetCDF.putvar(ncfile, "zw", writer.grid.zw)
+        NetCDF.putvar(ncfile, "y", writer.grid.y)
     end
+    NetCDF.putvar(ncfile, "z", writer.grid.z)
+    NetCDF.putvar(ncfile, "xu", writer.grid.xu)
+    if is_3d
+        NetCDF.putvar(ncfile, "yv", writer.grid.yv)
+    end
+    NetCDF.putvar(ncfile, "zw", writer.grid.zw)
     
     # Add global attributes
     NetCDF.putatt(ncfile, "global", Dict(
@@ -159,7 +172,7 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
         "source" => "Finite volume Navier-Stokes solver with immersed boundary method",
         "grid_type" => string(writer.grid.grid_type),
         "nx" => nx,
-        "ny" => ny,
+        "ny" => is_3d ? ny : 0,
         "nz" => nz,
         "Lx" => writer.grid.Lx,
         "Ly" => writer.grid.Ly,
@@ -204,23 +217,14 @@ function save_snapshot!(writer::NetCDFWriter, state::SolutionState, current_time
         return false
     end
     
-    # Check if we have room for more snapshots, if not, create new file
+    # Check if we have room for more snapshots; if not, create new file
     if writer.current_snapshot >= writer.config.max_snapshots_per_file
         timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
         create_new_file!(writer, "part_$(timestamp)")
     end
     
     writer.current_snapshot += 1
-    # Increment snapshot index (position-only path does not call save_snapshot!)
-    writer.current_snapshot += 1
-    # Increment snapshot index (position-only path does not call save_snapshot!)
-    writer.current_snapshot += 1
     snapshot_idx = writer.current_snapshot
-    # Time dimension id for appending time coordinate
-    time_dimid = NetCDF.nc_inq_dimid(writer.ncfile.ncid, "time")
-    
-    # Get time dimension id for appending along time axis
-    time_dimid = NetCDF.nc_inq_dimid(writer.ncfile.ncid, "time")
     
     try
         # Write time
@@ -510,7 +514,14 @@ function save_flexible_body_positions!(writer::NetCDFWriter,
     if !should_save(writer, current_time, current_iteration)
         return false
     end
-    
+    # Rotate files if needed
+    if writer.current_snapshot >= writer.config.max_snapshots_per_file
+        timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
+        create_new_file!(writer, "part_$(timestamp)")
+    end
+
+    # Advance snapshot index for position-only path
+    writer.current_snapshot += 1
     snapshot_idx = writer.current_snapshot
     n_bodies = bodies.n_bodies
     
@@ -518,8 +529,8 @@ function save_flexible_body_positions!(writer::NetCDFWriter,
         return false
     end
     
-    # Enter define mode to add any missing dims/vars
-    NetCDF.ncredef(writer.ncfile.ncid)
+    # Ensure time coordinate is written
+    NetCDF.putvar(writer.ncfile, "time", [current_time], start=[snapshot_idx])
 
     # For each flexible body, save detailed position data
     for (body_idx, body) in enumerate(bodies.bodies)
@@ -531,16 +542,13 @@ function save_flexible_body_positions!(writer::NetCDFWriter,
         
         # Define variables if not already defined
         if !haskey(writer.ncfile.vars, pos_x_var)
-            # Create dimension for this body
             dim_name = "n_points_body_$(body_id)"
-            NetCDF.ncdimdef(writer.ncfile.ncid, dim_name, body.n_points)
-            points_dimid = NetCDF.nc_inq_dimid(writer.ncfile.ncid, dim_name)
-            
-            # Position variables (dims: points x time)
-            NetCDF.ncvardef(writer.ncfile.ncid, pos_x_var, NetCDF.nctype(Float64), 2, [points_dimid, time_dimid])
-            NetCDF.ncvardef(writer.ncfile.ncid, pos_z_var, NetCDF.nctype(Float64), 2, [points_dimid, time_dimid])
-            
-            # Add detailed attributes
+            if !haskey(writer.ncfile.dim, dim_name)
+                NetCDF.defDim(writer.ncfile, dim_name, body.n_points)
+            end
+            NetCDF.defVar(writer.ncfile, pos_x_var, Float64, (dim_name, "time"))
+            NetCDF.defVar(writer.ncfile, pos_z_var, Float64, (dim_name, "time"))
+
             NetCDF.putatt(writer.ncfile, pos_x_var, Dict(
                 "long_name" => "Flexible body $(body_id) x-coordinates",
                 "units" => "m",
@@ -549,56 +557,51 @@ function save_flexible_body_positions!(writer::NetCDFWriter,
                 "n_points" => body.n_points,
                 "material_type" => "flexible"
             ))
-            
+
             NetCDF.putatt(writer.ncfile, pos_z_var, Dict(
-                "long_name" => "Flexible body $(body_id) z-coordinates", 
+                "long_name" => "Flexible body $(body_id) z-coordinates",
                 "units" => "m",
                 "description" => "Lagrangian point positions in z-direction (vertical)",
                 "body_length" => body.length,
                 "n_points" => body.n_points
             ))
-            
-            # Optional velocity variables
+
             if save_velocities
                 vel_x_var = "flexible_body_$(body_id)_vel_x"
                 vel_z_var = "flexible_body_$(body_id)_vel_z"
-                NetCDF.ncvardef(writer.ncfile.ncid, vel_x_var, NetCDF.nctype(Float64), 2, [points_dimid, time_dimid])
-                NetCDF.ncvardef(writer.ncfile.ncid, vel_z_var, NetCDF.nctype(Float64), 2, [points_dimid, time_dimid])
+                NetCDF.defVar(writer.ncfile, vel_x_var, Float64, (dim_name, "time"))
+                NetCDF.defVar(writer.ncfile, vel_z_var, Float64, (dim_name, "time"))
                 NetCDF.putatt(writer.ncfile, vel_x_var, Dict("long_name" => "Body velocity x-component", "units" => "m/s"))
                 NetCDF.putatt(writer.ncfile, vel_z_var, Dict("long_name" => "Body velocity z-component", "units" => "m/s"))
             end
-            
-            # Optional acceleration variables
+
             if save_accelerations
                 acc_x_var = "flexible_body_$(body_id)_acc_x"
                 acc_z_var = "flexible_body_$(body_id)_acc_z"
-                NetCDF.ncvardef(writer.ncfile.ncid, acc_x_var, NetCDF.nctype(Float64), 2, [points_dimid, time_dimid])
-                NetCDF.ncvardef(writer.ncfile.ncid, acc_z_var, NetCDF.nctype(Float64), 2, [points_dimid, time_dimid])
+                NetCDF.defVar(writer.ncfile, acc_x_var, Float64, (dim_name, "time"))
+                NetCDF.defVar(writer.ncfile, acc_z_var, Float64, (dim_name, "time"))
                 NetCDF.putatt(writer.ncfile, acc_x_var, Dict("long_name" => "Body acceleration x-component", "units" => "m/s²"))
                 NetCDF.putatt(writer.ncfile, acc_z_var, Dict("long_name" => "Body acceleration z-component", "units" => "m/s²"))
             end
-            
-            # Optional curvature variable
+
             if save_curvature
                 curv_var = "flexible_body_$(body_id)_curvature"
-                NetCDF.ncvardef(writer.ncfile.ncid, curv_var, NetCDF.nctype(Float64), 2, [points_dimid, time_dimid])
+                NetCDF.defVar(writer.ncfile, curv_var, Float64, (dim_name, "time"))
                 NetCDF.putatt(writer.ncfile, curv_var, Dict("long_name" => "Local curvature", "units" => "1/m"))
             end
-            
-            # Optional force variables
+
             if save_forces
                 force_x_var = "flexible_body_$(body_id)_force_x"
                 force_z_var = "flexible_body_$(body_id)_force_z"
-                NetCDF.ncvardef(writer.ncfile.ncid, force_x_var, NetCDF.nctype(Float64), 2, [points_dimid, time_dimid])
-                NetCDF.ncvardef(writer.ncfile.ncid, force_z_var, NetCDF.nctype(Float64), 2, [points_dimid, time_dimid])
+                NetCDF.defVar(writer.ncfile, force_x_var, Float64, (dim_name, "time"))
+                NetCDF.defVar(writer.ncfile, force_z_var, Float64, (dim_name, "time"))
                 NetCDF.putatt(writer.ncfile, force_x_var, Dict("long_name" => "Lagrangian force x-component", "units" => "N/m"))
                 NetCDF.putatt(writer.ncfile, force_z_var, Dict("long_name" => "Lagrangian force z-component", "units" => "N/m"))
             end
-            
-            # Optional material property variables
+
             if save_material_properties
                 tension_var = "flexible_body_$(body_id)_tension"
-                NetCDF.ncvardef(writer.ncfile.ncid, tension_var, NetCDF.nctype(Float64), 2, [points_dimid, time_dimid])
+                NetCDF.defVar(writer.ncfile, tension_var, Float64, (dim_name, "time"))
                 NetCDF.putatt(writer.ncfile, tension_var, Dict("long_name" => "Internal tension", "units" => "N"))
             end
         end
@@ -654,6 +657,8 @@ function save_flexible_body_positions!(writer::NetCDFWriter,
         end
     end
     
+    writer.last_save_time = current_time
+    writer.last_save_iteration = current_iteration
     println("Saved detailed positions for $(n_bodies) flexible bodies at time $(current_time)")
     return true
 end
@@ -826,7 +831,8 @@ function read_netcdf_data(filepath::String)
     
     # Read grid information
     x = NetCDF.readvar(ncfile, "x")
-    y = NetCDF.readvar(ncfile, "y")
+    y = haskey(ncfile.vars, "y") ? NetCDF.readvar(ncfile, "y") : nothing
+    z = haskey(ncfile.vars, "z") ? NetCDF.readvar(ncfile, "z") : nothing
     time_data = NetCDF.readvar(ncfile, "time")
     
     # Read solution variables
@@ -843,6 +849,7 @@ function read_netcdf_data(filepath::String)
     return Dict(
         "x" => x,
         "y" => y,
+        "z" => z,
         "time" => time_data,
         "u" => u_data,
         "v" => v_data,
@@ -855,20 +862,33 @@ end
 function validate_state_data(state::SolutionState, grid::StaggeredGrid)
     """Validate that solution state has correct dimensions and no NaN/Inf values."""
     
-    # Check dimensions
-    if size(state.u, 1) != grid.nx + 1 || size(state.u, 2) != grid.ny
-        @error "u-velocity dimensions mismatch: expected $(grid.nx+1)×$(grid.ny), got $(size(state.u))"
-        return false
-    end
-    
-    if size(state.v, 1) != grid.nx || size(state.v, 2) != grid.ny + 1
-        @error "v-velocity dimensions mismatch: expected $(grid.nx)×$(grid.ny+1), got $(size(state.v))"
-        return false
-    end
-    
-    if size(state.p, 1) != grid.nx || size(state.p, 2) != grid.ny
-        @error "Pressure dimensions mismatch: expected $(grid.nx)×$(grid.ny), got $(size(state.p))"
-        return false
+    # Check dimensions by grid type
+    if grid.grid_type == TwoDimensional
+        if size(state.u, 1) != grid.nx + 1 || size(state.u, 2) != grid.nz
+            @error "u-velocity dimensions mismatch: expected $(grid.nx+1)×$(grid.nz), got $(size(state.u))"
+            return false
+        end
+        if size(state.v, 1) != grid.nx || size(state.v, 2) != grid.nz + 1
+            @error "v-velocity dimensions mismatch (2D): expected $(grid.nx)×$(grid.nz+1), got $(size(state.v))"
+            return false
+        end
+        if size(state.p, 1) != grid.nx || size(state.p, 2) != grid.nz
+            @error "Pressure dimensions mismatch: expected $(grid.nx)×$(grid.nz), got $(size(state.p))"
+            return false
+        end
+    else
+        if size(state.u, 1) != grid.nx + 1 || size(state.u, 2) != grid.ny || size(state.u, 3) != grid.nz
+            @error "u-velocity dimensions mismatch (3D)"
+            return false
+        end
+        if size(state.v, 1) != grid.nx || size(state.v, 2) != grid.ny + 1 || size(state.v, 3) != grid.nz
+            @error "v-velocity dimensions mismatch (3D)"
+            return false
+        end
+        if size(state.p, 1) != grid.nx || size(state.p, 2) != grid.ny || size(state.p, 3) != grid.nz
+            @error "Pressure dimensions mismatch (3D)"
+            return false
+        end
     end
     
     # Check for NaN/Inf values
@@ -899,10 +919,7 @@ function validate_state_data(state::SolutionState, grid::StaggeredGrid)
             return false
         end
     end
-    
-    # Exit define mode
-    NetCDF.ncendef(writer.ncfile.ncid)
-    
+
     return true
 end
 

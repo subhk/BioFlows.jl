@@ -616,7 +616,7 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
     end
     
     # Final output
-    write_solution!(writer, state_old, t, step)
+    write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
     close!(writer)
     
     println("Simulation completed!")
