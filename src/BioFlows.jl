@@ -14,7 +14,8 @@ module BioFlows
     include("core/differential_operators.jl")
     include("boundary/boundary_conditions.jl")
     include("timestep/time_stepping.jl")
-    include("mg/multigrid_solver.jl")
+include("mg/multigrid_solver.jl")
+include("mg/staggered_multigrid.jl")
 
     # Bodies need grids to be defined first, but come before AMR
     include("bodies/rigid_bodies.jl")
