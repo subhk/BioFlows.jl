@@ -837,3 +837,90 @@ function run_simulation_mpi_2d(config::SimulationConfig)
 
     return local_old
 end
+
+"""
+    run_simulation_mpi_3d(config::SimulationConfig)
+
+Run a 3D MPI simulation with diagnostics and single-file global NetCDF output.
+"""
+function run_simulation_mpi_3d(config::SimulationConfig)
+    @assert config.use_mpi "run_simulation_mpi_3d requires config.use_mpi = true"
+    @assert config.grid_type == ThreeDimensional "run_simulation_mpi_3d requires 3D config"
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    nprocs = MPI.Comm_size(comm)
+
+    # Create solver and local states (use local domain sizes)
+    solver = create_solver(config)
+    decomp = solver.decomp
+    nxl, nyl, nzl = decomp.nx_local, decomp.ny_local, decomp.nz_local
+    local_old = SolutionState3D(nxl, nyl, nzl)
+    local_new = SolutionState3D(nxl, nyl, nzl)
+
+    # Initialize uniform flow using inlet U
+    u_init = 0.0
+    try
+        if hasproperty(config.bc, :x_minus) && (config.bc.x_minus isa InletBC)
+            u_init = getfield(config.bc.x_minus, :u)
+        end
+    catch
+        u_init = 0.0
+    end
+    local_old.u .= u_init
+    local_old.v .= 0.0
+    local_old.w .= 0.0
+    local_old.p .= 0.0
+    local_old.t = 0.0
+    local_old.step = 0
+
+    # Global writer (root initializes)
+    global_grid = StaggeredGrid3D(config.nx, config.ny, config.nz, config.Lx, config.Ly, config.Lz)
+    writer = NetCDFWriter("$(config.output_config.filename).nc", global_grid, config.output_config)
+    if rank == 0
+        initialize_netcdf_file!(writer)
+        NetCDF.putatt(writer.ncfile, "global", Dict(
+            "domain_Lx"=>config.Lx, "domain_Ly"=>config.Ly, "domain_Lz"=>config.Lz,
+        ))
+        bodies_for_meta = config.rigid_bodies !== nothing ? config.rigid_bodies : (config.flexible_bodies !== nothing ? config.flexible_bodies : nothing)
+        annotate_bodies_metadata!(writer, bodies_for_meta)
+        println("MPI run with $nprocs ranks: 3D, $(config.nx)x$(config.ny)x$(config.nz), dt=$(config.dt), T=$(config.final_time)")
+    end
+
+    # Diagnostics cadence
+    save_interval = config.output_config.time_interval
+    next_print = save_interval
+    dx = config.Lx / config.nx
+    dy = config.Ly / config.ny
+    dz = config.Lz / config.nz
+    t = 0.0
+    step = 0
+
+    while t < config.final_time - 1e-12
+        step += 1
+        dt = min(config.dt, config.final_time - t)
+
+        mpi_solve_step_3d!(solver, local_new, local_old, dt)
+        local_old, local_new = local_new, local_old
+        t += dt
+
+        if t + 1e-12 >= next_print || step % 100 == 0
+            # Global maxima and CFL
+            maxu = MPI.Allreduce(maximum(abs, local_old.u), MPI.MAX, comm)
+            maxv = MPI.Allreduce(maximum(abs, local_old.v), MPI.MAX, comm)
+            maxw = MPI.Allreduce(maximum(abs, local_old.w), MPI.MAX, comm)
+            cfl = maximum([maxu*dt/dx, maxv*dt/dy, maxw*dt/dz])
+            if rank == 0
+                @info "step=$step t=$(round(t, digits=3)) dt=$(round(dt, digits=4)) CFL=$(round(cfl, digits=3)) max|u|=$(round(maxu, digits=3)) max|v|=$(round(maxv, digits=3)) max|w|=$(round(maxw, digits=3))"
+            end
+            # Wrap local SolutionState3D in MPISolutionState3D for writer gather
+            local_mpi = MPISolutionState3D{Float64}(local_old.u, local_old.v, local_old.w, local_old.p, local_old.t, local_old.step, decomp)
+            write_solution!(writer, local_mpi, config.rigid_bodies, global_grid, solver.fluid, t, step)
+            next_print += save_interval
+        end
+    end
+
+    if rank == 0
+        println("MPI 3D simulation complete. Global output written to $(config.output_config.filename).nc")
+    end
+    return local_old
+end
