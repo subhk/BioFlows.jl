@@ -71,7 +71,7 @@ function get_body_point(body::FlexibleBody, point_type::Symbol, custom_idx::Int=
         return body.X[end, 1], body.X[end, 2]
         
     elseif point_type == :center
-        mid_idx = div(body.n_points, 2) + 1
+        mid_idx = max(1, div(body.n_points, 2))
         return body.X[mid_idx, 1], body.X[mid_idx, 2]
         
     elseif point_type == :custom
