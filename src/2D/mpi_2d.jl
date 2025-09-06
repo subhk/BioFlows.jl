@@ -86,9 +86,15 @@ function MPI2DDecomposition(nx_global::Int, nz_global::Int,
     nz_local_with_ghosts = nz_local + 2 * n_ghost
     
     # Determine local index ranges (global indexing for interior cells)
-    i_start = coords[1] * (nx_global ÷ dims[1]) + 1 + min(coords[1], nx_global % dims[1])
+    # Calculate starting indices correctly with remainder distribution
+    base_nx = nx_global ÷ dims[1]
+    base_nz = nz_global ÷ dims[2]
+    remainder_x = nx_global % dims[1]
+    remainder_z = nz_global % dims[2]
+    
+    i_start = coords[1] * base_nx + min(coords[1], remainder_x) + 1
     i_end = i_start + nx_local - 1
-    j_start = coords[2] * (nz_global ÷ dims[2]) + 1 + min(coords[2], nz_global % dims[2])
+    j_start = coords[2] * base_nz + min(coords[2], remainder_z) + 1
     j_end = j_start + nz_local - 1
     
     # Local array indices for interior cells (1-based indexing including ghosts)
@@ -175,39 +181,39 @@ function apply_physical_boundary_conditions_2d!(decomp::MPI2DDecomposition, grid
     # Check if this process is at a physical boundary and apply BC accordingly
     
     # Left boundary (x=0): only if this process contains the left boundary
-    if decomp.i_global_start == 1 && haskey(bc.conditions, (:x, :left))
+    if decomp.i_start == 1 && haskey(bc.conditions, (:x, :left))
         condition = bc.conditions[(:x, :left)]
         # Apply to the actual boundary (not ghost cells)
         for j = n_ghost+1:nz_g-n_ghost
             apply_u_boundary_physical!(state.u, condition, n_ghost+1, j, t, :left)
-            apply_v_boundary_physical!(state.v, condition, n_ghost+1, j, t, :left)
+            apply_w_boundary_physical!(state.w, condition, n_ghost+1, j, t, :left)
         end
     end
     
     # Right boundary (x=Lx): only if this process contains the right boundary  
-    if decomp.i_global_end == decomp.nx_global && haskey(bc.conditions, (:x, :right))
+    if decomp.i_end == decomp.nx_global && haskey(bc.conditions, (:x, :right))
         condition = bc.conditions[(:x, :right)]
         for j = n_ghost+1:nz_g-n_ghost
             apply_u_boundary_physical!(state.u, condition, nx_g-n_ghost+1, j, t, :right)
-            apply_v_boundary_physical!(state.v, condition, nx_g-n_ghost, j, t, :right)
+            apply_w_boundary_physical!(state.w, condition, nx_g-n_ghost, j, t, :right)
         end
     end
     
     # Bottom boundary (z=0): only if this process contains the bottom boundary
-    if decomp.j_global_start == 1 && haskey(bc.conditions, (:z, :bottom))
+    if decomp.j_start == 1 && haskey(bc.conditions, (:z, :bottom))
         condition = bc.conditions[(:z, :bottom)]
         for i = n_ghost+1:nx_g-n_ghost
             apply_u_boundary_physical!(state.u, condition, i, n_ghost+1, t, :bottom)
-            apply_v_boundary_physical!(state.v, condition, i, n_ghost+1, t, :bottom)
+            apply_w_boundary_physical!(state.w, condition, i, n_ghost+1, t, :bottom)
         end
     end
     
     # Top boundary (z=Lz): only if this process contains the top boundary
-    if decomp.j_global_end == decomp.nz_global && haskey(bc.conditions, (:z, :top))
+    if decomp.j_end == decomp.nz_global && haskey(bc.conditions, (:z, :top))
         condition = bc.conditions[(:z, :top)]
         for i = n_ghost+1:nx_g-n_ghost
             apply_u_boundary_physical!(state.u, condition, i, nz_g-n_ghost, t, :top)
-            apply_v_boundary_physical!(state.v, condition, i, nz_g-n_ghost+1, t, :top)
+            apply_w_boundary_physical!(state.w, condition, i, nz_g-n_ghost+1, t, :top)
         end
     end
 end
