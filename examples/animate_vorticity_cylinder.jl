@@ -134,6 +134,39 @@ function overlay_bodies!(bodies)
     end
 end
 
+function mask_bodies!(ω::AbstractMatrix, x::AbstractVector, z::AbstractVector, bodies)
+    # Set ω to NaN inside rigid bodies to avoid drawing vorticity within solids
+    nx, nz = size(ω)
+    for b in bodies
+        if b.typ == "Circle"
+            @inbounds for j in 1:nz, i in 1:nx
+                if (x[i]-b.cx)^2 + (z[j]-b.cz)^2 <= b.r^2
+                    ω[i,j] = NaN
+                end
+            end
+        elseif b.typ == "Square"
+            s = b.side/2; c = cos(b.ang); sθ = sin(b.ang)
+            @inbounds for j in 1:nz, i in 1:nx
+                dx = x[i]-b.cx; dz = z[j]-b.cz
+                xr = c*dx - sθ*dz; zr = sθ*dx + c*dz
+                if abs(xr) <= s && abs(zr) <= s
+                    ω[i,j] = NaN
+                end
+            end
+        elseif b.typ == "Rectangle"
+            s1 = b.w/2; s2 = b.h/2; c = cos(b.ang); sθ = sin(b.ang)
+            @inbounds for j in 1:nz, i in 1:nx
+                dx = x[i]-b.cx; dz = z[j]-b.cz
+                xr = c*dx - sθ*dz; zr = sθ*dx + c*dz
+                if abs(xr) <= s1 && abs(zr) <= s2
+                    ω[i,j] = NaN
+                end
+            end
+        end
+    end
+    return ω
+end
+
 function collect_frames_and_range(files)
     frames = Vector{Tuple{String,Int,Float64}}()
     ωmin = Inf; ωmax = -Inf
@@ -171,24 +204,35 @@ function main()
     NetCDF.close(nc0)
 
     # Animation
+    # Optional palette via ENV VORTICITY_PALETTE (default :balance)
+    pal_sym = try
+        Symbol(get(ENV, "VORTICITY_PALETTE", "balance"))
+    catch
+        :balance
+    end
+
     anim = @animate for (f, tidx, tval) in frames
         nc = NetCDF.open(f)
         x, z, ω = vorticity_frame(nc, tidx)
         NetCDF.close(nc)
+        # Mask body interiors
+        mask_bodies!(ω, x, z, bodies)
         ttl = @sprintf("Vorticity t=%.3f (%s)", tval, basename(f))
-        heatmap(x, z, ω'; aspect_ratio=:equal, color=:balance, clims=crange,
+        heatmap(x, z, ω'; aspect_ratio=:equal, color=pal_sym, clims=crange,
                 xlab="x", ylab="z", title=ttl)
         overlay_bodies!(bodies)
     end
 
     # Save GIF next to input
     base, _ = splitext(basefile)
-    gif(anim, string(base, "_vorticity.gif"); fps=15)
+    fps_gif = try parse(Int, get(ENV, "VORT_FPS_GIF", "15")) catch; 15 end
+    gif(anim, string(base, "_vorticity.gif"); fps=fps_gif)
     println("Saved animation: ", string(base, "_vorticity.gif"))
     # Try MP4 as well if ffmpeg is available
     try
         mp4path = string(base, "_vorticity.mp4")
-        mp4(anim, mp4path; fps=30)
+        fps_mp4 = try parse(Int, get(ENV, "VORT_FPS_MP4", "30")) catch; 30 end
+        mp4(anim, mp4path; fps=fps_mp4)
         println("Saved animation: ", mp4path)
     catch e
         @warn "Could not save MP4 animation (ffmpeg missing or error): $e"
