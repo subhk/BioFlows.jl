@@ -680,6 +680,85 @@ function compute_body_forces_2d(body::RigidBody, grid::StaggeredGrid, state::Sol
     return [Fx, Fz], Ty
 end
 
+"""
+    compute_body_forces_3d(body, grid, state, fluid)
+
+Compute integrated hydrodynamic force (Fx,Fy,Fz) and torque (Tx,Ty,Tz) on a rigid body in 3D
+using a simple surface traction integration based on cell-centered fields.
+"""
+function compute_body_forces_3d(body::RigidBody, grid::StaggeredGrid, state::SolutionState,
+                               fluid::FluidProperties)
+    @assert grid.grid_type == ThreeDimensional "compute_body_forces_3d requires 3D grid"
+
+    ρ = fluid.ρ isa ConstantDensity ? fluid.ρ.ρ : error("Variable density not supported")
+    μ = fluid.μ
+
+    # Cell-centered velocities and gradients
+    u_cc, v_cc, w_cc = interpolate_to_cell_center_3d(state.u, state.v, state.w, grid)
+    dudx = ddx(u_cc, grid); dudy = ddy(u_cc, grid); dudz = ddz(u_cc, grid)
+    dvdx = ddx(v_cc, grid); dvdy = ddy(v_cc, grid); dvdz = ddz(v_cc, grid)
+    dwdx = ddx(w_cc, grid); dwdy = ddy(w_cc, grid); dwdz = ddz(w_cc, grid)
+
+    # Discretize surface: implement for spheres (Circle shape interpreted as sphere)
+    Fx = 0.0; Fy = 0.0; Fz = 0.0
+    Tx = 0.0; Ty = 0.0; Tz = 0.0
+    xc = body.center[1]
+    yc = body.center[2]
+    zc = length(body.center) > 2 ? body.center[3] : 0.0
+
+    if body.shape isa Circle
+        r = (body.shape::Circle).radius
+        nθ = max(24, Int(round(2π * r / min(grid.dx, grid.dy))))
+        nφ = max(12, Int(round(π * r / grid.dz)))
+        for iφ = 1:nφ-1  # exclude poles for now
+            φ = π * iφ / nφ
+            sinφ = sin(φ); cosφ = cos(φ)
+            Δφ = π / nφ
+            for iθ = 1:nθ
+                θ = 2π * (iθ-1) / nθ
+                Δθ = 2π / nθ
+                cθ = cos(θ); sθ = sin(θ)
+                # Surface point
+                x = xc + r * sinφ * cθ
+                y = yc + r * sinφ * sθ
+                z = zc + r * cosφ
+                # Outward normal on sphere
+                n = [sinφ * cθ, sinφ * sθ, cosφ]
+                # Area element on sphere
+                dA = r^2 * sinφ * Δθ * Δφ
+
+                # Nearest cell indices (clamped)
+                ic = clamp(Int(round((x - grid.x[1]) / grid.dx)) + 1, 1, grid.nx)
+                jc = clamp(Int(round((y - grid.y[1]) / grid.dy)) + 1, 1, grid.ny)
+                kc = clamp(Int(round((z - grid.z[1]) / grid.dz)) + 1, 1, grid.nz)
+
+                p_loc = state.p[ic, jc, kc]
+                # Symmetric rate-of-strain tensor times n: (E·n)
+                Ex = dudx[ic,jc,kc]*n[1] + 0.5*(dudy[ic,jc,kc]+dvdx[ic,jc,kc])*n[2] + 0.5*(dudz[ic,jc,kc]+dwdx[ic,jc,kc])*n[3]
+                Ey = 0.5*(dvdx[ic,jc,kc]+dudy[ic,jc,kc])*n[1] + dvdy[ic,jc,kc]*n[2] + 0.5*(dvdz[ic,jc,kc]+dwdy[ic,jc,kc])*n[3]
+                Ez = 0.5*(dwdx[ic,jc,kc]+dudz[ic,jc,kc])*n[1] + 0.5*(dwdy[ic,jc,kc]+dvdz[ic,jc,kc])*n[2] + dwdz[ic,jc,kc]*n[3]
+                # Traction vector
+                tx = -p_loc*n[1] + 2μ*Ex
+                ty = -p_loc*n[2] + 2μ*Ey
+                tz = -p_loc*n[3] + 2μ*Ez
+
+                Fx += tx * dA
+                Fy += ty * dA
+                Fz += tz * dA
+                rx = x - xc; ry = y - yc; rz = z - zc
+                # Torque r × f
+                Tx += ry*tz - rz*ty
+                Ty += rz*tx - rx*tz
+                Tz += rx*ty - ry*tx
+            end
+        end
+    else
+        @warn "compute_body_forces_3d: shape $(typeof(body.shape)) not yet supported; returning zeros"
+    end
+
+    return [Fx, Fy, Fz], [Tx, Ty, Tz]
+end
+
 function get_body_velocity_at_point(body::RigidBody, x::Float64, y::Float64)
     # Velocity of body surface at point (x,y) due to translation + rotation
     dx = x - body.center[1]
