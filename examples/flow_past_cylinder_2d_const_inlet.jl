@@ -1,62 +1,24 @@
 # Flow past a 2D cylinder with constant inlet velocity,
 # pressure outlet, and no-slip top/bottom (XZ plane)
 # Run:
-#   julia --project examples/flow_past_cylinder_2d_const_inlet.jl \
-#     --nx 240 --nz 60 --Lx 8.0 --Lz 2.0 --uin 1.0 --D 0.2 \
-#     --rho 1000.0 --nu 0.001 --dt 0.002 --tfinal 10.0 --save 0.1 \
-#     --outfile cylinder2d_const_inlet --xc 0.6 --zc 1.0 --maxsnaps 50 --amr false
+#   julia --project examples/flow_past_cylinder_2d_const_inlet.jl
 
 using BioFlows
 using NetCDF
 
-function parse_args()
-    p = Dict{String,Any}(
-        "nx"=>240, "nz"=>60, 
-        "Lx"=>8.0, "Lz"=>2.0,
-        "uin"=>1.0, "D"=>0.2, 
-        "rho"=>1000.0, "nu"=>0.001,
-        "dt"=>0.002, 
-        "tfinal"=>10.0, "save"=>0.1,
-        "outfile"=>"cylinder2d_const_inlet",
-        "xc"=>0.6, "zc"=>1.0, "maxsnaps"=>50,
-        "amr"=>false
-    )
-    i = 1
-    while i <= length(ARGS)
-        arg = ARGS[i]
-        if startswith(arg, "--") && i < length(ARGS)
-            key = lowercase(arg[3:end])
-            val = ARGS[i+1]
-            if key in ("nx","nz","maxsnaps")
-                p[key] = parse(Int, val)
-            elseif key == "amr"
-                p[key] = lowercase(val) in ("1","true","yes")
-            elseif key in ("outfile")
-                p[key] = val
-            elseif key in ("Lx","Lz","uin","D","rho","nu","dt","tfinal","save","xc","zc")
-                p[key] = parse(Float64, val)
-            end
-            i += 2
-        else
-            i += 1
-        end
-    end
-    return p
-end
-
 function main()
-    p = parse_args()
-    nx = p["nx"]; nz = p["nz"]
-    Lx = p["Lx"]; Lz = p["Lz"]
-    Uin = p["uin"]
-    D = p["D"]; R = D/2
-    ρ = p["rho"]; ν = p["nu"]
-    dt = p["dt"]; Tfinal = p["tfinal"]
-    saveint = p["save"]
-    outfile = String(p["outfile"])  # base name without .nc
-    xc = p["xc"]; zc = p["zc"]
-    maxsnaps = p["maxsnaps"]
-    use_amr = p["amr"]
+    # Fixed parameters for a simple, ready-to-run setup
+    nx, nz = 240, 60
+    Lx, Lz = 8.0, 2.0
+    Uin = 1.0
+    D = 0.2; R = D/2
+    ρ = 1000.0; ν = 0.001
+    dt = 0.002; Tfinal = 10.0
+    saveint = 0.1
+    outfile = "cylinder2d_const_inlet"
+    xc, zc = 0.6, 1.0
+    maxsnaps = 50
+    use_amr = false
 
     config = create_2d_simulation_config(
         nx = nx, nz = nz,
