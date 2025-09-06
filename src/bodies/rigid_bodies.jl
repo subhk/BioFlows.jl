@@ -1,4 +1,4 @@
-using ParametricBodies
+# Note: ParametricBodies dependency removed; keep pure Julia rigid body types here
 
 abstract type RigidBodyShape end
 

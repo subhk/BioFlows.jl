@@ -66,58 +66,7 @@ struct NetCDFConfig
     end
 end
 
-"""
-    annotate_bodies_metadata!(writer, bodies)
-
-Attach simple rigid/flexible body metadata as global attributes to help post-processing.
-Currently records basic info for rigid bodies (type, center, size parameters).
-"""
-function annotate_bodies_metadata!(writer::NetCDFWriter,
-                                   bodies::Union{Nothing,RigidBodyCollection,FlexibleBodyCollection})
-    if writer.ncfile === nothing
-        initialize_netcdf_file!(writer)
-    end
-    if bodies === nothing
-        return
-    end
-    nc = writer.ncfile
-    try
-        if bodies isa RigidBodyCollection
-            NetCDF.putatt(nc, "global", "rigid_bodies", bodies.n_bodies)
-            for (i, body) in enumerate(bodies.bodies)
-                NetCDF.putatt(nc, "global", "body_$(i)_angle", body.angle)
-                NetCDF.putatt(nc, "global", "body_$(i)_center_x", body.center[1])
-                # 2D XZ plane: use z as vertical
-                NetCDF.putatt(nc, "global", "body_$(i)_center_z", length(body.center)>1 ? body.center[end] : 0.0)
-                if body.shape isa Circle
-                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Circle")
-                    NetCDF.putatt(nc, "global", "body_$(i)_radius", (body.shape::Circle).radius)
-                    # For convenience, also store canonical single-cylinder keys
-                    if i == 1
-                        NetCDF.putatt(nc, "global", Dict(
-                            "cylinder_x"=>body.center[1],
-                            "cylinder_z"=>length(body.center)>1 ? body.center[end] : 0.0,
-                            "cylinder_radius"=>(body.shape::Circle).radius,
-                        ))
-                    end
-                elseif body.shape isa Square
-                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Square")
-                    NetCDF.putatt(nc, "global", "body_$(i)_side", (body.shape::Square).side_length)
-                elseif body.shape isa Rectangle
-                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Rectangle")
-                    NetCDF.putatt(nc, "global", "body_$(i)_width", (body.shape::Rectangle).width)
-                    NetCDF.putatt(nc, "global", "body_$(i)_height", (body.shape::Rectangle).height)
-                else
-                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Unknown")
-                end
-            end
-        elseif bodies isa FlexibleBodyCollection
-            NetCDF.putatt(nc, "global", "flexible_bodies", bodies.n_bodies)
-        end
-    catch e
-        @warn "Failed to write body metadata: $e"
-    end
-end
+## annotate_bodies_metadata! moved below after NetCDFWriter type definition
 
 mutable struct NetCDFWriter
     filepath::String
@@ -282,6 +231,54 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
     writer.ncfile = ncfile
     
     return ncfile
+end
+
+# Attach simple rigid/flexible body metadata as global attributes to help post-processing.
+function annotate_bodies_metadata!(writer::NetCDFWriter,
+                                   bodies::Union{Nothing,RigidBodyCollection,FlexibleBodyCollection})
+    if writer.ncfile === nothing
+        initialize_netcdf_file!(writer)
+    end
+    if bodies === nothing
+        return
+    end
+    nc = writer.ncfile
+    try
+        if bodies isa RigidBodyCollection
+            NetCDF.putatt(nc, "global", "rigid_bodies", bodies.n_bodies)
+            for (i, body) in enumerate(bodies.bodies)
+                NetCDF.putatt(nc, "global", "body_$(i)_angle", body.angle)
+                NetCDF.putatt(nc, "global", "body_$(i)_center_x", body.center[1])
+                # 2D XZ plane: use z as vertical
+                NetCDF.putatt(nc, "global", "body_$(i)_center_z", length(body.center)>1 ? body.center[end] : 0.0)
+                if body.shape isa Circle
+                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Circle")
+                    NetCDF.putatt(nc, "global", "body_$(i)_radius", (body.shape::Circle).radius)
+                    # For convenience, also store canonical single-cylinder keys
+                    if i == 1
+                        NetCDF.putatt(nc, "global", Dict(
+                            "cylinder_x"=>body.center[1],
+                            "cylinder_z"=>length(body.center)>1 ? body.center[end] : 0.0,
+                            "cylinder_radius"=>(body.shape::Circle).radius,
+                        ))
+                    end
+                elseif body.shape isa Square
+                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Square")
+                    NetCDF.putatt(nc, "global", "body_$(i)_side", (body.shape::Square).side_length)
+                elseif body.shape isa Rectangle
+                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Rectangle")
+                    NetCDF.putatt(nc, "global", "body_$(i)_width", (body.shape::Rectangle).width)
+                    NetCDF.putatt(nc, "global", "body_$(i)_height", (body.shape::Rectangle).height)
+                else
+                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Unknown")
+                end
+            end
+        elseif bodies isa FlexibleBodyCollection
+            NetCDF.putatt(nc, "global", "flexible_bodies", bodies.n_bodies)
+        end
+    catch e
+        @warn "Failed to write body metadata: $e"
+    end
 end
 
 # Best-effort compression application compatible with NetCDF.jl variants
