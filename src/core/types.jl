@@ -69,7 +69,7 @@ end
 # MPI-aware solution state with ghost cells
 mutable struct MPISolutionState2D{T<:Real}
     u::Matrix{T}     # u-velocity with ghost cells (nx_g+1, nz_g) - XZ plane
-    v::Matrix{T}     # v-velocity with ghost cells (nx_g, nz_g+1) - represents z-velocity in XZ plane
+    w::Matrix{T}     # w-velocity with ghost cells (nx_g, nz_g+1) - z-velocity in XZ plane
     p::Matrix{T}     # pressure with ghost cells (nx_g, nz_g)
     t::T             # current time
     step::Int        # current step
@@ -82,7 +82,7 @@ function MPISolutionState2D(decomp, T=Float64)
     
     MPISolutionState2D{T}(
         zeros(T, nx_g + 1, nz_g),  # u (staggered in x)
-        zeros(T, nx_g, nz_g + 1),  # v (staggered in z, represents z-velocity for XZ plane)
+        zeros(T, nx_g, nz_g + 1),  # w (staggered in z, z-velocity for XZ plane)
         zeros(T, nx_g, nz_g),      # p (cell-centered)
         zero(T),                   # t
         0,                         # step

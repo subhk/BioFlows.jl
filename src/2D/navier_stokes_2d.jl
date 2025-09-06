@@ -29,27 +29,27 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     # ∂u/∂t = -u·∇u + ν∇²u (without pressure)
     
     # Interpolate velocities to cell centers for advection
-    u_cc, v_cc = interpolate_to_cell_centers(state_old.u, state_old.v, grid)
+    u_cc, w_cc = interpolate_to_cell_centers(state_old.u, state_old.w, grid)
     
     # Advection terms: u·∇u (XZ plane: u·∂u/∂x + v·∂u/∂z)
     println("  Computing advection: u·∇u")
     dudx = ddx(u_cc, grid)
     dudz = ddz(u_cc, grid)  # Use ddz for XZ plane
-    dvdx = ddx(v_cc, grid)
-    dvdz = ddz(v_cc, grid)  # Use ddz for XZ plane
+    dwdx = ddx(w_cc, grid)
+    dwdz = ddz(w_cc, grid)  # Use ddz for XZ plane
     
-    advection_u = u_cc .* dudx + v_cc .* dudz  # v represents w-velocity in XZ plane
-    advection_v = u_cc .* dvdx + v_cc .* dvdz
+    advection_u = u_cc .* dudx + w_cc .* dudz  # w is z-velocity in XZ plane
+    advection_w = u_cc .* dwdx + w_cc .* dwdz
     
     # Viscous terms: ν∇²u
     println("  Computing viscous terms: ν∇²u")
     viscous_u = ν * laplacian(u_cc, grid)
-    viscous_v = ν * laplacian(v_cc, grid)
+    viscous_w = ν * laplacian(w_cc, grid)
     
     # Predictor velocity (without pressure correction)
     println("  Computing predictor velocity")
     u_star = u_cc + dt * (-advection_u + viscous_u)
-    v_star = v_cc + dt * (-advection_v + viscous_v)
+    w_star = w_cc + dt * (-advection_w + viscous_w)
     
     # Step 2: Solve pressure Poisson equation
     # ∇²φ = ∇·u*/dt
