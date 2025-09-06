@@ -187,8 +187,8 @@ config = create_3d_simulation_config(...)
 ```julia
 # Available schemes
 time_scheme = :adams_bashforth  # Low-storage Adams-Bashforth
-time_scheme = :rk3             # 3rd-order Runge-Kutta
-time_scheme = :rk4             # 4th-order Runge-Kutta
+time_scheme = :rk2              # 2nd-order Runge-Kutta
+time_scheme = :rk4              # 4th-order Runge-Kutta
 ```
 
 ## Adaptive Mesh Refinement
