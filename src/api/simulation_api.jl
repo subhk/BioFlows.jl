@@ -687,8 +687,15 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
             # Compute and display CFL number
             if config.grid_type == ThreeDimensional
                 cfl = compute_cfl_3d(state_old.u, state_old.v, state_old.w, solver.grid, dt)
+                max_u = maximum(abs, state_old.u)
+                max_v = maximum(abs, state_old.v)
+                max_w = maximum(abs, state_old.w)
+                println("  max|u|=$(round(max_u, digits=4)), max|v|=$(round(max_v, digits=4)), max|w|=$(round(max_w, digits=4))")
             else
                 cfl = compute_cfl_2d(state_old.u, state_old.v, solver.grid, dt)
+                max_u = maximum(abs, state_old.u)
+                max_v = maximum(abs, state_old.v)  # v holds vertical velocity (w) in 2D
+                println("  max|u|=$(round(max_u, digits=4)), max|v|=$(round(max_v, digits=4))")
             end
             println("  CFL = $(round(cfl, digits=4))")
         end

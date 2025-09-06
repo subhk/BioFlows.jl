@@ -149,7 +149,7 @@ function main()
             maxv = MPI.Allreduce(maxv_loc, MPI.MAX, comm)
             cfl = max(maxu * dt_step / dx, maxv * dt_step / dz)
             if rank == 0
-                @info "step=$step t=$(round(t, digits=3)) dt=$(round(dt_step, digits=4)) CFL=$(round(cfl, digits=3))"
+                @info "step=$step t=$(round(t, digits=3)) dt=$(round(dt_step, digits=4)) CFL=$(round(cfl, digits=3)) max|u|=$(round(maxu, digits=3)) max|v|=$(round(maxv, digits=3))"
             end
             # Global NetCDF output via writer (auto-detects MPI state)
             BioFlows.write_solution!(writer, local_old, bodies, global_grid, solver.fluid, t, step)
