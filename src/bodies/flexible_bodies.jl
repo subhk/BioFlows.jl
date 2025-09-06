@@ -227,8 +227,8 @@ function update_flexible_body!(body::FlexibleBody, dt::Float64, time_scheme::Tim
     
     if time_scheme isa AdamsBashforth
         update_flexible_body_adams_bashforth!(body, dt, time_scheme, t)
-    elseif time_scheme isa RungeKutta3
-        update_flexible_body_rk3!(body, dt, t)
+    elseif time_scheme isa RungeKutta2
+        update_flexible_body_rk2!(body, dt, t)
     elseif time_scheme isa RungeKutta4
         update_flexible_body_rk4!(body, dt, t)
     else
@@ -313,47 +313,36 @@ function update_flexible_body_rk4!(body::FlexibleBody, dt::Float64, t::Float64)
     apply_boundary_conditions!(body, t + dt)
 end
 
-function update_flexible_body_rk3!(body::FlexibleBody, dt::Float64, t::Float64)
+function update_flexible_body_rk2!(body::FlexibleBody, dt::Float64, t::Float64)
     """
-    3rd order Runge-Kutta integration for flexible body dynamics.
+    2nd order Runge-Kutta (Heun) integration for flexible body dynamics.
     """
     n = body.n_points
-    
-    # State vector: [X, Xdot]
     X = copy(body.X)
     Xdot = (body.X - body.X_old) / dt
-    
+
     # Stage 1
     dXdt2_1 = zeros(n, 2)
     flexible_body_rhs!(dXdt2_1, body, dt)
     k1_X = Xdot
     k1_Xdot = dXdt2_1
-    
-    # Stage 2
+
+    # Stage 2 (predictor)
     body_temp = deepcopy(body)
-    body_temp.X .= X + 0.5 * dt * k1_X
+    body_temp.X .= X + dt * k1_X
     dXdt2_2 = zeros(n, 2)
     flexible_body_rhs!(dXdt2_2, body_temp, dt)
-    k2_X = Xdot + 0.5 * dt * k1_Xdot
+    k2_X = Xdot + dt * k1_Xdot
     k2_Xdot = dXdt2_2
-    
-    # Stage 3
-    body_temp.X .= X - dt * k1_X + 2 * dt * k2_X
-    dXdt2_3 = zeros(n, 2)
-    flexible_body_rhs!(dXdt2_3, body_temp, dt)
-    k3_X = Xdot - dt * k1_Xdot + 2 * dt * k2_Xdot
-    k3_Xdot = dXdt2_3
-    
-    # Update
-    X_new = X + (dt/6) * (k1_X + 4*k2_X + k3_X)
-    Xdot_new = Xdot + (dt/6) * (k1_Xdot + 4*k2_Xdot + k3_Xdot)
-    
-    # Store states
+
+    # Update (average)
+    X_new = X + 0.5 * dt * (k1_X + k2_X)
+    # Xdot_new = Xdot + 0.5 * dt * (k1_Xdot + k2_Xdot)  # not stored explicitly
+
     body.X_prev .= body.X_old
     body.X_old .= body.X
     body.X .= X_new
-    
-    # Apply boundary conditions
+
     apply_boundary_conditions!(body, t + dt)
 end
 
