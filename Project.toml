@@ -17,6 +17,7 @@ NetCDF = "30363a11-5582-574a-97bb-aa9a979735b9"
 MPI = "da04e1cc-30fd-572f-bb4f-1f8673147195"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+IterativeSolvers = "42fd0dbc-a981-5370-80f2-aaf504508153"
 
 
 [extras]
@@ -24,4 +25,3 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
 test = ["Test"]
-
