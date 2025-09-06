@@ -897,6 +897,52 @@ function save_rigid_body_coefficients_series!(writer::NetCDFWriter,
     return true
 end
 
+# ---------------------------------------------------------------------------
+# Helper: Add global metadata for rigid-series files
+# ---------------------------------------------------------------------------
+function _ensure_rigid_series_metadata!(nc::NetCDF.NcFile, bodies::RigidBodyCollection, fluid::FluidProperties;
+                                       reference_velocity::Float64=1.0,
+                                       flow_direction::Vector{Float64}=[1.0,0.0],
+                                       ref_lengths::Union{Nothing,Vector{Float64}}=nothing)
+    # Only write once
+    if !haskey(nc.atts, ("global","rho"))
+        ρ = fluid.ρ isa ConstantDensity ? fluid.ρ.ρ : NaN
+        μ = fluid.μ
+        NetCDF.putatt(nc, "global", Dict(
+            "rho"=>ρ,
+            "mu"=>μ,
+            "reference_velocity"=>reference_velocity,
+            "flow_direction_x"=>flow_direction[1],
+            "flow_direction_z"=>length(flow_direction)>1 ? flow_direction[2] : 0.0,
+        ))
+        NetCDF.putatt(nc, "global", "n_bodies", bodies.n_bodies)
+        for (i, body) in enumerate(bodies.bodies)
+            NetCDF.putatt(nc, "global", "body_$(i)_center_x", body.center[1])
+            NetCDF.putatt(nc, "global", "body_$(i)_center_z", length(body.center)>1 ? body.center[end] : 0.0)
+            NetCDF.putatt(nc, "global", "body_$(i)_angle", body.angle)
+            if body.shape isa Circle
+                NetCDF.putatt(nc, "global", "body_$(i)_type", "Circle")
+                NetCDF.putatt(nc, "global", "body_$(i)_radius", (body.shape::Circle).radius)
+                NetCDF.putatt(nc, "global", "ref_length_$(i)", ref_lengths===nothing ? 2*(body.shape::Circle).radius : ref_lengths[i])
+            elseif body.shape isa Square
+                NetCDF.putatt(nc, "global", "body_$(i)_type", "Square")
+                NetCDF.putatt(nc, "global", "body_$(i)_side", (body.shape::Square).side_length)
+                NetCDF.putatt(nc, "global", "ref_length_$(i)", ref_lengths===nothing ? (body.shape::Square).side_length : ref_lengths[i])
+            elseif body.shape isa Rectangle
+                NetCDF.putatt(nc, "global", "body_$(i)_type", "Rectangle")
+                NetCDF.putatt(nc, "global", "body_$(i)_width", (body.shape::Rectangle).width)
+                NetCDF.putatt(nc, "global", "body_$(i)_height", (body.shape::Rectangle).height)
+                NetCDF.putatt(nc, "global", "ref_length_$(i)", ref_lengths===nothing ? max((body.shape::Rectangle).width,(body.shape::Rectangle).height) : ref_lengths[i])
+            else
+                NetCDF.putatt(nc, "global", "body_$(i)_type", "Unknown")
+                if ref_lengths !== nothing
+                    NetCDF.putatt(nc, "global", "ref_length_$(i)", ref_lengths[i])
+                end
+            end
+        end
+    end
+end
+
 # ============================================================================
 # Rigid-body forces and torque series (separate file)
 # ============================================================================

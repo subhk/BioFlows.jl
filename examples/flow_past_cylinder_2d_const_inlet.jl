@@ -100,6 +100,27 @@ function main()
     catch e
         @warn "Could not write cylinder metadata to NetCDF: $e"
     end
+
+    # Read and print final Cd/Cl from the coefficients file (if created)
+    try
+        coeff_path = string(outfile, "_coeffs.nc")
+        if isfile(coeff_path)
+            nc = NetCDF.open(coeff_path)
+            time = NetCDF.readvar(nc, "time")
+            Cd = NetCDF.readvar(nc, "Cd")
+            Cl = NetCDF.readvar(nc, "Cl")
+            NetCDF.close(nc)
+            nt = length(time)
+            Cd_last = Cd[1, nt]
+            Cl_last = Cl[1, nt]
+            println("Final coefficients (body 1): Cd=$(round(Cd_last, digits=4)), Cl=$(round(Cl_last, digits=4)) at t=$(round(time[end], digits=3))")
+            println("Coefficient series saved to: $(coeff_path)")
+        else
+            @warn "Coefficient file not found: $(coeff_path)"
+        end
+    catch e
+        @warn "Could not read Cd/Cl series: $e"
+    end
 end
 
 main()

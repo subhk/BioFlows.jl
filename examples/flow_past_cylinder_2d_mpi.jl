@@ -8,10 +8,18 @@ using NetCDF
 # Simple CLI parser for core parameters
 function parse_args()
     params = Dict{String,Any}(
-        "nx"=>192, "nz"=>96, "Lx"=>6.0, "Lz"=>2.0, "uin"=>1.0,
-        "D"=>0.2, "rho"=>1000.0, "nu"=>0.001, "dt"=>0.002,
-        "tfinal"=>2.0, "save"=>0.05, "outfile"=>"cylinder2d_mpi.nc",
-        "xc"=>1.2, "zc"=>1.0
+        "nx"=>192, "nz"=>96, 
+        "Lx"=>6.0, "Lz"=>2.0, 
+        "uin"=>1.0,
+        "D"=>0.2, 
+        "rho"=>1000.0, 
+        "nu"=>0.001, 
+        "dt"=>0.002,
+        "tfinal"=>2.0, 
+        "save"=>0.05, 
+        "outfile"=>"cylinder2d_mpi.nc",
+        "xc"=>1.2, 
+        "zc"=>1.0
     )
     i = 1
     while i <= length(ARGS)
@@ -23,7 +31,7 @@ function parse_args()
                 params[key] = parse(Int, val)
             elseif key in ("outfile")
                 params[key] = val
-            elseif key in ("xc","zc","Lx","Lz","uin","D","rho","nu","dt","tfinal","save")
+            elseif key in ("xc", "zc", "Lx", "Lz", "uin", "D", "rho", "nu", "dt", "tfinal", "save")
                 params[key] = parse(Float64, val)
             end
             i += 2
