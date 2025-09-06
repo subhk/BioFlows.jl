@@ -234,7 +234,7 @@ function initialize_multigrid_solvers!(hierarchy::AMRHierarchy)
         end
         
         # Create staggered-aware multigrid solver
-        return MultigridPoissonSolver(local_grid; solver_type=:staggered, tolerance=1e-8)
+        return MultigridPoissonSolver(local_grid; smoother=:staggered, tolerance=1e-8)
     end
     
     # Initialize solver for base level

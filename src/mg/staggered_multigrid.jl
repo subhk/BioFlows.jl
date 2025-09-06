@@ -40,11 +40,18 @@ mutable struct StaggeredMultiLevelPoisson{T}
     function StaggeredMultiLevelPoisson{T}(grid::StaggeredGrid, levels::Int=4; 
                                           n_smooth::Int=3, tol::T=1e-6) where T
         
-        # Extract grid information  
-        nx_fine = grid.nx
-        ny_fine = grid.ny
-        dx_fine = grid.dx
-        dy_fine = grid.dy
+        # Extract grid information (handle 2D XZ by mapping z→y)
+        if grid.grid_type == TwoDimensional
+            nx_fine = grid.nx
+            ny_fine = grid.nz
+            dx_fine = grid.dx
+            dy_fine = grid.dz
+        else
+            nx_fine = grid.nx
+            ny_fine = grid.ny
+            dx_fine = grid.dx
+            dy_fine = grid.dy
+        end
         
         # Initialize arrays for all levels
         φ_levels = Vector{Matrix{T}}(undef, levels)

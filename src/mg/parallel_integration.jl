@@ -83,7 +83,7 @@ function OptimizedMPINavierStokesSolver2D(nx_global::Int, nz_global::Int,
     local_diffusion_v = zeros(nx_local, nz_local+1)
     
     # Create multigrid solver (pure Julia implementation; works on local subdomain)
-    multigrid_solver = MultigridPoissonSolver(local_grid)
+    multigrid_solver = MultigridPoissonSolver(local_grid; smoother=:staggered)
     
     OptimizedMPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme, multigrid_solver,
                                     mpi_buffers, load_balancer, comm_overlapper,

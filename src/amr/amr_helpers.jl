@@ -171,7 +171,7 @@ function create_mg_solver_for_level(amr_level)
     end
     
     # Create staggered-aware multigrid solver
-    return MultigridPoissonSolver(local_grid; solver_type=:staggered, tolerance=1e-8)
+    return MultigridPoissonSolver(local_grid; smoother=:staggered, tolerance=1e-8)
 end
 
 # Export AMR helper functions

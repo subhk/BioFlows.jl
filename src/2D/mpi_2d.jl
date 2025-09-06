@@ -759,7 +759,7 @@ function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int, Lx::Float64, Lz
     local_rhs_p = zeros(nx_local, nz_local)
     
     # Create multigrid solver (pure Julia implementation; MPI integration handled at higher level)
-    multigrid_solver = MultigridPoissonSolver(local_grid)
+    multigrid_solver = MultigridPoissonSolver(local_grid; smoother=:staggered)
     
     MPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme, multigrid_solver,
                            local_u_star, local_v_star, local_phi, local_rhs_p)
