@@ -857,3 +857,9 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
     local_state_new.t = local_state_old.t + dt
     local_state_new.step = local_state_old.step + 1
 end
+
+# Export MPI functions
+export MPI2DDecomposition, create_local_grid_2d
+export apply_physical_boundary_conditions_2d!, apply_u_boundary_physical!, apply_w_boundary_physical!
+export exchange_ghost_cells_2d!, exchange_ghost_cells_staggered_u_2d!
+export create_local_arrays_2d, MPINavierStokesSolver2D, mpi_solve_step_2d!
