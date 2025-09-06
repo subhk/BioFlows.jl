@@ -16,12 +16,13 @@ function main()
     nx, nz = 192, 96
     Lx, Lz = 6.0, 2.0
     Uin = 1.0
-    D = 0.2; R = D/2
-    ρ = 1000.0; ν = 0.001
+    D = 0.2; 
+    R = D/2;
+    ρ = 1000.0; 
+    ν = 0.001
     dt = 0.002
     Tfinal = 2.0
-    save_interval = 0.05
-    outfile = "cylinder2d_mpi.nc"
+    save_interval = 0.1
 
     # Build config (uses API to set BCs and fluid)
     config = BioFlows.create_2d_simulation_config(
