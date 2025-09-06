@@ -245,29 +245,6 @@ function apply_u_boundary_physical!(u::Matrix, condition::BoundaryCondition,
     end
 end
 
-function apply_v_boundary_physical!(v::Matrix, condition::BoundaryCondition,
-                                   i::Int, j::Int, t::Float64, location::Symbol)
-    if condition.type == NoSlip
-        v[i, j] = 0.0
-    elseif condition.type == FreeSlip
-        if location in [:bottom, :top]
-            neighbor_j = location == :bottom ? j+1 : j-1
-            v[i, j] = v[i, neighbor_j]
-        else
-            v[i, j] = 0.0
-        end
-    elseif condition.type == Inlet
-        if condition.value isa Function
-            v[i, j] = condition.value(t)
-        else
-            v[i, j] = condition.value !== nothing ? condition.value : 0.0
-        end
-    elseif condition.type == Outlet
-        if location == :top
-            v[i, j] = v[i, j-1]
-        end
-    end
-end
 
 function apply_w_boundary_physical!(w::Matrix, condition::BoundaryCondition,
                                    i::Int, j::Int, t::Float64, location::Symbol)
@@ -309,10 +286,10 @@ function create_local_arrays_2d(decomp::MPI2DDecomposition, T=Float64)
     # u: staggered in x-direction
     u = zeros(T, nx_g + 1, nz_g)
     
-    # v: staggered in y-direction  
-    v = zeros(T, nx_g, nz_g + 1)
+    # w: staggered in z-direction (for 2D XZ plane)  
+    w = zeros(T, nx_g, nz_g + 1)
     
-    return u, v, p
+    return u, w, p
 end
 
 function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition, 
@@ -767,7 +744,7 @@ struct MPINavierStokesSolver2D <: AbstractSolver
     
     # Local work arrays
     local_u_star::Matrix{Float64}
-    local_v_star::Matrix{Float64}
+    local_w_star::Matrix{Float64}  # w-velocity for 2D XZ plane
     local_phi::Matrix{Float64}
     local_rhs_p::Matrix{Float64}
 end
@@ -785,7 +762,7 @@ function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int, Lx::Float64, Lz
     # Initialize local work arrays
     nx_local, nz_local = decomp.nx_local, decomp.nz_local  # nz_local actually represents nz for 2D XZ plane
     local_u_star = zeros(nx_local+1, nz_local)
-    local_v_star = zeros(nx_local, nz_local+1)  # v represents w-velocity in XZ plane
+    local_w_star = zeros(nx_local, nz_local+1)  # w-velocity for 2D XZ plane
     local_phi = zeros(nx_local, nz_local)
     local_rhs_p = zeros(nx_local, nz_local)
     
@@ -793,7 +770,7 @@ function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int, Lx::Float64, Lz
     multigrid_solver = MultigridPoissonSolver(local_grid; smoother=:staggered)
     
     MPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme, multigrid_solver,
-                           local_u_star, local_v_star, local_phi, local_rhs_p)
+                           local_u_star, local_w_star, local_phi, local_rhs_p)
 end
 
 function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
