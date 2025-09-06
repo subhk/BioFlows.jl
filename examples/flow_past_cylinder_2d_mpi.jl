@@ -108,7 +108,9 @@ function main()
     if rank == 0
         println("MPI run with $nprocs ranks: 2D cylinder, $(nx)x$(nz), dt=$dt, T=$Tfinal")
     end
+    
     global_grid = BioFlows.StaggeredGrid2D(nx, nz, Lx, Lz)
+
     writer = BioFlows.NetCDFWriter(outfile, global_grid,
         BioFlows.NetCDFConfig("cylinder2d_mpi";
             max_snapshots_per_file=50,
@@ -118,6 +120,7 @@ function main()
             save_flow_field=true,
             save_body_positions=false,
             save_force_coefficients=false))
+
     if rank == 0
         BioFlows.initialize_netcdf_file!(writer)
         NetCDF.putatt(writer.ncfile, "global", Dict(
