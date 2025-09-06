@@ -1,4 +1,14 @@
 using Dates
+# Optional MPI support for automatic global writes
+const HAS_MPI_WRITER = let ok = false
+    try
+        @eval using MPI
+        ok = true
+    catch
+        ok = false
+    end
+    ok
+end
 
 """
     NetCDFConfig
@@ -1090,4 +1100,86 @@ function write_solution!(writer::NetCDFWriter,
     # Save complete snapshot
     return save_complete_snapshot!(writer, state, bodies, grid, fluid, 
                                   current_time, current_iteration; kwargs...)
+end
+
+# =============================================================================
+# MPI-aware write (2D XZ plane): gather local fields to root and write globally
+# =============================================================================
+function write_solution!(writer::NetCDFWriter,
+                        state::MPISolutionState2D,
+                        bodies::Union{Nothing, RigidBodyCollection, FlexibleBodyCollection},
+                        grid::StaggeredGrid,
+                        fluid::FluidProperties,
+                        current_time::Float64,
+                        current_iteration::Int; kwargs...)
+    HAS_MPI_WRITER || return false
+    decomp = state.decomp
+    comm = decomp.comm
+    rank = MPI.Comm_rank(comm)
+    size = MPI.Comm_size(comm)
+
+    # Local interior indices
+    ils, ile = decomp.i_local_start, decomp.i_local_end
+    jls, jle = decomp.j_local_start, decomp.j_local_end
+    is, ie = decomp.i_start, decomp.i_end
+    js, je = decomp.j_start, decomp.j_end
+    nxg, nzg = decomp.nx_global, decomp.nz_global
+
+    # Include domain boundary faces (staggered)
+    u_i_hi = ile + (ie == nxg ? 1 : 0)
+    v_j_hi = jle + (je == nzg ? 1 : 0)
+
+    u_blk = @view state.u[ils:u_i_hi, jls:jle]
+    v_blk = @view state.v[ils:ile, jls:v_j_hi]
+    p_blk = @view state.p[ils:ile, jls:jle]
+
+    # Root assembles global arrays and writes
+    if rank == 0
+        # Ensure writer file is ready
+        initialize_netcdf_file!(writer)
+        u_glob = zeros(Float64, writer.grid.nx + 1, writer.grid.nz)
+        v_glob = zeros(Float64, writer.grid.nx, writer.grid.nz + 1)
+        p_glob = zeros(Float64, writer.grid.nx, writer.grid.nz)
+
+        # Place rank 0
+        u_glob[is:ie + (ie == nxg ? 1 : 0), js:je] .= u_blk
+        v_glob[is:ie, js:je + (je == nzg ? 1 : 0)] .= v_blk
+        p_glob[is:ie, js:je] .= p_blk
+
+        # Receive others
+        for src in 1:size-1
+            hdr = Array{Int}(undef, 4)
+            MPI.Recv!(hdr, src, 9100, comm)
+            isrc, iesrc, jsrc, jesrc = hdr...
+            u_count_i = iesrc - isrc + 1 + (iesrc == nxg ? 1 : 0)
+            v_count_j = jesrc - jsrc + 1 + (jesrc == nzg ? 1 : 0)
+            u_recv = Array{Float64}(undef, u_count_i, jesrc - jsrc + 1)
+            v_recv = Array{Float64}(undef, iesrc - isrc + 1, v_count_j)
+            p_recv = Array{Float64}(undef, iesrc - isrc + 1, jesrc - jsrc + 1)
+            MPI.Recv!(u_recv, src, 9101, comm)
+            MPI.Recv!(v_recv, src, 9102, comm)
+            MPI.Recv!(p_recv, src, 9103, comm)
+            u_glob[isrc:iesrc + (iesrc == nxg ? 1 : 0), jsrc:jesrc] .= u_recv
+            v_glob[isrc:iesrc, jsrc:jesrc + (jesrc == nzg ? 1 : 0)] .= v_recv
+            p_glob[isrc:iesrc, jsrc:jesrc] .= p_recv
+        end
+
+        # Build global state and write
+        gstate = SolutionState2D(writer.grid.nx, writer.grid.nz)
+        gstate.u .= u_glob
+        gstate.v .= v_glob
+        gstate.p .= p_glob
+        gstate.t = current_time
+        gstate.step = current_iteration
+        return save_complete_snapshot!(writer, gstate, bodies, writer.grid, fluid, current_time, current_iteration; kwargs...)
+
+    else
+        # Send local header and data
+        hdr = Int[is, ie, js, je]
+        MPI.Send(hdr, 0, 9100, comm)
+        MPI.Send(Array(u_blk), 0, 9101, comm)
+        MPI.Send(Array(v_blk), 0, 9102, comm)
+        MPI.Send(Array(p_blk), 0, 9103, comm)
+        return true
+    end
 end
