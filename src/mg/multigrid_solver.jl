@@ -196,15 +196,37 @@ function solve_poisson_2d_custom!(solver::MultigridPoissonSolver, phi::Matrix, r
     rhs_bc = copy(rhs)
     apply_poisson_rhs_bc_2d!(rhs_bc, bc, grid)
     
+    # Verbose flag
+    verbose = lowercase(get(ENV, "BIOFLOWS_MG_VERBOSE", "")) in ("1","true","yes")
+    # Residual norm helper
+    function _residual_norm_2d(φ, b)
+        nx, nz = size(φ)
+        dx2 = grid.dx^2; dz2 = grid.dz^2
+        s = 0.0
+        for j=2:nz-1, i=2:nx-1
+            lap = (φ[i+1,j]-2φ[i,j]+φ[i-1,j])/dx2 + (φ[i,j+1]-2φ[i,j]+φ[i,j-1])/dz2
+            s += (lap - b[i,j])^2
+        end
+        return sqrt(s)
+    end
+    r0 = _residual_norm_2d(phi, rhs_bc)
     # Use staggered multigrid if requested, otherwise Gauss-Seidel
     if solver.solver_type == :staggered
         mg = StaggeredMultiLevelPoisson(grid, solver.levels; tol=solver.tolerance)
         solve_staggered_poisson!(phi, rhs_bc, mg; max_iter=solver.max_iterations)
+        if verbose
+            r1 = _residual_norm_2d(phi, rhs_bc)
+            @info "MG(2D) staggered res0=$(r0) res1=$(r1)"
+        end
     elseif solver.mg_solver isa GaussSeidelSolver
-        gauss_seidel_2d!(phi, rhs_bc, grid,
-                         solver.mg_solver.max_iterations,
-                         solver.mg_solver.tolerance,
-                         solver.mg_solver.omega)
+        phi, iters = gauss_seidel_2d!(phi, rhs_bc, grid,
+                                      solver.mg_solver.max_iterations,
+                                      solver.mg_solver.tolerance,
+                                      solver.mg_solver.omega)
+        if verbose
+            r1 = _residual_norm_2d(phi, rhs_bc)
+            @info "MG(2D) GS iterations=$(iters) res0=$(r0) res1=$(r1)"
+        end
     else
         # Use fallback solver
         phi_vec = vec(phi)
@@ -224,15 +246,37 @@ function solve_poisson_3d_custom!(solver::MultigridPoissonSolver, phi::Array{T,3
     rhs_bc = copy(rhs)
     apply_poisson_rhs_bc_3d!(rhs_bc, bc, grid)
     
+    # Verbose flag
+    verbose = lowercase(get(ENV, "BIOFLOWS_MG_VERBOSE", "")) in ("1","true","yes")
+    # Residual norm helper
+    function _residual_norm_3d(φ, b)
+        nx, ny, nz = size(φ)
+        dx2 = grid.dx^2; dy2 = grid.dy^2; dz2 = grid.dz^2
+        s = 0.0
+        for k=2:nz-1, j=2:ny-1, i=2:nx-1
+            lap = (φ[i+1,j,k]-2φ[i,j,k]+φ[i-1,j,k])/dx2 + (φ[i,j+1,k]-2φ[i,j,k]+φ[i,j-1,k])/dy2 + (φ[i,j,k+1]-2φ[i,j,k]+φ[i,j,k-1])/dz2
+            s += (lap - b[i,j,k])^2
+        end
+        return sqrt(s)
+    end
+    r0 = _residual_norm_3d(phi, rhs_bc)
     # Use staggered multigrid if requested, otherwise Gauss-Seidel
     if solver.smoother == :staggered
         mg = StaggeredMultiLevelPoisson3D(grid, solver.levels; tol=solver.tolerance)
         solve_staggered_poisson_3d!(phi, rhs_bc, mg; max_iter=solver.max_iterations)
+        if verbose
+            r1 = _residual_norm_3d(phi, rhs_bc)
+            @info "MG(3D) staggered res0=$(r0) res1=$(r1)"
+        end
     elseif solver.mg_solver isa GaussSeidelSolver
-        gauss_seidel_3d!(phi, rhs_bc, grid,
-                         solver.mg_solver.max_iterations,
-                         solver.mg_solver.tolerance,
-                         solver.mg_solver.omega)
+        phi, iters = gauss_seidel_3d!(phi, rhs_bc, grid,
+                                      solver.mg_solver.max_iterations,
+                                      solver.mg_solver.tolerance,
+                                      solver.mg_solver.omega)
+        if verbose
+            r1 = _residual_norm_3d(phi, rhs_bc)
+            @info "MG(3D) GS iterations=$(iters) res0=$(r0) res1=$(r1)"
+        end
     else
         # Use fallback solver
         phi_vec = vec(phi)
