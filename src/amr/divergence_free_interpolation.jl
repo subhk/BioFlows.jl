@@ -92,10 +92,13 @@ function interpolate_u_faces_2d!(u_fine::Matrix{T}, u_coarse::Matrix{T}, ratio::
         # The flux through a coarse face equals sum of fluxes through fine faces
         coarse_flux = u_coarse[i_c, j_c]
         
-        # Distribute flux equally among fine faces (simple conservative approach)
+        # For conservation, flux per fine face should account for area difference
+        # Each coarse face maps to 2 fine faces in the z-direction
+        # Since fine faces have half the area, they should have the same velocity
+        # to conserve mass flux
         for j_f = j_f_start:min(j_f_end, nz_fine)
             if i_f <= nx_fine_plus1
-                u_fine[i_f, j_f] = coarse_flux  # Preserve velocity magnitude
+                u_fine[i_f, j_f] = coarse_flux  # Preserve velocity (mass flux conserved by geometry)
             end
         end
         
@@ -137,10 +140,11 @@ function interpolate_v_faces_2d!(v_fine::Matrix{T}, v_coarse::Matrix{T}, ratio::
         # Conservative flux interpolation
         coarse_flux = v_coarse[i_c, j_c]
         
-        # Distribute flux among fine faces
+        # For conservation: each coarse face maps to 2 fine faces in x-direction
+        # Fine faces have half the area, so preserve velocity for mass flux conservation
         for i_f = i_f_start:min(i_f_end, nx_fine)
             if j_f <= nz_fine_plus1
-                v_fine[i_f, j_f] = coarse_flux
+                v_fine[i_f, j_f] = coarse_flux  # Preserve velocity (mass flux conserved by geometry)
             end
         end
         

@@ -148,26 +148,26 @@ Create a multigrid solver for a specific AMR level.
 """
 function create_mg_solver_for_level(amr_level)
     # Create staggered grid for this AMR level
-    if amr_level.ny == 0  # This indicates 2D case (nx, nz dimensions)
-        # This is actually a 2D XZ plane case
+    if amr_level.grid_type == TwoDimensional
+        # 2D XZ plane case
         Lx = amr_level.x_max - amr_level.x_min
-        Lz = amr_level.y_max - amr_level.y_min  # y maps to z in XZ plane
+        Lz = amr_level.z_max - amr_level.z_min  # Fixed: use z coordinates for XZ plane
         
-        local_grid = StaggeredGrid2D(amr_level.nx, amr_level.nx,  # Assuming square cells for simplicity
+        local_grid = StaggeredGrid2D(amr_level.nx, amr_level.nz,  # Fixed: use correct dimensions
                                     Lx, Lz;
                                     origin_x=amr_level.x_min,
-                                    origin_z=amr_level.y_min)
+                                    origin_z=amr_level.z_min)  # Fixed: use z coordinate
     else
-        # This is a 3D case
+        # 3D case
         Lx = amr_level.x_max - amr_level.x_min
         Ly = amr_level.y_max - amr_level.y_min
-        Lz = amr_level.x_max - amr_level.x_min  # Placeholder - need actual z dimension
+        Lz = amr_level.z_max - amr_level.z_min  # Fixed: use z coordinates
         
-        local_grid = StaggeredGrid3D(amr_level.nx, amr_level.ny, amr_level.nx,  # Placeholder dimensions
+        local_grid = StaggeredGrid3D(amr_level.nx, amr_level.ny, amr_level.nz,  # Fixed: use correct dimensions
                                     Lx, Ly, Lz;
                                     origin_x=amr_level.x_min,
                                     origin_y=amr_level.y_min,
-                                    origin_z=0.0)
+                                    origin_z=amr_level.z_min)  # Fixed: use correct z origin
     end
     
     # Create staggered-aware multigrid solver

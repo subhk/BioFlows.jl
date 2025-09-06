@@ -327,16 +327,18 @@ function compute_refinement_indicators_amr(amr_level::AMRLevel,
         end
         return indicators
     else
-        # 3D path remains as-is (existing code below relies on XY naming)
+        # 3D case - fixed to create proper 3D indicators array
         nx, ny, nz = amr_level.nx, amr_level.ny, amr_level.nz
-        indicators = zeros(nx, ny)
+        indicators = zeros(nx, ny, nz)  # Fixed: should be 3D for 3D case
         local_grid = StaggeredGrid3D(nx, ny, nz,
                                      amr_level.x_max - amr_level.x_min,
                                      amr_level.y_max - amr_level.y_min,
                                      amr_level.z_max - amr_level.z_min;
                                      origin_x=amr_level.x_min, origin_y=amr_level.y_min, origin_z=amr_level.z_min)
-        # (Keep original 3D computations here)
-        # For brevity, not duplicating the entire 3D block; it remains unchanged above.
+        
+        # TODO: Implement full 3D refinement indicators computation
+        # For now, return zeros to avoid runtime errors
+        @warn "3D refinement indicators computation not fully implemented"
         return indicators
     end
 end
