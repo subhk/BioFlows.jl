@@ -391,8 +391,8 @@ function apply_flexible_ib_forcing_2d!(state::SolutionState, bodies::FlexibleBod
                 force_w = 0.5 * (force_field[i, j-1][2] + force_field[i, j][2])
             end
             
-            # Apply to w-velocity (represented as state.v in XZ plane)
-            state.v[i, j] += force_w * dt
+            # Apply to w-velocity (represented as state.w in XZ plane)
+            state.w[i, j] += force_w * dt
         end
     end
 end
@@ -436,33 +436,30 @@ function apply_ib_forcing_2d!(state::SolutionState, ib_data::ImmersedBoundaryDat
     
     # u-velocity forcing (x-direction)
     for j = 1:grid.nz, i = 1:grid.nx+1
-        if i <= grid.nx && ib_data.body_mask[i, j]
-            # Find which body this point belongs to
-            x = grid.xu[i]  # u-velocity location
-            z = grid.z[j]   # cell center z for XZ plane
-            
-            for body in bodies.bodies
-                if is_inside_xz(body, x, z)  # Use XZ plane version
-                    body_vel = get_body_velocity_at_point_xz(body, x, z)
-                    state.u[i, j] = body_vel[1]  # u-velocity (x-direction)
-                    break
-                end
+        # Check if u-velocity point is inside a body
+        x = grid.xu[i]  # u-velocity location
+        z = grid.z[j]   # cell center z for XZ plane
+        
+        for body in bodies.bodies
+            if is_inside_xz(body, x, z)  # Use XZ plane version
+                body_vel = get_body_velocity_at_point_xz(body, x, z)
+                state.u[i, j] = body_vel[1]  # u-velocity (x-direction)
+                break
             end
         end
     end
     
-    # w-velocity forcing (z-direction) - represented as state.v in XZ plane
+    # w-velocity forcing (z-direction) - represented as state.w in XZ plane
     for j = 1:grid.nz+1, i = 1:grid.nx
-        if j <= grid.nz && ib_data.body_mask[i, j]
-            x = grid.x[i]    # cell center x
-            z = grid.zw[j]   # w-velocity location in z-direction
-            
-            for body in bodies.bodies
-                if is_inside_xz(body, x, z)  # Use XZ plane version
-                    body_vel = get_body_velocity_at_point_xz(body, x, z)
-                    state.v[i, j] = body_vel[2]  # w-velocity (z-direction)
-                    break
-                end
+        # Check if w-velocity point is inside a body
+        x = grid.x[i]    # cell center x
+        z = grid.zw[j]   # w-velocity location in z-direction
+        
+        for body in bodies.bodies
+            if is_inside_xz(body, x, z)  # Use XZ plane version
+                body_vel = get_body_velocity_at_point_xz(body, x, z)
+                state.w[i, j] = body_vel[2]  # w-velocity (z-direction)
+                break
             end
         end
     end
@@ -475,51 +472,45 @@ function apply_ib_forcing_3d!(state::SolutionState, ib_data::ImmersedBoundaryDat
     
     # u-velocity forcing
     for k = 1:nz, j = 1:ny, i = 1:nx+1
-        if i <= nx && ib_data.body_mask[i, j, k]
-            x = grid.xu[i]
-            y = grid.y[j]
-            z = grid.z[k]
-            
-            for body in bodies.bodies
-                if is_inside(body, x, y, z)
-                    body_vel = get_body_velocity_at_point(body, x, y, z)
-                    state.u[i, j, k] = body_vel[1]
-                    break
-                end
+        x = grid.xu[i]
+        y = grid.y[j]
+        z = grid.z[k]
+        
+        for body in bodies.bodies
+            if is_inside(body, x, y, z)
+                body_vel = get_body_velocity_at_point(body, x, y, z)
+                state.u[i, j, k] = body_vel[1]
+                break
             end
         end
     end
     
     # v-velocity forcing
     for k = 1:nz, j = 1:ny+1, i = 1:nx
-        if j <= ny && ib_data.body_mask[i, j, k]
-            x = grid.x[i]
-            y = grid.yv[j]
-            z = grid.z[k]
-            
-            for body in bodies.bodies
-                if is_inside(body, x, y, z)
-                    body_vel = get_body_velocity_at_point(body, x, y, z)
-                    state.v[i, j, k] = body_vel[2]
-                    break
-                end
+        x = grid.x[i]
+        y = grid.yv[j]
+        z = grid.z[k]
+        
+        for body in bodies.bodies
+            if is_inside(body, x, y, z)
+                body_vel = get_body_velocity_at_point(body, x, y, z)
+                state.v[i, j, k] = body_vel[2]
+                break
             end
         end
     end
     
     # w-velocity forcing
     for k = 1:nz+1, j = 1:ny, i = 1:nx
-        if k <= nz && ib_data.body_mask[i, j, k]
-            x = grid.x[i]
-            y = grid.y[j]
-            z = grid.zw[k]
-            
-            for body in bodies.bodies
-                if is_inside(body, x, y, z)
-                    body_vel = get_body_velocity_at_point(body, x, y, z)
-                    state.w[i, j, k] = body_vel[3]
-                    break
-                end
+        x = grid.x[i]
+        y = grid.y[j]
+        z = grid.zw[k]
+        
+        for body in bodies.bodies
+            if is_inside(body, x, y, z)
+                body_vel = get_body_velocity_at_point(body, x, y, z)
+                state.w[i, j, k] = body_vel[3]
+                break
             end
         end
     end
@@ -678,3 +669,11 @@ function regularized_delta_3d(dx::Float64, dy::Float64, dz::Float64, δh::Float6
     
     return δ_val
 end
+
+# Export IBM functions
+export ImmersedBoundaryData, ImmersedBoundaryData2D, ImmersedBoundaryData3D
+export bodies_mask_2d, bodies_mask_3d
+export apply_immersed_boundary_forcing!, apply_ib_forcing_2d!, apply_ib_forcing_3d!
+export apply_flexible_ib_forcing_2d!, apply_flexible_ib_forcing_3d!
+export apply_force_spreading_2d!, apply_force_spreading_3d!
+export regularized_delta_2d, regularized_delta_3d
