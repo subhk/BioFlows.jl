@@ -269,6 +269,31 @@ function apply_v_boundary_physical!(v::Matrix, condition::BoundaryCondition,
     end
 end
 
+function apply_w_boundary_physical!(w::Matrix, condition::BoundaryCondition,
+                                   i::Int, j::Int, t::Float64, location::Symbol)
+    """Apply boundary conditions for w-velocity (z-direction) in 2D XZ plane."""
+    if condition.type == NoSlip
+        w[i, j] = 0.0
+    elseif condition.type == FreeSlip
+        if location in [:bottom, :top]
+            neighbor_j = location == :bottom ? j+1 : j-1
+            w[i, j] = w[i, neighbor_j]
+        else
+            w[i, j] = 0.0
+        end
+    elseif condition.type == Inlet
+        if condition.value isa Function
+            w[i, j] = condition.value(t)
+        else
+            w[i, j] = condition.value !== nothing ? condition.value : 0.0
+        end
+    elseif condition.type == Outlet
+        if location == :top
+            w[i, j] = w[i, j-1]
+        end
+    end
+end
+
 function create_local_arrays_2d(decomp::MPI2DDecomposition, T=Float64)
     """
     Create local arrays with ghost cells for staggered grid variables.

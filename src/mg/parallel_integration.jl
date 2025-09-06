@@ -114,10 +114,10 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
     
     # STEP 3: Optimized ghost cell exchange using persistent buffers
     ghost_exchange_2d!(local_state_old.u, decomp, solver.mpi_buffers)
-    ghost_exchange_2d!(local_state_old.v, decomp, solver.mpi_buffers)
+    ghost_exchange_2d!(local_state_old.w, decomp, solver.mpi_buffers)
     
     # STEP 4: Compute divergence with optimized operations
-    compute_divergence_2d!(solver.local_div_u, local_state_old.u, local_state_old.v, solver.local_grid)
+    compute_divergence_2d!(solver.local_div_u, local_state_old.u, local_state_old.w, solver.local_grid)
     
     # STEP 5: Solve pressure Poisson with optimized multigrid
     solver.local_rhs_p .= solver.local_div_u ./ dt
@@ -142,7 +142,7 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
     
     # STEP 8: Final optimized ghost cell exchange
     ghost_exchange_2d!(local_state_new.u, decomp, solver.mpi_buffers)
-    ghost_exchange_2d!(local_state_new.v, decomp, solver.mpi_buffers)
+    ghost_exchange_2d!(local_state_new.w, decomp, solver.mpi_buffers)
     ghost_exchange_2d!(local_state_new.p, decomp, solver.mpi_buffers)
     
     # OPTIMIZATION: Load balancing analysis
@@ -195,14 +195,14 @@ end
 Optimized divergence computation with better cache efficiency.
 """
 function compute_divergence_2d!(div_u::Matrix{Float64}, u::Matrix{Float64}, 
-                                 v::Matrix{Float64}, grid::StaggeredGrid)
+                                 w::Matrix{Float64}, grid::StaggeredGrid)
     nx, nz = grid.nx, grid.nz
     dx, dz = grid.dx, grid.dz
     
     # OPTIMIZATION: Cache-friendly loop ordering and vectorized operations
     @inbounds for j = 1:nz
         for i = 1:nx
-            div_u[i, j] = (u[i+1, j] - u[i, j]) / dx + (v[i, j+1] - v[i, j]) / dz
+            div_u[i, j] = (u[i+1, j] - u[i, j]) / dx + (w[i, j+1] - w[i, j]) / dz
         end
     end
 end
@@ -236,7 +236,7 @@ function correct_velocity_2d!(state_new::SolutionState, state_old::SolutionState
             else
                 dpdz = (phi[i, nz] - phi[i, nz-1]) / dz
             end
-            state_new.v[i, j] = state_old.v[i, j] - dt * dpdz
+            state_new.w[i, j] = state_old.w[i, j] - dt * dpdz
         end
     end
 end
@@ -247,15 +247,15 @@ end
 Optimized global CFL computation with reduced collective operations.
 """
 function compute_global_cfl_2d(solver::MPINavierStokesSolver2D,
-                                local_u::Matrix{Float64}, local_v::Matrix{Float64}, dt::Float64)
+                                local_u::Matrix{Float64}, local_w::Matrix{Float64}, dt::Float64)
     grid = solver.local_grid
     dx, dz = grid.dx, grid.dz
     
     # Compute local maximum velocities
     max_u = maximum(abs.(local_u))
-    max_v = maximum(abs.(local_v))
+    max_w = maximum(abs.(local_w))
     
-    local_cfl = max(max_u * dt / dx, max_v * dt / dz)
+    local_cfl = max(max_u * dt / dx, max_w * dt / dz)
     
     # OPTIMIZATION: Use optimized collective operation
     global_cfl = collective_sum(local_cfl, solver.decomp.comm, solver.mpi_buffers)
