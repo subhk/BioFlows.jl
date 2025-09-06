@@ -64,7 +64,7 @@ function solve_poisson_amr!(hierarchy::AMRHierarchy, pressure, rhs;
     end
     
     if verbose
-        println("  ⚠ Maximum iterations reached without convergence")
+        println("  WARNING: Maximum iterations reached without convergence")
     end
     return max_iterations
 end
