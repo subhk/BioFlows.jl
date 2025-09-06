@@ -79,7 +79,9 @@ function create_2d_simulation_config(;
     Reynolds::Float64 = 100.0,
     density_type::Symbol = :constant,
     density_value::Float64 = 1.0,
-    viscosity::Float64 = density_value / Reynolds,
+    nu::Union{Nothing, Float64} = nothing,       # kinematic viscosity (m^2/s)
+    mu::Union{Nothing, Float64} = nothing,       # dynamic viscosity (Pa·s)
+    viscosity::Float64 = density_value / Reynolds,  # legacy path (dynamic viscosity)
     inlet_velocity::Float64 = 1.0,
     outlet_type::Symbol = :pressure,
     wall_type::Symbol = :no_slip,
@@ -89,7 +91,16 @@ function create_2d_simulation_config(;
     use_mpi::Bool = false,
     adaptive_refinement::Bool = false,
     output_interval::Float64 = 0.1,
-    output_file::String = "bioflow_2d")
+    output_file::String = "bioflow_2d",
+    # Output config advanced options
+    output_max_snapshots::Int = 100,
+    output_save_mode::Symbol = :both,
+    output_iteration_interval::Int = 10,
+    output_save_flow_field::Bool = true,
+    output_save_body_positions::Bool = true,
+    output_save_force_coefficients::Bool = true,
+    output_reference_velocity::Float64 = 1.0,
+    output_flow_direction::Vector{Float64} = [1.0, 0.0])
     
     # Create fluid properties
     if density_type == :constant
@@ -98,7 +109,16 @@ function create_2d_simulation_config(;
         error("Variable density not yet implemented")
     end
     
-    fluid = FluidProperties(viscosity, ρ, Reynolds)
+    # Determine dynamic viscosity μ with clear precedence: mu > nu*density > viscosity
+    μ_eff = if mu !== nothing
+        mu
+    elseif nu !== nothing
+        density_value * nu
+    else
+        viscosity
+    end
+    
+    fluid = FluidProperties(μ_eff, ρ, Reynolds)
     
     # Create boundary conditions
     inlet_bc = InletBC(inlet_velocity, 0.0)  # u_inlet, v_inlet
@@ -139,7 +159,17 @@ function create_2d_simulation_config(;
     end
     
     # Create output configuration (align with NetCDFConfig signature)
-    output_config = NetCDFConfig(output_file; time_interval=output_interval)
+    output_config = NetCDFConfig(output_file;
+        max_snapshots_per_file=output_max_snapshots,
+        save_mode=output_save_mode,
+        time_interval=output_interval,
+        iteration_interval=output_iteration_interval,
+        save_flow_field=output_save_flow_field,
+        save_body_positions=output_save_body_positions,
+        save_force_coefficients=output_save_force_coefficients,
+        reference_velocity=output_reference_velocity,
+        flow_direction=output_flow_direction,
+    )
     
     # Create refinement criteria if needed
     refinement_criteria = adaptive_refinement ? AdaptiveRefinementCriteria() : nothing
@@ -279,7 +309,9 @@ function create_3d_simulation_config(;
     Reynolds::Float64 = 100.0,
     density_type::Symbol = :constant,
     density_value::Float64 = 1.0,
-    viscosity::Float64 = density_value / Reynolds,
+    nu::Union{Nothing, Float64} = nothing,       # kinematic viscosity (m^2/s)
+    mu::Union{Nothing, Float64} = nothing,       # dynamic viscosity (Pa·s)
+    viscosity::Float64 = density_value / Reynolds,  # legacy path (dynamic viscosity)
     inlet_velocity::Float64 = 1.0,
     outlet_type::Symbol = :pressure,
     wall_type::Symbol = :no_slip,
@@ -289,7 +321,16 @@ function create_3d_simulation_config(;
     use_mpi::Bool = false,
     adaptive_refinement::Bool = false,
     output_interval::Float64 = 0.1,
-    output_file::String = "bioflow_3d")
+    output_file::String = "bioflow_3d",
+    # Output config advanced options
+    output_max_snapshots::Int = 100,
+    output_save_mode::Symbol = :both,
+    output_iteration_interval::Int = 10,
+    output_save_flow_field::Bool = true,
+    output_save_body_positions::Bool = true,
+    output_save_force_coefficients::Bool = true,
+    output_reference_velocity::Float64 = 1.0,
+    output_flow_direction::Vector{Float64} = [1.0, 0.0])
     
     # Create fluid properties
     if density_type == :constant
@@ -298,7 +339,16 @@ function create_3d_simulation_config(;
         error("Variable density not yet implemented")
     end
     
-    fluid = FluidProperties(viscosity, ρ, Reynolds)
+    # Determine dynamic viscosity μ with clear precedence: mu > nu*density > viscosity
+    μ_eff = if mu !== nothing
+        mu
+    elseif nu !== nothing
+        density_value * nu
+    else
+        viscosity
+    end
+    
+    fluid = FluidProperties(μ_eff, ρ, Reynolds)
     
     # Create boundary conditions
     inlet_bc = InletBC(inlet_velocity, 0.0, 0.0)  # u_inlet, v_inlet, w_inlet
@@ -333,7 +383,17 @@ function create_3d_simulation_config(;
     end
     
     # Create output configuration (align with NetCDFConfig signature)
-    output_config = NetCDFConfig(output_file; time_interval=output_interval)
+    output_config = NetCDFConfig(output_file;
+        max_snapshots_per_file=output_max_snapshots,
+        save_mode=output_save_mode,
+        time_interval=output_interval,
+        iteration_interval=output_iteration_interval,
+        save_flow_field=output_save_flow_field,
+        save_body_positions=output_save_body_positions,
+        save_force_coefficients=output_save_force_coefficients,
+        reference_velocity=output_reference_velocity,
+        flow_direction=output_flow_direction,
+    )
     
     # Create refinement criteria if needed
     refinement_criteria = adaptive_refinement ? AdaptiveRefinementCriteria() : nothing

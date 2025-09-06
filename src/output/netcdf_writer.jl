@@ -52,15 +52,17 @@ end
 
 mutable struct NetCDFWriter
     filepath::String
+    base_filepath::String
     grid::StaggeredGrid
     config::NetCDFConfig
     current_snapshot::Int
     last_save_time::Float64
     last_save_iteration::Int
     ncfile::Union{Nothing, NetCDF.NcFile}  # NetCDF file handle
+    file_index::Int  # 0 for base file, 1 for _1, 2 for _2, ...
     
     function NetCDFWriter(filepath::String, grid::StaggeredGrid, config::NetCDFConfig)
-        new(filepath, grid, config, 0, 0.0, 0, nothing)
+        new(filepath, filepath, grid, config, 0, 0.0, 0, nothing, 0)
     end
     
     # Backward compatibility constructor
@@ -72,7 +74,7 @@ mutable struct NetCDFWriter
                             max_snapshots_per_file=max_snapshots,
                             time_interval=time_interval,
                             iteration_interval=iteration_interval)
-        new(filepath, grid, config, 0, 0.0, 0, nothing)
+        new(filepath, filepath, grid, config, 0, 0.0, 0, nothing, 0)
     end
 end
 
@@ -219,8 +221,7 @@ function save_snapshot!(writer::NetCDFWriter, state::SolutionState, current_time
     
     # Check if we have room for more snapshots; if not, create new file
     if writer.current_snapshot >= writer.config.max_snapshots_per_file
-        timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
-        create_new_file!(writer, "part_$(timestamp)")
+        create_new_file!(writer)
     end
     
     writer.current_snapshot += 1
@@ -517,8 +518,7 @@ function save_flexible_body_positions!(writer::NetCDFWriter,
     end
     # Rotate files if needed
     if writer.current_snapshot >= writer.config.max_snapshots_per_file
-        timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
-        create_new_file!(writer, "part_$(timestamp)")
+        create_new_file!(writer)
     end
 
     # Advance snapshot index for position-only path
@@ -785,13 +785,14 @@ function close!(writer::NetCDFWriter)
     close_netcdf!(writer)
 end
 
-function create_new_file!(writer::NetCDFWriter, file_suffix::String)
-    # Close current file and create a new one
+function create_new_file!(writer::NetCDFWriter)
+    # Close current file and create a new one with numeric suffix
     close_netcdf!(writer)
-    
-    # Update filepath with suffix
-    base_path, ext = splitext(writer.filepath)
-    writer.filepath = "$(base_path)_$(file_suffix)$(ext)"
+    # Determine next file index
+    writer.file_index += 1
+    base_path, ext = splitext(writer.base_filepath)
+    # First rollover goes to _1, then _2, ...
+    writer.filepath = "$(base_path)_$(writer.file_index)$(ext)"
     
     # Reset snapshot counter
     writer.current_snapshot = 0

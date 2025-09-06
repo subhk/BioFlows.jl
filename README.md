@@ -220,13 +220,6 @@ config = create_3d_simulation_config(..., use_mpi = true)
 # mpirun -np 4 julia my_simulation.jl
 ```
 
-## Examples
-
-The `examples/` directory contains comprehensive examples:
-
-- `simple_2d_flow.jl` - Basic 2D flow simulations
-- `simple_3d_flow.jl` - Basic 3D flow simulations  
-- `advanced_features.jl` - Advanced features demonstration
 
 ## Mathematical Formulation
 
