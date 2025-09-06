@@ -1,7 +1,7 @@
 function create_2d_solver(nx::Int, nz::Int, Lx::Float64, Lz::Float64,
                          fluid::FluidProperties, bc::BoundaryConditions;
                          grid_type::GridType=TwoDimensional,
-                         time_scheme::TimeSteppingScheme=RungeKutta3(),
+                         time_scheme::TimeSteppingScheme=RungeKutta2(),
                          use_mpi::Bool=false,
                          origin_x::Float64=0.0, origin_z::Float64=0.0)
     

@@ -1,6 +1,6 @@
 function create_3d_solver(nx::Int, ny::Int, nz::Int, Lx::Float64, Ly::Float64, Lz::Float64,
                          fluid::FluidProperties, bc::BoundaryConditions;
-                         time_scheme::TimeSteppingScheme=RungeKutta3(),
+                         time_scheme::TimeSteppingScheme=RungeKutta2(),
                          use_mpi::Bool=false,
                          origin_x::Float64=0.0, origin_y::Float64=0.0, origin_z::Float64=0.0)
     

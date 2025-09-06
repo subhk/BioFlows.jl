@@ -6,7 +6,7 @@ struct AdamsBashforth <: TimeSteppingScheme
     coefficients::Vector{Float64}
 end
 
-struct RungeKutta3 <: TimeSteppingScheme end
+struct RungeKutta2 <: TimeSteppingScheme end
 
 struct RungeKutta4 <: TimeSteppingScheme end
 
@@ -87,38 +87,27 @@ function adams_bashforth_update!(state_new::SolutionState, state_old::SolutionSt
     state_new.p .= state_old.p
 end
 
-function runge_kutta3_step!(state_new::SolutionState, state_old::SolutionState,
-                           rhs_func::Function, scheme::RungeKutta3,
+function runge_kutta2_step!(state_new::SolutionState, state_old::SolutionState,
+                           rhs_func::Function, scheme::RungeKutta2,
                            dt::Float64, args...)
-    # RK3 coefficients
-    # Stage 1
+    # Heun's method (RK2): average of Euler predictor and corrected slope
+    # k1 at old state
     k1 = rhs_func(state_old, args...)
-    state_temp1 = deepcopy(state_old)
-    state_temp1.u .+= dt .* k1.u
-    state_temp1.v .+= dt .* k1.v
+    # Predictor
+    temp = deepcopy(state_old)
+    temp.u .+= dt .* k1.u
+    temp.v .+= dt .* k1.v
     if !isempty(state_old.w)
-        state_temp1.w .+= dt .* k1.w
+        temp.w .+= dt .* k1.w
     end
-    state_temp1.t = state_old.t + dt
-    
-    # Stage 2
-    k2 = rhs_func(state_temp1, args...)
-    state_temp2 = deepcopy(state_old)
-    state_temp2.u .+= dt .* (0.25 .* k1.u .+ 0.25 .* k2.u)
-    state_temp2.v .+= dt .* (0.25 .* k1.v .+ 0.25 .* k2.v)
-    if !isempty(state_old.w)
-        state_temp2.w .+= dt .* (0.25 .* k1.w .+ 0.25 .* k2.w)
-    end
-    state_temp2.t = state_old.t + 0.5*dt
-    
-    # Stage 3
-    k3 = rhs_func(state_temp2, args...)
-    
+    temp.t = state_old.t + dt
+    # k2 at predicted state
+    k2 = rhs_func(temp, args...)
     # Final update
-    state_new.u .= state_old.u .+ dt .* (k1.u .+ 4.0 .* k3.u) ./ 6.0
-    state_new.v .= state_old.v .+ dt .* (k1.v .+ 4.0 .* k3.v) ./ 6.0
+    state_new.u .= state_old.u .+ 0.5 .* dt .* (k1.u .+ k2.u)
+    state_new.v .= state_old.v .+ 0.5 .* dt .* (k1.v .+ k2.v)
     if !isempty(state_old.w)
-        state_new.w .= state_old.w .+ dt .* (k1.w .+ 4.0 .* k3.w) ./ 6.0
+        state_new.w .= state_old.w .+ 0.5 .* dt .* (k1.w .+ k2.w)
     end
     state_new.p .= state_old.p
     state_new.t = state_old.t + dt
@@ -178,8 +167,8 @@ function time_step!(state_new::SolutionState, state_old::SolutionState,
                    dt::Float64, args...)
     if scheme isa AdamsBashforth
         adams_bashforth_step!(state_new, state_old, rhs_func, scheme, dt, args...)
-    elseif scheme isa RungeKutta3
-        runge_kutta3_step!(state_new, state_old, rhs_func, scheme, dt, args...)
+    elseif scheme isa RungeKutta2
+        runge_kutta2_step!(state_new, state_old, rhs_func, scheme, dt, args...)
     elseif scheme isa RungeKutta4
         runge_kutta4_step!(state_new, state_old, rhs_func, scheme, dt, args...)
     else

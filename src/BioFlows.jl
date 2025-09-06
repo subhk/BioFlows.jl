@@ -88,7 +88,7 @@ export FluidProperties, ConstantDensity, VariableDensity
 export SimulationParameters
 
 # Time stepping exports
-export TimeSteppingScheme, AdamsBashforth, RungeKutta3, RungeKutta4
+export TimeSteppingScheme, AdamsBashforth, RungeKutta2, RungeKutta4
 export time_step!
 
 # Boundary condition exports

@@ -61,7 +61,7 @@ Create configuration for 2D biological flow simulation.
 - `inlet_velocity::Float64 = 1.0`: Inlet velocity
 - `outlet_type::Symbol = :pressure`: Outlet boundary condition (:pressure or :velocity)
 - `wall_type::Symbol = :no_slip`: Wall boundary condition (:no_slip, :free_slip, :periodic)
-- `time_scheme::Symbol = :rk3`: Time stepping scheme (:adams_bashforth, :rk3, :rk4)
+- `time_scheme::Symbol = :rk2`: Time stepping scheme (:adams_bashforth, :rk2, :rk4)
 - `dt::Float64 = 0.01`: Time step size
 - `final_time::Float64 = 10.0`: Final simulation time
 - `use_mpi::Bool = false`: Enable MPI parallelization
@@ -85,7 +85,7 @@ function create_2d_simulation_config(;
     inlet_velocity::Float64 = 1.0,
     outlet_type::Symbol = :pressure,
     wall_type::Symbol = :no_slip,
-    time_scheme::Symbol = :rk3,
+    time_scheme::Symbol = :rk2,
     dt::Float64 = 0.01,
     final_time::Float64 = 10.0,
     use_mpi::Bool = false,
@@ -150,8 +150,8 @@ function create_2d_simulation_config(;
     # Create time stepping scheme
     if time_scheme == :adams_bashforth
         time_scheme_obj = AdamsBashforth()
-    elseif time_scheme == :rk3
-        time_scheme_obj = RungeKutta3()
+    elseif time_scheme == :rk2
+        time_scheme_obj = RungeKutta2()
     elseif time_scheme == :rk4
         time_scheme_obj = RungeKutta4()
     else
@@ -290,7 +290,7 @@ Create configuration for 3D biological flow simulation.
 - `inlet_velocity::Float64 = 1.0`: Inlet velocity
 - `outlet_type::Symbol = :pressure`: Outlet boundary condition (:pressure or :velocity)
 - `wall_type::Symbol = :no_slip`: Wall boundary condition (:no_slip, :free_slip, :periodic)
-- `time_scheme::Symbol = :rk3`: Time stepping scheme (:adams_bashforth, :rk3, :rk4)
+- `time_scheme::Symbol = :rk2`: Time stepping scheme (:adams_bashforth, :rk2, :rk4)
 - `dt::Float64 = 0.01`: Time step size
 - `final_time::Float64 = 10.0`: Final simulation time
 - `use_mpi::Bool = false`: Enable MPI parallelization
@@ -315,7 +315,7 @@ function create_3d_simulation_config(;
     inlet_velocity::Float64 = 1.0,
     outlet_type::Symbol = :pressure,
     wall_type::Symbol = :no_slip,
-    time_scheme::Symbol = :rk3,
+    time_scheme::Symbol = :rk2,
     dt::Float64 = 0.01,
     final_time::Float64 = 10.0,
     use_mpi::Bool = false,
@@ -374,8 +374,8 @@ function create_3d_simulation_config(;
     # Create time stepping scheme
     if time_scheme == :adams_bashforth
         time_scheme_obj = AdamsBashforth()
-    elseif time_scheme == :rk3
-        time_scheme_obj = RungeKutta3()
+    elseif time_scheme == :rk2
+        time_scheme_obj = RungeKutta2()
     elseif time_scheme == :rk4
         time_scheme_obj = RungeKutta4()
     else
