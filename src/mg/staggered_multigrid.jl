@@ -10,6 +10,177 @@ The pressure Poisson equation ∇²φ = ∇·u* is solved with proper staggered 
 - Gradients of φ are computed to face centers for velocity correction
 """
 
+###########################
+# 3D Staggered Multigrid  #
+###########################
+
+mutable struct StaggeredMultiLevelPoisson3D{T}
+    levels::Int
+    φ::Vector{Array{T,3}}
+    r::Vector{Array{T,3}}
+    b::Vector{Array{T,3}}
+    nx::Vector{Int}
+    ny::Vector{Int}
+    nz::Vector{Int}
+    dx::Vector{T}
+    dy::Vector{T}
+    dz::Vector{T}
+    n_smooth::Int
+    tol::T
+    
+    function StaggeredMultiLevelPoisson3D{T}(grid::StaggeredGrid, levels::Int=4; n_smooth::Int=3, tol::T=1e-6) where T
+        @assert grid.grid_type == ThreeDimensional
+        nx_f, ny_f, nz_f = grid.nx, grid.ny, grid.nz
+        dx_f, dy_f, dz_f = grid.dx, grid.dy, grid.dz
+        φL = Vector{Array{T,3}}(undef, levels)
+        rL = Vector{Array{T,3}}(undef, levels)
+        bL = Vector{Array{T,3}}(undef, levels)
+        nxl = Vector{Int}(undef, levels)
+        nyl = Vector{Int}(undef, levels)
+        nzl = Vector{Int}(undef, levels)
+        dxl = Vector{T}(undef, levels)
+        dyl = Vector{T}(undef, levels)
+        dzl = Vector{T}(undef, levels)
+        cx, cy, cz = nx_f, ny_f, nz_f
+        cdx, cdy, cdz = dx_f, dy_f, dz_f
+        for l = 1:levels
+            nxl[l] = cx; nyl[l] = cy; nzl[l] = cz
+            dxl[l] = cdx; dyl[l] = cdy; dzl[l] = cdz
+            φL[l] = zeros(T, cx, cy, cz)
+            rL[l] = zeros(T, cx, cy, cz)
+            bL[l] = zeros(T, cx, cy, cz)
+            if l < levels
+                cx = max(3, cx ÷ 2)
+                cy = max(3, cy ÷ 2)
+                cz = max(3, cz ÷ 2)
+                cdx *= 2; cdy *= 2; cdz *= 2
+            end
+        end
+        new(levels, φL, rL, bL, nxl, nyl, nzl, dxl, dyl, dzl, n_smooth, tol)
+    end
+end
+
+StaggeredMultiLevelPoisson3D(grid::StaggeredGrid, levels::Int=4; kwargs...) =
+    StaggeredMultiLevelPoisson3D{Float64}(grid, levels; kwargs...)
+
+function apply_staggered_pressure_bc_3d!(φ::Array{T,3}) where T
+    nx, ny, nz = size(φ)
+    φ[1, :, :]  .= φ[2, :, :]
+    φ[nx, :, :] .= φ[nx-1, :, :]
+    φ[:, 1, :]  .= φ[:, 2, :]
+    φ[:, ny, :] .= φ[:, ny-1, :]
+    φ[:, :, 1]  .= φ[:, :, 2]
+    φ[:, :, nz] .= φ[:, :, nz-1]
+end
+
+function smooth_staggered_3d!(mg::StaggeredMultiLevelPoisson3D, level::Int; iters::Int=3)
+    φ = mg.φ[level]; b = mg.b[level]
+    nx, ny, nz = mg.nx[level], mg.ny[level], mg.nz[level]
+    invdx2 = 1.0/(mg.dx[level]^2); invdy2 = 1.0/(mg.dy[level]^2); invdz2 = 1.0/(mg.dz[level]^2)
+    denom = 2.0*(invdx2+invdy2+invdz2)
+    for _ = 1:iters
+        for k=2:nz-1, j=2:ny-1, i=2:nx-1
+            φ[i,j,k] = ((φ[i+1,j,k]+φ[i-1,j,k])*invdx2 + (φ[i,j+1,k]+φ[i,j-1,k])*invdy2 + (φ[i,j,k+1]+φ[i,j,k-1])*invdz2 - b[i,j,k]) / denom
+        end
+        apply_staggered_pressure_bc_3d!(φ)
+    end
+end
+
+function compute_residual_3d!(mg::StaggeredMultiLevelPoisson3D, level::Int)
+    φ = mg.φ[level]; b = mg.b[level]; r = mg.r[level]
+    nx, ny, nz = mg.nx[level], mg.ny[level], mg.nz[level]
+    invdx2 = 1.0/(mg.dx[level]^2); invdy2 = 1.0/(mg.dy[level]^2); invdz2 = 1.0/(mg.dz[level]^2)
+    @inbounds for k=2:nz-1, j=2:ny-1, i=2:nx-1
+        lap = invdx2*(φ[i+1,j,k]-2φ[i,j,k]+φ[i-1,j,k]) + invdy2*(φ[i,j+1,k]-2φ[i,j,k]+φ[i,j-1,k]) + invdz2*(φ[i,j,k+1]-2φ[i,j,k]+φ[i,j,k-1])
+        r[i,j,k] = b[i,j,k] - lap
+    end
+    r[1,:,:] .= 0; r[nx,:,:] .= 0; r[:,1,:] .= 0; r[:,ny,:] .= 0; r[:,:,1] .= 0; r[:,:,nz] .= 0
+end
+
+function restrict_full_weighting_3d!(mg::StaggeredMultiLevelPoisson3D, level::Int)
+    r_f = mg.r[level]; b_c = mg.b[level+1]
+    nx_c, ny_c, nz_c = mg.nx[level+1], mg.ny[level+1], mg.nz[level+1]
+    @inbounds for kc=2:nz_c-1, jc=2:ny_c-1, ic=2:nx_c-1
+        i = 2*ic - 1; j = 2*jc - 1; k = 2*kc - 1
+        # Simple average of 2x2x2 block (good enough)
+        s = 0.0
+        for kk in (k-1):(k)
+            for jj in (j-1):(j)
+                for ii in (i-1):(i)
+                    s += r_f[ii,jj,kk]
+                end
+            end
+        end
+        b_c[ic,jc,kc] = s / 8.0
+    end
+    b_c[1,:,:] .= 0; b_c[nx_c,:,:] .= 0; b_c[:,1,:] .= 0; b_c[:,ny_c,:] .= 0; b_c[:,:,1] .= 0; b_c[:,:,nz_c] .= 0
+end
+
+function prolongate_trilinear_and_correct_3d!(mg::StaggeredMultiLevelPoisson3D, level::Int)
+    φ_f = mg.φ[level]; φ_c = mg.φ[level+1]
+    nx_f, ny_f, nz_f = mg.nx[level], mg.ny[level], mg.nz[level]
+    nx_c, ny_c, nz_c = mg.nx[level+1], mg.ny[level+1], mg.nz[level+1]
+    @inbounds for k=2:nz_f-1, j=2:ny_f-1, i=2:nx_f-1
+        x = (i+1.0)/2.0; y = (j+1.0)/2.0; z = (k+1.0)/2.0
+        ic = Int(floor(x)); jc = Int(floor(y)); kc = Int(floor(z))
+        α = x - ic; β = y - jc; γ = z - kc
+        i1 = clamp(ic,1,nx_c); i2 = clamp(ic+1,1,nx_c)
+        j1 = clamp(jc,1,ny_c); j2 = clamp(jc+1,1,ny_c)
+        k1 = clamp(kc,1,nz_c); k2 = clamp(kc+1,1,nz_c)
+        c000 = φ_c[i1,j1,k1]; c100 = φ_c[i2,j1,k1]; c010 = φ_c[i1,j2,k1]; c110 = φ_c[i2,j2,k1]
+        c001 = φ_c[i1,j1,k2]; c101 = φ_c[i2,j1,k2]; c011 = φ_c[i1,j2,k2]; c111 = φ_c[i2,j2,k2]
+        interp = (1-α)*(1-β)*(1-γ)*c000 + α*(1-β)*(1-γ)*c100 + (1-α)*β*(1-γ)*c010 + α*β*(1-γ)*c110 +
+                 (1-α)*(1-β)*γ*c001 + α*(1-β)*γ*c101 + (1-α)*β*γ*c011 + α*β*γ*c111
+        φ_f[i,j,k] += interp
+    end
+end
+
+function v_cycle_3d!(mg::StaggeredMultiLevelPoisson3D, level::Int)
+    # Pre-smooth
+    smooth_staggered_3d!(mg, level; iters=mg.n_smooth)
+    # Residual and restriction
+    if level < mg.levels
+        compute_residual_3d!(mg, level)
+        restrict_full_weighting_3d!(mg, level)
+        # Zero coarse correction
+        fill!(mg.φ[level+1], 0.0)
+        # Recurse
+        v_cycle_3d!(mg, level+1)
+        # Prolongate and correct
+        prolongate_trilinear_and_correct_3d!(mg, level)
+        # Post-smooth
+        smooth_staggered_3d!(mg, level; iters=mg.n_smooth)
+    end
+    apply_staggered_pressure_bc_3d!(mg.φ[level])
+end
+
+function compute_residual_norm_3d(mg::StaggeredMultiLevelPoisson3D, level::Int)
+    r = mg.r[level]
+    return sqrt(sum(r.^2))
+end
+
+function solve_staggered_poisson_3d!(φ::Array{T,3}, rhs::Array{T,3}, mg::StaggeredMultiLevelPoisson3D{T}; max_iter::Int=50) where T
+    mg.φ[1] .= φ
+    mg.b[1] .= rhs
+    # Remove mean from RHS for Neumann solvability
+    mean_rhs = sum(rhs) / length(rhs)
+    mg.b[1] .-= mean_rhs
+    initial_res = Inf
+    for it = 1:max_iter
+        v_cycle_3d!(mg, 1)
+        compute_residual_3d!(mg, 1)
+        res = compute_residual_norm_3d(mg, 1)
+        if it == 1
+            initial_res = res
+        end
+        if res < mg.tol * initial_res
+            break
+        end
+    end
+    φ .= mg.φ[1]
+    apply_staggered_pressure_bc_3d!(φ)
+    return φ
+end
 """
     StaggeredMultiLevelPoisson{T}
 

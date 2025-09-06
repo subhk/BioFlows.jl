@@ -48,6 +48,25 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
                                tolerance::Float64=1e-10,
                                smoother::Symbol=:gauss_seidel,
                                cycle_type::Symbol=:V)
+    # Allow environment overrides for quick tuning
+    levels_env = try parse(Int, get(ENV, "BIOFLOWS_MG_LEVELS", string(levels))) catch; levels end
+    iters_env = try parse(Int, get(ENV, "BIOFLOWS_MG_MAXITER", string(max_iterations))) catch; max_iterations end
+    tol_env    = try parse(Float64, get(ENV, "BIOFLOWS_MG_TOL", string(tolerance))) catch; tolerance end
+    smoother_env = try
+        Symbol(lowercase(get(ENV, "BIOFLOWS_MG_SMOOTHER", string(smoother))))
+    catch
+        smoother
+    end
+    cycle_env = try
+        Symbol(uppercase(get(ENV, "BIOFLOWS_MG_CYCLE", string(cycle_type))))
+    catch
+        cycle_type
+    end
+    levels = levels_env
+    max_iterations = iters_env
+    tolerance = tol_env
+    smoother = smoother_env
+    cycle_type = cycle_env
     
     # Use pure Julia solvers only
     if smoother == :gauss_seidel
@@ -205,12 +224,15 @@ function solve_poisson_3d_custom!(solver::MultigridPoissonSolver, phi::Array{T,3
     rhs_bc = copy(rhs)
     apply_poisson_rhs_bc_3d!(rhs_bc, bc, grid)
     
-    # Use custom Gauss-Seidel solver
-    if solver.mg_solver isa GaussSeidelSolver
-        gauss_seidel_3d!(phi, rhs_bc, grid, 
-                        solver.mg_solver.max_iterations, 
-                        solver.mg_solver.tolerance,
-                        solver.mg_solver.omega)
+    # Use staggered multigrid if requested, otherwise Gauss-Seidel
+    if solver.smoother == :staggered
+        mg = StaggeredMultiLevelPoisson3D(grid, solver.levels; tol=solver.tolerance)
+        solve_staggered_poisson_3d!(phi, rhs_bc, mg; max_iter=solver.max_iterations)
+    elseif solver.mg_solver isa GaussSeidelSolver
+        gauss_seidel_3d!(phi, rhs_bc, grid,
+                         solver.mg_solver.max_iterations,
+                         solver.mg_solver.tolerance,
+                         solver.mg_solver.omega)
     else
         # Use fallback solver
         phi_vec = vec(phi)

@@ -70,7 +70,7 @@ function NavierStokesSolver3D(grid::StaggeredGrid, fluid::FluidProperties,
     rhs_p = zeros(nx, ny, nz)
     
     # Create multigrid solver for optimal performance
-    mg_solver = MultigridPoissonSolver(grid)
+    mg_solver = MultigridPoissonSolver(grid; smoother=:staggered)
     
     NavierStokesSolver3D(grid, fluid, bc, time_scheme, mg_solver, pressure_correction,
                         u_star, v_star, w_star, phi, rhs_p)
