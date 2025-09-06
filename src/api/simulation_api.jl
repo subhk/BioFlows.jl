@@ -751,3 +751,89 @@ function run_bioflow_3d(; kwargs...)
     
     return run_simulation(config, solver, initial_state)
 end
+
+"""
+    run_simulation_mpi_2d(config::SimulationConfig)
+
+Run a 2D MPI simulation end-to-end with diagnostics and global NetCDF output.
+Uses the MPI-aware writer to gather and write snapshots to a single file.
+"""
+function run_simulation_mpi_2d(config::SimulationConfig)
+    @assert config.use_mpi "run_simulation_mpi_2d requires config.use_mpi = true"
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    nprocs = MPI.Comm_size(comm)
+
+    # Create solver and local states
+    solver = create_solver(config)
+    local_old = MPISolutionState2D(solver.decomp)
+    local_new = MPISolutionState2D(solver.decomp)
+
+    # Initialize uniform flow using inlet velocity if available
+    u_init = 0.0
+    try
+        if hasproperty(config.bc, :left) && (config.bc.left isa InletBC)
+            u_init = getfield(config.bc.left, :u)
+        end
+    catch
+        u_init = 0.0
+    end
+    local_old.u .= u_init
+    local_old.v .= 0.0
+    local_old.p .= 0.0
+    local_old.t = 0.0
+    local_old.step = 0
+
+    # Global grid + writer
+    global_grid = StaggeredGrid2D(config.nx, config.nz, config.Lx, config.Lz)
+    writer = NetCDFWriter("$(config.output_config.filename).nc", global_grid, config.output_config)
+    if rank == 0
+        initialize_netcdf_file!(writer)
+        # Annotate metadata
+        NetCDF.putatt(writer.ncfile, "global", Dict(
+            "domain_Lx"=>config.Lx, "domain_Lz"=>config.Lz,
+        ))
+        bodies_for_meta = config.rigid_bodies !== nothing ? config.rigid_bodies : (config.flexible_bodies !== nothing ? config.flexible_bodies : nothing)
+        annotate_bodies_metadata!(writer, bodies_for_meta)
+        println("MPI run with $nprocs ranks: 2D, $(config.nx)x$(config.nz), dt=$(config.dt), T=$(config.final_time)")
+    end
+
+    # Diagnostics and output cadence
+    save_interval = config.output_config.time_interval
+    next_print = save_interval
+    dx = config.Lx / config.nx
+    dz = config.Lz / config.nz
+    t = 0.0
+    step = 0
+
+    while t < config.final_time - 1e-12
+        step += 1
+        dt = min(config.dt, config.final_time - t)
+
+        mpi_solve_step_2d!(solver, local_new, local_old, dt)
+
+        # Swap
+        local_old, local_new = local_new, local_old
+        t += dt
+
+        # Output + diagnostics
+        if t + 1e-12 >= next_print || step % 100 == 0
+            # Global maxima
+            maxu = MPI.Allreduce(maximum(abs, local_old.u), MPI.MAX, comm)
+            maxv = MPI.Allreduce(maximum(abs, local_old.v), MPI.MAX, comm)
+            cfl = max(maxu * dt / dx, maxv * dt / dz)
+            if rank == 0
+                @info "step=$step t=$(round(t, digits=3)) dt=$(round(dt, digits=4)) CFL=$(round(cfl, digits=3)) max|u|=$(round(maxu, digits=3)) max|v|=$(round(maxv, digits=3))"
+            end
+            # Global NetCDF output (auto-detects MPI state)
+            write_solution!(writer, local_old, config.rigid_bodies, global_grid, solver.fluid, t, step)
+            next_print += save_interval
+        end
+    end
+
+    if rank == 0
+        println("MPI simulation complete. Global output written to $(config.output_config.filename).nc")
+    end
+
+    return local_old
+end
