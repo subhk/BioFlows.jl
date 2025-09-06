@@ -20,11 +20,11 @@ using PencilArrays
 include("mpi_optimizations.jl")
 
 """
-    OptimizedMPINavierStokesSolver2D
+    MPINavierStokesSolver2D
 
 Enhanced 2D MPI Navier-Stokes solver with comprehensive parallelism optimizations.
 """
-mutable struct OptimizedMPINavierStokesSolver2D <: AbstractSolver
+mutable struct MPINavierStokesSolver2D <: AbstractSolver
     decomp::MPI2DDecomposition
     local_grid::StaggeredGrid
     fluid::FluidProperties
@@ -33,7 +33,7 @@ mutable struct OptimizedMPINavierStokesSolver2D <: AbstractSolver
     multigrid_solver::Union{MultigridPoissonSolver, Nothing}
     
     # OPTIMIZATION: Pre-allocated persistent buffers
-    mpi_buffers::OptimizedMPIBuffers{Float64,2}
+    mpi_buffers::MPIBuffers{Float64,2}
     load_balancer::LoadBalancingInfo
     comm_overlapper::ComputationCommunicationOverlapper
     
@@ -51,7 +51,7 @@ mutable struct OptimizedMPINavierStokesSolver2D <: AbstractSolver
     local_diffusion_w::Matrix{Float64}  # Fixed: w for z-velocity
 end
 
-function OptimizedMPINavierStokesSolver2D(nx_global::Int, nz_global::Int, 
+function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int, 
                                          Lx::Float64, Lz::Float64,
                                          fluid::FluidProperties, bc::BoundaryConditions,
                                          time_scheme::TimeSteppingScheme;
@@ -65,7 +65,7 @@ function OptimizedMPINavierStokesSolver2D(nx_global::Int, nz_global::Int,
     
     # OPTIMIZATION: Initialize persistent buffers
     grid_dims = (nx_local + 2*decomp.n_ghost, nz_local + 2*decomp.n_ghost)
-    mpi_buffers = OptimizedMPIBuffers{Float64,2}(grid_dims, decomp.n_ghost)
+    mpi_buffers = MPIBuffers{Float64,2}(grid_dims, decomp.n_ghost)
     load_balancer = LoadBalancingInfo()
     comm_overlapper = ComputationCommunicationOverlapper()
     
@@ -85,7 +85,7 @@ function OptimizedMPINavierStokesSolver2D(nx_global::Int, nz_global::Int,
     # Create multigrid solver (pure Julia implementation; works on local subdomain)
     multigrid_solver = MultigridPoissonSolver(local_grid; smoother=:staggered)
     
-    OptimizedMPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme, multigrid_solver,
+    MPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme, multigrid_solver,
                                     mpi_buffers, load_balancer, comm_overlapper,
                                     local_u_star, local_w_star, local_phi, local_rhs_p,
                                     local_div_u, local_advection_u, local_advection_w,
@@ -93,11 +93,11 @@ function OptimizedMPINavierStokesSolver2D(nx_global::Int, nz_global::Int,
 end
 
 """
-    optimized_mpi_solve_step_2d!(solver, state_new, state_old, dt)
+    mpi_solve_step_2d!(solver, state_new, state_old, dt)
 
 Highly optimized MPI solve step with comprehensive performance enhancements.
 """
-function optimized_mpi_solve_step_2d!(solver::OptimizedMPINavierStokesSolver2D, 
+function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D, 
                                      local_state_new::SolutionState,
                                      local_state_old::SolutionState, dt::Float64)
     
