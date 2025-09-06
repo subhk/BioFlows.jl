@@ -605,17 +605,79 @@ end
 
 function compute_body_forces_2d(body::RigidBody, grid::StaggeredGrid, state::SolutionState,
                                fluid::FluidProperties)
-    # This function computes forces and torque on the body due to fluid pressure and viscosity
-    # Implementation would involve surface integration over the body boundary
-    
-    force_x = 0.0
-    force_y = 0.0
-    torque = 0.0
-    
-    # Surface force integration (simplified approach)
-    # In practice, this would use the immersed boundary method results
-    
-    return [force_x, force_y], torque
+    """
+    Compute integrated hydrodynamic force and torque on a rigid body in 2D XZ plane
+    using a simple surface traction integration based on cell-centered fields.
+
+    Returns ([Fx, Fz], Ty) where Ty is out-of-plane torque about the body center.
+    """
+    @assert grid.grid_type == TwoDimensional "compute_body_forces_2d uses XZ-plane convention"
+
+    # Fluid properties and cell-centered gradients
+    ρ = fluid.ρ isa ConstantDensity ? fluid.ρ.ρ : error("Variable density not supported")
+    μ = fluid.μ
+    u_cc = interpolate_u_to_cell_center(state.u, grid)
+    w_cc = interpolate_v_to_cell_center(state.v, grid)  # v stores w in 2D XZ
+    dudx = ddx(u_cc, grid); dudz = ddz(u_cc, grid)
+    dwdx = ddx(w_cc, grid); dwdz = ddz(w_cc, grid)
+
+    # Discretize body boundary
+    boundary_pts = Vector{Vector{Float64}}()
+    if body.shape isa Circle
+        r = (body.shape::Circle).radius
+        npts = max(32, Int(round(2π * r / min(grid.dx, grid.dz))))
+        for k = 1:npts
+            θ = 2π * (k-1) / npts
+            x = body.center[1] + r * cos(θ + body.angle)
+            z = (length(body.center) > 2 ? body.center[3] : body.center[2]) + r * sin(θ + body.angle)
+            push!(boundary_pts, [x, z])
+        end
+    elseif body.shape isa Square
+        side = (body.shape::Square).side_length
+        n_per = max(8, Int(round(side / min(grid.dx, grid.dz))))
+        for s in LinRange(-0.5*side, 0.5*side, n_per)
+            for (lx,lz) in ((s,-0.5*side), (s,0.5*side), (-0.5*side,s), (0.5*side,s))
+                c = cos(body.angle); sθ = sin(body.angle)
+                x = body.center[1] + c*lx - sθ*lz
+                z = (length(body.center) > 2 ? body.center[3] : body.center[2]) + sθ*lx + c*lz
+                push!(boundary_pts, [x,z])
+            end
+        end
+    else
+        # Fallback to a small ring around center
+        push!(boundary_pts, [body.center[1], (length(body.center)>2 ? body.center[3] : body.center[2])])
+    end
+
+    # Accumulate force and torque
+    Fx = 0.0; Fz = 0.0; Ty = 0.0
+    np = length(boundary_pts)
+    clampi(i, lo, hi) = max(lo, min(hi, i))
+    x0 = body.center[1]
+    z0 = (length(body.center) > 2 ? body.center[3] : body.center[2])
+
+    for k = 1:np
+        xk, zk = boundary_pts[k]...; knext = k == np ? 1 : k+1
+        ds = hypot(boundary_pts[knext][1]-xk, boundary_pts[knext][2]-zk)
+        n = surface_normal_xz(body, xk, zk)
+        # Nearest cell
+        ic = clampi(Int(round((xk - grid.x[1]) / grid.dx)) + 1, 1, grid.nx)
+        jc = clampi(Int(round((zk - grid.z[1]) / grid.dz)) + 1, 1, grid.nz)
+        p_loc = state.p[ic, jc]
+        exx = dudx[ic, jc]
+        ezz = dwdz[ic, jc]
+        exz = 0.5 * (dudz[ic, jc] + dwdx[ic, jc])
+        En = [exx*n[1] + exz*n[2], exz*n[1] + ezz*n[2]]
+        # Traction = -p n + 2μ E·n
+        tx = -p_loc * n[1] + 2μ * En[1]
+        tz = -p_loc * n[2] + 2μ * En[2]
+        Fx += tx * ds
+        Fz += tz * ds
+        # Torque about (x0,z0) around y-axis: τ_y = r_x f_z - r_z f_x
+        rx = xk - x0; rz = zk - z0
+        Ty += rx * tz - rz * tx
+    end
+
+    return [Fx, Fz], Ty
 end
 
 function get_body_velocity_at_point(body::RigidBody, x::Float64, y::Float64)
