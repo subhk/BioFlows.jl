@@ -66,13 +66,14 @@ function main()
     add_flexible_body!(flexible_bodies, flag1)
     add_flexible_body!(flexible_bodies, flag2)
     
-    # Create PID controller
+    # Create PID controller with x-distance control (default)
     controller = FlexibleBodyController([flag1, flag2];
                                        base_frequency = 1.5,
                                        kp = 0.6,   # Proportional gain
                                        ki = 0.15,  # Integral gain  
                                        kd = 0.08,  # Derivative gain
-                                       phase_coordination = :synchronized)
+                                       phase_coordination = :synchronized,
+                                       distance_type = :x_distance)  # Horizontal separation control
     
     # Set target distance of 1.5 units (20% increase from initial)
     target_distance = 1.5
@@ -81,6 +82,8 @@ function main()
     
     println("PID Controller configured:")
     println("  Target distance: $(target_distance)")
+    println("  Distance type: $(controller.distance_type) (horizontal separation)")
+    println("  Control points: $(controller.control_points) (leading edges)")
     println("  PID gains: Kp=$(controller.kp), Ki=$(controller.ki), Kd=$(controller.kd)")
     println("  Phase coordination: synchronized")
     
@@ -118,7 +121,7 @@ function main()
         
         # Monitor distance every 100 steps
         if step % 100 == 0
-            current_distance = compute_body_distance(flag1, flag2, :trailing_edge, :trailing_edge)
+            current_distance = compute_body_distance(flag1, flag2, :leading_edge, :leading_edge; distance_type=:x_distance)
             error = abs(target_distance - current_distance)
             
             println("Step $step, t=$(round(current_time, digits=2)): " *
@@ -137,7 +140,7 @@ function main()
     end
     
     # Final distance check
-    final_distance = compute_body_distance(flag1, flag2, :trailing_edge, :trailing_edge)
+    final_distance = compute_body_distance(flag1, flag2, :leading_edge, :leading_edge; distance_type=:x_distance)
     final_error = abs(target_distance - final_distance)
     
     println("\n=== PID Control Results ===")
