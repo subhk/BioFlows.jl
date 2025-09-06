@@ -57,7 +57,7 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     
     # Create staggered velocities for divergence computation
     u_star_staggered = zeros(grid.nx + 1, grid.nz)
-    v_star_staggered = zeros(grid.nx, grid.nz + 1)
+    w_star_staggered = zeros(grid.nx, grid.nz + 1)
     
     # Interpolate back to staggered grid (simplified)
     for j = 1:grid.nz, i = 1:grid.nx+1
@@ -70,14 +70,14 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     
     for j = 1:grid.nz+1, i = 1:grid.nx
         if j <= grid.nz
-            v_star_staggered[i, j] = v_star[i, j]
+            w_star_staggered[i, j] = w_star[i, j]
         else
-            v_star_staggered[i, j] = v_star[i, grid.nz]
+            w_star_staggered[i, j] = w_star[i, grid.nz]
         end
     end
     
     # Compute divergence
-    div_u_star = div(u_star_staggered, v_star_staggered, grid)
+    div_u_star = div(u_star_staggered, w_star_staggered, grid)
     
     # Pressure Poisson RHS
     rhs_pressure = div_u_star / dt
@@ -104,7 +104,7 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     
     # Final velocity
     u_new = u_star - dt * dφdx_cc
-    v_new = v_star - dt * dφdz_cc  # Use dφdz for XZ plane
+    w_new = w_star - dt * dφdz_cc  # Use dφdz for XZ plane
     
     # Step 4: Update pressure
     # p^(n+1) = p^n + φ
@@ -113,13 +113,13 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     
     # Store results (convert back to staggered grid for state)
     state_new.u .= u_star_staggered  # Simplified for demo
-    state_new.v .= v_star_staggered
+    state_new.w .= w_star_staggered
     state_new.p .= p_new
     state_new.t = state_old.t + dt
     state_new.step = state_old.step + 1
     
     # Verify incompressibility
-    final_div = div(state_new.u, state_new.v, grid)
+    final_div = div(state_new.u, state_new.w, grid)
     max_div = maximum(abs.(final_div))
     println("  Final divergence: max|∇·u| = $(max_div)")
     
@@ -144,14 +144,14 @@ function demonstrate_clean_vs_traditional()
         state.u[i, j] = sin(2π * i / grid.nx)
     end
     for j = 1:grid.nz+1, i = 1:grid.nx
-        state.v[i, j] = cos(2π * j / grid.nz)
+        state.w[i, j] = cos(2π * j / grid.nz)
     end
     
     println("\n--- CLEAN APPROACH ---")
     println("# Compute divergence")
-    println("div_u = div(u, v, grid)")
+    println("div_u = div(u, w, grid)")
     
-    div_u_clean = div(state.u, state.v, grid)
+    div_u_clean = div(state.u, state.w, grid)
     println("Result: max|∇·u| = $(maximum(abs.(div_u_clean)))")
     
     println("\n# Compute pressure gradient")

@@ -174,10 +174,10 @@ function compute_optimized_predictor_rhs_2d!(solver::OptimizedMPINavierStokesSol
     
     # OPTIMIZATION: Compute advection and diffusion using pre-allocated arrays
     compute_advection_2d!(solver.local_advection_u, solver.local_advection_w, 
-                         state.u, state.v, grid)
+                         state.u, state.w, grid)
     
     compute_diffusion_2d!(solver.local_diffusion_u, solver.local_diffusion_w,
-                         state.u, state.v, fluid, grid)
+                         state.u, state.w, fluid, grid)
     
     # OPTIMIZATION: Vectorized predictor computation
     @inbounds for j = 1:grid.nz, i = 1:grid.nx+1
@@ -185,7 +185,7 @@ function compute_optimized_predictor_rhs_2d!(solver::OptimizedMPINavierStokesSol
     end
     
     @inbounds for j = 1:grid.nz+1, i = 1:grid.nx
-        solver.local_w_star[i, j] = state.v[i, j] + dt * (-solver.local_advection_w[i, j] + solver.local_diffusion_w[i, j])
+        solver.local_w_star[i, j] = state.w[i, j] + dt * (-solver.local_advection_w[i, j] + solver.local_diffusion_w[i, j])
     end
 end
 
