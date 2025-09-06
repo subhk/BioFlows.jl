@@ -135,7 +135,7 @@ function overlay_bodies!(bodies)
 end
 
 function collect_frames_and_range(files)
-    frames = Vector{Tuple{String,Int}}()
+    frames = Vector{Tuple{String,Int,Float64}}()
     ωmin = Inf; ωmax = -Inf
     for f in files
         nc = NetCDF.open(f)
@@ -144,7 +144,7 @@ function collect_frames_and_range(files)
         for t = 1:nt
             x, z, ω = vorticity_frame(nc, t)
             ωmin = min(ωmin, minimum(ω)); ωmax = max(ωmax, maximum(ω))
-            push!(frames, (f, t))
+            push!(frames, (f, t, time[t]))
         end
         NetCDF.close(nc)
     end
@@ -171,12 +171,13 @@ function main()
     NetCDF.close(nc0)
 
     # Animation
-    anim = @animate for (f, tidx) in frames
+    anim = @animate for (f, tidx, tval) in frames
         nc = NetCDF.open(f)
         x, z, ω = vorticity_frame(nc, tidx)
         NetCDF.close(nc)
+        ttl = @sprintf("Vorticity t=%.3f (%s)", tval, basename(f))
         heatmap(x, z, ω'; aspect_ratio=:equal, color=:balance, clims=crange,
-                xlab="x", ylab="z", title="Vorticity t=$(tidx) file=$(basename(f))")
+                xlab="x", ylab="z", title=ttl)
         overlay_bodies!(bodies)
     end
 
@@ -184,7 +185,14 @@ function main()
     base, _ = splitext(basefile)
     gif(anim, string(base, "_vorticity.gif"); fps=15)
     println("Saved animation: ", string(base, "_vorticity.gif"))
+    # Try MP4 as well if ffmpeg is available
+    try
+        mp4path = string(base, "_vorticity.mp4")
+        mp4(anim, mp4path; fps=30)
+        println("Saved animation: ", mp4path)
+    catch e
+        @warn "Could not save MP4 animation (ffmpeg missing or error): $e"
+    end
 end
 
 main()
-
