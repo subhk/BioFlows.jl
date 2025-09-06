@@ -52,7 +52,7 @@ function main()
     if rank == 0
         # Read and print final Cd/Cl from the coefficients file (if created)
         try
-            coeff_path = outfile |> x->replace(x, ".nc"=>"_coeffs.nc")
+            coeff_path = "cylinder2d_mpi_coeffs.nc"
             if isfile(coeff_path)
                 nc = NetCDF.open(coeff_path)
                 time = NetCDF.readvar(nc, "time")
