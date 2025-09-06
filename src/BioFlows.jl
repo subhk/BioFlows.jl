@@ -14,11 +14,12 @@ module BioFlows
     include("core/differential_operators.jl")
     include("boundary/boundary_conditions.jl")
     include("timestep/time_stepping.jl")
-include("mg/multigrid_solver.jl")
-include("mg/staggered_multigrid.jl")
+    include("mg/multigrid_solver.jl")
+    include("mg/staggered_multigrid.jl")
 
     # Bodies need grids to be defined first, but come before AMR
     include("bodies/rigid_bodies.jl")
+    
     # Flexible body features
     include("bodies/flexible_bodies.jl")
     include("bodies/distance_utilities.jl")

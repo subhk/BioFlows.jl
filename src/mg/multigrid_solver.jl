@@ -53,6 +53,10 @@ function MultigridPoissonSolver(grid::StaggeredGrid;
     if smoother == :gauss_seidel
         mg_solver = GaussSeidelSolver(max_iterations, tolerance)
         solver_type = :gauss_seidel
+    elseif smoother == :staggered
+        # Use staggered multigrid path (2D specialized); still carry a tag
+        mg_solver = GaussSeidelSolver(max_iterations, tolerance)
+        solver_type = :staggered
     else
         mg_solver = SimpleIterativeSolver(max_iterations, tolerance)
         solver_type = :simple
@@ -173,12 +177,15 @@ function solve_poisson_2d_custom!(solver::MultigridPoissonSolver, phi::Matrix, r
     rhs_bc = copy(rhs)
     apply_poisson_rhs_bc_2d!(rhs_bc, bc, grid)
     
-    # Use custom Gauss-Seidel solver
-    if solver.mg_solver isa GaussSeidelSolver
-        gauss_seidel_2d!(phi, rhs_bc, grid, 
-                        solver.mg_solver.max_iterations, 
-                        solver.mg_solver.tolerance,
-                        solver.mg_solver.omega)
+    # Use staggered multigrid if requested, otherwise Gauss-Seidel
+    if solver.solver_type == :staggered
+        mg = StaggeredMultiLevelPoisson(grid, solver.levels; tol=solver.tolerance)
+        solve_staggered_poisson!(phi, rhs_bc, mg; max_iter=solver.max_iterations)
+    elseif solver.mg_solver isa GaussSeidelSolver
+        gauss_seidel_2d!(phi, rhs_bc, grid,
+                         solver.mg_solver.max_iterations,
+                         solver.mg_solver.tolerance,
+                         solver.mg_solver.omega)
     else
         # Use fallback solver
         phi_vec = vec(phi)

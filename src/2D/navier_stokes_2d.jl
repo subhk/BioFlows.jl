@@ -88,7 +88,7 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     # solve_pressure_poisson!(φ, rhs_pressure, grid, bc)
     
     # Use multigrid solver for optimal performance
-    mg_solver = MultigridPoissonSolver(grid)
+    mg_solver = MultigridPoissonSolver(grid; smoother=:staggered)
     solve_poisson!(mg_solver, φ, rhs_pressure, grid, bc)
     
     # Step 3: Velocity correction
