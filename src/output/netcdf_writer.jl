@@ -1417,7 +1417,7 @@ function write_solution!(writer::NetCDFWriter,
         for src in 1:size-1
             hdr = Array{Int}(undef, 4)
             MPI.Recv!(hdr, src, 9100, comm)
-            isrc, iesrc, jsrc, jesrc = hdr...
+            isrc, iesrc, jsrc, jesrc = hdr
             u_count_i = iesrc - isrc + 1 + (iesrc == nxg ? 1 : 0)
             v_count_j = jesrc - jsrc + 1 + (jesrc == nzg ? 1 : 0)
             u_recv = Array{Float64}(undef, u_count_i, jesrc - jsrc + 1)
@@ -1498,7 +1498,7 @@ function write_solution!(writer::NetCDFWriter,
         for src in 1:size-1
             hdr = Array{Int}(undef, 6)
             MPI.Recv!(hdr, src, 9200, comm)
-            isrc, iesrc, jsrc, jesrc, ksrc, kesrc = hdr...
+            isrc, iesrc, jsrc, jesrc, ksrc, kesrc = hdr
             u_count_i = iesrc - isrc + 1 + (iesrc == nxg ? 1 : 0)
             v_count_j = jesrc - jsrc + 1 + (jesrc == nyg ? 1 : 0)
             w_count_k = kesrc - ksrc + 1 + (kesrc == nzg ? 1 : 0)
