@@ -252,6 +252,7 @@ function gauss_seidel_2d!(phi::Matrix{T}, rhs::Matrix{T}, grid::StaggeredGrid{T}
     factor = 1.0 / (2.0 * (1.0/dx2 + 1.0/dz2))
     
     residual = 0.0
+    iter = 0
     for iter = 1:max_iter
         residual = 0.0
         
@@ -274,7 +275,7 @@ function gauss_seidel_2d!(phi::Matrix{T}, rhs::Matrix{T}, grid::StaggeredGrid{T}
         end
     end
     
-    return phi
+    return phi, iter
 end
 
 # Custom 3D Gauss-Seidel solver for Poisson equation  
@@ -286,6 +287,7 @@ function gauss_seidel_3d!(phi::Array{T,3}, rhs::Array{T,3}, grid::StaggeredGrid{
     factor = 1.0 / (2.0 * (1.0/dx2 + 1.0/dy2 + 1.0/dz2))
     
     residual = 0.0
+    iter = 0
     for iter = 1:max_iter
         residual = 0.0
         
@@ -311,7 +313,7 @@ function gauss_seidel_3d!(phi::Array{T,3}, rhs::Array{T,3}, grid::StaggeredGrid{
         end
     end
     
-    return phi
+    return phi, iter
 end
 
 function solve_poisson!(solver::MultigridPoissonSolver, phi::Array, rhs::Array, 
