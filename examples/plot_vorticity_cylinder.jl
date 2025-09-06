@@ -15,7 +15,7 @@ function parse_args()
     end
     filepath = args[1]
     # Defaults
-    tsel = :last
+    tsel = :last  # can be :last, Int index, or Float64 time
     xc = nothing
     zc = nothing
     R = nothing
@@ -29,7 +29,12 @@ function parse_args()
             if val == "last"
                 tsel = :last
             else
-                tsel = parse(Int, val)
+                # Try Int, else Float64
+                try
+                    tsel = parse(Int, val)
+                catch
+                    tsel = parse(Float64, val)
+                end
             end
         elseif arg == "--xc"
             i += 1
@@ -117,7 +122,20 @@ function compute_vorticity_2d(ncfile::String; tsel=:last)
 
     # Select time index
     nt = size(u, ndims(u))
-    tidx = tsel === :last ? nt : Int(tsel)
+    tidx = begin
+        if tsel === :last
+            nt
+        elseif tsel isa Int
+            tsel
+        elseif tsel isa Float64 && time !== nothing
+            # Pick nearest time index (1-based)
+            diffs = abs.(time .- tsel)
+            ind = findmin(diffs)[2]
+            max(ind, 1)
+        else
+            nt
+        end
+    end
     if tidx < 1 || tidx > nt
         NetCDF.close(nc)
         error("Invalid time index $(tidx); file has $(nt) snapshots")
@@ -157,7 +175,64 @@ function plot_vorticity(ncfile::String; tsel=:last, xc::Union{Nothing,Float64}=n
         θ = range(0, 2π, length=200)
         cx = xc .+ R .* cos.(θ)
         cz = zc .+ R .* sin.(θ)
-        plot!(cx, cz, fillrange=zc .+ 0*θ, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
+        plot!(cx, cz, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
+    end
+
+    # Overlay multiple rigid bodies if available from metadata
+    try
+        nc = NetCDF.open(ncfile)
+        nrigid = haskey(nc.atts, ("global","rigid_bodies")) ? NetCDF.readatt(nc, "global", "rigid_bodies") : 0
+        for i in 1:nrigid
+            typ = haskey(nc.atts, ("global","body_$(i)_type")) ? NetCDF.readatt(nc, "global", "body_$(i)_type") : ""
+            if typ == "Circle"
+                cx0 = NetCDF.readatt(nc, "global", "body_$(i)_center_x")
+                cz0 = NetCDF.readatt(nc, "global", "body_$(i)_center_z")
+                r0  = NetCDF.readatt(nc, "global", "body_$(i)_radius")
+                θ = range(0, 2π, length=200)
+                px = cx0 .+ r0 .* cos.(θ)
+                pz = cz0 .+ r0 .* sin.(θ)
+                plot!(px, pz, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
+            elseif typ == "Square"
+                cx0 = NetCDF.readatt(nc, "global", "body_$(i)_center_x")
+                cz0 = NetCDF.readatt(nc, "global", "body_$(i)_center_z")
+                side = NetCDF.readatt(nc, "global", "body_$(i)_side")
+                ang  = haskey(nc.atts, ("global","body_$(i)_angle")) ? NetCDF.readatt(nc, "global", "body_$(i)_angle") : 0.0
+                # Square corners in body frame
+                s = side/2
+                pts = [(-s,-s), (s,-s), (s,s), (-s,s)]
+                cosθ = cos(ang); sinθ = sin(ang)
+                px = Float64[]; pz = Float64[]
+                for (x0,z0) in pts
+                    xr = cosθ*x0 + sinθ*z0
+                    zr = -sinθ*x0 + cosθ*z0
+                    push!(px, cx0 + xr)
+                    push!(pz, cz0 + zr)
+                end
+                push!(px, px[1]); push!(pz, pz[1])
+                plot!(px, pz, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
+            elseif typ == "Rectangle"
+                cx0 = NetCDF.readatt(nc, "global", "body_$(i)_center_x")
+                cz0 = NetCDF.readatt(nc, "global", "body_$(i)_center_z")
+                w   = NetCDF.readatt(nc, "global", "body_$(i)_width")
+                h   = NetCDF.readatt(nc, "global", "body_$(i)_height")
+                ang  = haskey(nc.atts, ("global","body_$(i)_angle")) ? NetCDF.readatt(nc, "global", "body_$(i)_angle") : 0.0
+                s1, s2 = w/2, h/2
+                pts = [(-s1,-s2), (s1,-s2), (s1,s2), (-s1,s2)]
+                cosθ = cos(ang); sinθ = sin(ang)
+                px = Float64[]; pz = Float64[]
+                for (x0,z0) in pts
+                    xr = cosθ*x0 + sinθ*z0
+                    zr = -sinθ*x0 + cosθ*z0
+                    push!(px, cx0 + xr)
+                    push!(pz, cz0 + zr)
+                end
+                push!(px, px[1]); push!(pz, pz[1])
+                plot!(px, pz, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
+            end
+        end
+        NetCDF.close(nc)
+    catch e
+        @warn "Could not overlay rigid bodies: $e"
     end
 
     pngfile = replace(ncfile, ".nc" => "_vorticity.png")
@@ -167,8 +242,37 @@ end
 
 function main()
     filepath, tsel, xc, zc, R = parse_args()
+    # Auto-detect cylinder metadata from NetCDF attributes if not provided
+    if xc === nothing || zc === nothing || R === nothing
+        try
+            nc = NetCDF.open(filepath)
+            cx_att = haskey(nc.atts, ("global","cylinder_x")) ? NetCDF.readatt(nc, "global", "cylinder_x") : nothing
+            cz_att = haskey(nc.atts, ("global","cylinder_z")) ? NetCDF.readatt(nc, "global", "cylinder_z") : nothing
+            cr_att = haskey(nc.atts, ("global","cylinder_radius")) ? NetCDF.readatt(nc, "global", "cylinder_radius") : nothing
+            NetCDF.close(nc)
+            if xc === nothing && cx_att !== nothing; xc = cx_att; end
+            if zc === nothing && cz_att !== nothing; zc = cz_att; end
+            if R === nothing && cr_att !== nothing; R = cr_att; end
+        catch e
+            @warn "Could not read cylinder metadata from file: $e"
+        end
+    end
+    # Fallback: try first rigid body metadata
+    if (xc === nothing || zc === nothing || R === nothing)
+        try
+            nc = NetCDF.open(filepath)
+            typ = haskey(nc.atts, ("global","body_1_type")) ? NetCDF.readatt(nc, "global", "body_1_type") : ""
+            if typ == "Circle"
+                if xc === nothing; xc = NetCDF.readatt(nc, "global", "body_1_center_x"); end
+                if zc === nothing; zc = NetCDF.readatt(nc, "global", "body_1_center_z"); end
+                if R === nothing; R = NetCDF.readatt(nc, "global", "body_1_radius"); end
+            end
+            NetCDF.close(nc)
+        catch e
+            @warn "Could not read rigid body metadata: $e"
+        end
+    end
     plot_vorticity(filepath; tsel=tsel, xc=xc, zc=zc, R=R)
 end
 
 main()
-

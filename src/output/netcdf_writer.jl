@@ -28,6 +28,9 @@ struct NetCDFConfig
     save_force_coefficients::Bool
     reference_velocity::Float64
     flow_direction::Vector{Float64}
+    enable_deflate::Bool
+    deflate_level::Int
+    shuffle_filter::Bool
     
     function NetCDFConfig(filename::String;
                          max_snapshots_per_file::Int = 100,
@@ -38,7 +41,10 @@ struct NetCDFConfig
                          save_body_positions::Bool = true,
                          save_force_coefficients::Bool = true,
                          reference_velocity::Float64 = 1.0,
-                         flow_direction::Vector{Float64} = [1.0, 0.0])
+                         flow_direction::Vector{Float64} = [1.0, 0.0],
+                         enable_deflate::Bool = true,
+                         deflate_level::Int = 4,
+                         shuffle_filter::Bool = true)
         
         if !(save_mode in [:time_interval, :iteration_interval, :both])
             error("save_mode must be :time_interval, :iteration_interval, or :both")
@@ -46,7 +52,60 @@ struct NetCDFConfig
         
         new(filename, max_snapshots_per_file, save_mode, time_interval, iteration_interval,
             save_flow_field, save_body_positions, save_force_coefficients,
-            reference_velocity, flow_direction)
+            reference_velocity, flow_direction, enable_deflate, deflate_level, shuffle_filter)
+    end
+end
+
+"""
+    annotate_bodies_metadata!(writer, bodies)
+
+Attach simple rigid/flexible body metadata as global attributes to help post-processing.
+Currently records basic info for rigid bodies (type, center, size parameters).
+"""
+function annotate_bodies_metadata!(writer::NetCDFWriter,
+                                   bodies::Union{Nothing,RigidBodyCollection,FlexibleBodyCollection})
+    if writer.ncfile === nothing
+        initialize_netcdf_file!(writer)
+    end
+    if bodies === nothing
+        return
+    end
+    nc = writer.ncfile
+    try
+        if bodies isa RigidBodyCollection
+            NetCDF.putatt(nc, "global", "rigid_bodies", bodies.n_bodies)
+            for (i, body) in enumerate(bodies.bodies)
+                NetCDF.putatt(nc, "global", "body_$(i)_angle", body.angle)
+                NetCDF.putatt(nc, "global", "body_$(i)_center_x", body.center[1])
+                # 2D XZ plane: use z as vertical
+                NetCDF.putatt(nc, "global", "body_$(i)_center_z", length(body.center)>1 ? body.center[end] : 0.0)
+                if body.shape isa Circle
+                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Circle")
+                    NetCDF.putatt(nc, "global", "body_$(i)_radius", (body.shape::Circle).radius)
+                    # For convenience, also store canonical single-cylinder keys
+                    if i == 1
+                        NetCDF.putatt(nc, "global", Dict(
+                            "cylinder_x"=>body.center[1],
+                            "cylinder_z"=>length(body.center)>1 ? body.center[end] : 0.0,
+                            "cylinder_radius"=>(body.shape::Circle).radius,
+                        ))
+                    end
+                elseif body.shape isa Square
+                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Square")
+                    NetCDF.putatt(nc, "global", "body_$(i)_side", (body.shape::Square).side_length)
+                elseif body.shape isa Rectangle
+                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Rectangle")
+                    NetCDF.putatt(nc, "global", "body_$(i)_width", (body.shape::Rectangle).width)
+                    NetCDF.putatt(nc, "global", "body_$(i)_height", (body.shape::Rectangle).height)
+                else
+                    NetCDF.putatt(nc, "global", "body_$(i)_type", "Unknown")
+                end
+            end
+        elseif bodies isa FlexibleBodyCollection
+            NetCDF.putatt(nc, "global", "flexible_bodies", bodies.n_bodies)
+        end
+    catch e
+        @warn "Failed to write body metadata: $e"
     end
 end
 
@@ -144,6 +203,28 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
             NetCDF.defVar(ncfile, "p", Float64, ("nx", "nz", "time"))
         end
 
+        # Attempt to apply compression (deflate) if available
+        if writer.config.enable_deflate
+            vars_to_deflate = String[]
+            push!(vars_to_deflate, "u")
+            if is_3d
+                push!(vars_to_deflate, "v")
+                push!(vars_to_deflate, "w")
+            else
+                push!(vars_to_deflate, "w")
+            end
+            push!(vars_to_deflate, "p")
+            try
+                for nm in vars_to_deflate
+                    if haskey(ncfile.vars, nm)
+                        _apply_deflate!(ncfile, nm, writer.config)
+                    end
+                end
+            catch e
+                @warn "Deflate not applied: $e"
+            end
+        end
+
         # Attributes
         NetCDF.putatt(ncfile, "u", Dict("long_name" => "x-velocity", "units" => "m/s"))
         if is_3d
@@ -191,6 +272,31 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
     writer.ncfile = ncfile
     
     return ncfile
+end
+
+# Best-effort compression application compatible with NetCDF.jl variants
+function _apply_deflate!(ncfile::NetCDF.NcFile, varname::String, cfg::NetCDFConfig)
+    # Try common signatures: by var object or by (file, name)
+    if haskey(ncfile.vars, varname)
+        var = ncfile.vars[varname]
+        for f in (Symbol("defVarDeflate"), Symbol("nc_def_var_deflate"))
+            if isdefined(NetCDF, f)
+                try
+                    # Try (var, shuffle, deflate, level)
+                    getproperty(NetCDF, f)(var, cfg.shuffle_filter, true, cfg.deflate_level)
+                    return
+                catch
+                    # Try (ncid, varid, shuffle, deflate, level)
+                    try
+                        getproperty(NetCDF, f)(ncfile.ncid, var.varid, cfg.shuffle_filter, true, cfg.deflate_level)
+                        return
+                    catch
+                    end
+                end
+            end
+        end
+    end
+    # If not available, silently continue
 end
 
 function should_save(writer::NetCDFWriter, current_time::Float64, current_iteration::Int)

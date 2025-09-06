@@ -591,6 +591,21 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
     
     # Initialize output
     writer = NetCDFWriter("$(config.output_config.filename).nc", solver.grid, config.output_config)
+    # Attach domain metadata and body info for plotting/post-processing
+    try
+        # Ensure file exists and has core vars
+        initialize_netcdf_file!(writer)
+        NetCDF.putatt(writer.ncfile, "global", Dict(
+            "domain_Lx"=>solver.grid.Lx,
+            "domain_Lz"=>solver.grid.Lz,
+            "inlet_velocity"=>(config.bc isa BoundaryConditions2D ? (config.bc.left isa InletBC ? (config.bc.left.u) : 0.0) : 0.0),
+        ))
+        # Prefer rigid bodies for geometry; flexible handled with count only
+        bodies_for_meta = config.rigid_bodies !== nothing ? config.rigid_bodies : (config.flexible_bodies !== nothing ? config.flexible_bodies : nothing)
+        annotate_bodies_metadata!(writer, bodies_for_meta)
+    catch e
+        @warn "Could not annotate NetCDF metadata: $e"
+    end
 
     # Initialize adaptive refinement if needed
     refined_grid = nothing

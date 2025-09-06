@@ -3,6 +3,36 @@
 
 using BioFlows
 using MPI
+using NetCDF
+
+# Simple CLI parser for core parameters
+function parse_args()
+    params = Dict{String,Any}(
+        "nx"=>192, "nz"=>96, "Lx"=>6.0, "Lz"=>2.0, "uin"=>1.0,
+        "D"=>0.2, "rho"=>1000.0, "nu"=>0.001, "dt"=>0.002,
+        "tfinal"=>2.0, "save"=>0.05, "outfile"=>"cylinder2d_mpi.nc",
+        "xc"=>1.2, "zc"=>1.0
+    )
+    i = 1
+    while i <= length(ARGS)
+        arg = ARGS[i]
+        if startswith(arg, "--") && i < length(ARGS)
+            key = lowercase(arg[3:end])
+            val = ARGS[i+1]
+            if key in ("nx","nz")
+                params[key] = parse(Int, val)
+            elseif key in ("outfile")
+                params[key] = val
+            elseif key in ("xc","zc","Lx","Lz","uin","D","rho","nu","dt","tfinal","save")
+                params[key] = parse(Float64, val)
+            end
+            i += 2
+        else
+            i += 1
+        end
+    end
+    return params
+end
 
 function main()
     MPI.Init()
@@ -10,17 +40,17 @@ function main()
     rank = MPI.Comm_rank(comm)
     nprocs = MPI.Comm_size(comm)
 
-    # Domain and flow parameters
-    nx, nz = 192, 96          # global grid resolution
-    Lx, Lz = 6.0, 2.0         # domain size
-    Uin = 1.0                 # inlet velocity (m/s)
-    D = 0.2                   # cylinder diameter
-    R = D / 2
-    ρ = 1000.0                # density (kg/m^3)
-    ν = 0.001                 # kinematic viscosity (m^2/s)
-    dt = 0.002                # time step
-    Tfinal = 2.0              # shorter run for demo
-    save_interval = 0.05      # output/print interval
+    # Domain and flow parameters (configurable via CLI)
+    p = parse_args()
+    nx = p["nx"]; nz = p["nz"]
+    Lx = p["Lx"]; Lz = p["Lz"]
+    Uin = p["uin"]
+    D = p["D"]; R = D/2
+    ρ = p["rho"]; ν = p["nu"]
+    dt = p["dt"]
+    Tfinal = p["tfinal"]
+    save_interval = p["save"]
+    outfile = String(p["outfile"])
 
     # Build config for convenience (uses our API to set BCs and fluid)
     config = BioFlows.create_2d_simulation_config(
@@ -39,8 +69,8 @@ function main()
     )
 
     # Add cylinder (global coordinates)
-    xc = 1.2
-    zc = Lz / 2
+    xc = haskey(p, "xc") ? p["xc"] : 1.2
+    zc = haskey(p, "zc") ? p["zc"] : Lz/2
     config = BioFlows.add_rigid_circle!(config, [xc, zc], R)
 
     # Create MPI solver directly from config (returns MPINavierStokesSolver2D)
@@ -70,7 +100,7 @@ function main()
     if rank == 0
         println("MPI run with $nprocs ranks: 2D cylinder, $(nx)x$(nz), dt=$dt, T=$Tfinal")
         global_grid = BioFlows.StaggeredGrid2D(nx, nz, Lx, Lz)
-        writer = BioFlows.NetCDFWriter("cylinder2d_mpi.nc", global_grid,
+        writer = BioFlows.NetCDFWriter(outfile, global_grid,
             BioFlows.NetCDFConfig("cylinder2d_mpi";
                 max_snapshots_per_file=50,
                 save_mode=:time_interval,
@@ -79,6 +109,13 @@ function main()
                 save_flow_field=true,
                 save_body_positions=false,
                 save_force_coefficients=false))
+        # Initialize file now and write cylinder/domain metadata for plotting
+        BioFlows.initialize_netcdf_file!(writer)
+        NetCDF.putatt(writer.ncfile, "global", Dict(
+            "cylinder_x"=>xc, "cylinder_z"=>zc, "cylinder_radius"=>R,
+            "domain_Lx"=>Lx, "domain_Lz"=>Lz,
+            "inlet_velocity"=>Uin, "rho"=>ρ, "nu"=>ν
+        ))
     end
 
     # Helper to gather distributed fields to rank 0 and write
