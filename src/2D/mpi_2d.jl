@@ -791,7 +791,7 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
         local_state_new.u[i, j] = local_state_old.u[i, j] + dt * (-adv_u[i, j] + diff_u[i, j])
     end
     @inbounds for j = 1:nz+1, i = 1:nx
-        local_state_new.v[i, j] = local_state_old.v[i, j] + dt * (-adv_v[i, j] + diff_v[i, j])
+        local_state_new.w[i, j] = local_state_old.w[i, j] + dt * (-adv_v[i, j] + diff_v[i, j])
     end
 
     # Apply BC to predictor and exchange halos before RHS
