@@ -57,7 +57,7 @@ function solve_poisson_amr!(hierarchy::AMRHierarchy, pressure, rhs;
         # 4. Check convergence
         if global_residual < tolerance
             if verbose
-                println("  ✓ Converged in $global_iter iterations")
+                println(" Converged in $global_iter iterations")
             end
             return global_iter
         end
@@ -84,9 +84,9 @@ function solve_levels_downsweep!(hierarchy::AMRHierarchy, pressure, rhs, verbose
             mg_solver = hierarchy.mg_solvers[level]
             
             if verbose && level == 0
-                println("    Solving level $level (base)...")
+                println(" Solving level $level (base)...")
             elseif verbose
-                println("    Solving level $level...")
+                println(" Solving level $level...")
             end
             
             # Use local grid spacing in Laplacian operator
@@ -126,7 +126,7 @@ For pressure, this ensures:
 function apply_interface_conditions!(hierarchy::AMRHierarchy, pressure, verbose::Bool=false)
     
     if verbose
-        println("    Applying interface conditions...")
+        println(" Applying interface conditions...")
     end
     
     # Apply conditions from finest to coarsest
