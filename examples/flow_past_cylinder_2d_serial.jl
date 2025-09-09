@@ -61,25 +61,8 @@ function main()
     println("  Time: dt=$(dt) s, T_final=$(Tfinal) s")
     println()
 
-    # Build simulation configuration with adaptive mesh refinement
-    println("Setting up simulation configuration with adaptive mesh refinement...")
-    
-    config = BioFlows.create_2d_simulation_config(
-        nx=nx, nz=nz,
-        Lx=Lx, Lz=Lz,
-        density_value=ρ,
-        nu=ν,
-        inlet_velocity=Uin,
-        outlet_type=:pressure,
-        wall_type=:no_slip,
-        dt=dt, final_time=Tfinal,
-        use_mpi=false,  # Serial computation
-        adaptive_refinement=true,  # Enable adaptive mesh refinement
-        output_interval=save_interval,
-        output_file="cylinder2d_serial_amr"
-    )
-    
     # Create custom AMR criteria tailored for cylinder flow
+    println("Setting up custom AMR criteria for cylinder flow...")
     custom_amr_criteria = BioFlows.AdaptiveRefinementCriteria(
         velocity_gradient_threshold=amr_velocity_threshold,
         pressure_gradient_threshold=amr_pressure_threshold,
@@ -89,8 +72,44 @@ function main()
         min_grid_size=amr_min_grid_size
     )
     
-    # Replace the default AMR criteria with our custom ones
-    config.refinement_criteria = custom_amr_criteria
+    # Build simulation configuration with adaptive mesh refinement
+    println("Setting up simulation configuration with adaptive mesh refinement...")
+    
+    # First create base config without AMR
+    base_config = BioFlows.create_2d_simulation_config(
+        nx=nx, nz=nz,
+        Lx=Lx, Lz=Lz,
+        density_value=ρ,
+        nu=ν,
+        inlet_velocity=Uin,
+        outlet_type=:pressure,
+        wall_type=:no_slip,
+        dt=dt, final_time=Tfinal,
+        use_mpi=false,  # Serial computation
+        adaptive_refinement=false,  # Will enable below with custom criteria
+        output_interval=save_interval,
+        output_file="cylinder2d_serial_amr"
+    )
+    
+    # Create new config with custom AMR criteria
+    config = BioFlows.SimulationConfig(
+        base_config.grid_type,
+        base_config.nx, base_config.ny, base_config.nz,
+        base_config.Lx, base_config.Ly, base_config.Lz,
+        base_config.origin,
+        base_config.fluid,
+        base_config.bc,
+        base_config.time_scheme,
+        base_config.dt,
+        base_config.final_time,
+        base_config.rigid_bodies,
+        base_config.flexible_bodies,
+        base_config.controller,
+        base_config.use_mpi,
+        true,  # adaptive_refinement = true
+        custom_amr_criteria,  # our custom criteria
+        base_config.output_config
+    )
 
     # Add rigid cylinder obstacle
     println("Adding rigid cylinder: center=($(xc), $(zc)), radius=$(R)")
