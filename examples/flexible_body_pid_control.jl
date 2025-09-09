@@ -150,9 +150,9 @@ function main()
     println("Final amplitudes: [$(round.(updated_amplitudes, digits=4))]")
     
     if final_error < 0.1
-        println("✓ PID control successful!")
+        println("PID control successful!")
     else
-        println("⚠ PID control needs tuning")
+        println("WARNING: PID control needs tuning")
     end
     
     # Monitor PID performance

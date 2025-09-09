@@ -168,11 +168,11 @@ function main()
     println("  Oscillation amplitude: $(round(convergence_quality.oscillation_amplitude, digits=4))")
     
     if convergence_quality.quality == "Excellent"
-        println("  ✓ Adaptive tuning successful!")
+        println("  Adaptive tuning successful!")
     elseif convergence_quality.quality == "Good"
-        println("  ✓ Adaptive tuning effective")
+        println("  Adaptive tuning effective")
     else
-        println("  ⚠ Further tuning may be needed")
+        println("  WARNING: Further tuning may be needed")
     end
     
     return controller, performance_history, gain_history, distance_history

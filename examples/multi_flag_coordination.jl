@@ -159,11 +159,11 @@ function main()
         
         avg_stability = (stability_12 + stability_13 + stability_23) / 3
         if avg_stability < 0.05
-            println("  ✓ Excellent coordination stability!")
+            println("  Excellent coordination stability!")
         elseif avg_stability < 0.1
-            println("  ✓ Good coordination stability")
+            println("  Good coordination stability")
         else
-            println("  ⚠ Coordination needs improvement")
+            println("  WARNING: Coordination needs improvement")
         end
     end
     
@@ -188,11 +188,11 @@ function main()
     println("  Average distance error: $(round(formation_error, digits=4)) ($(round(formation_error_pct, digits=1))%)")
     
     if formation_error_pct < 5.0
-        println("  ✓ Excellent formation control!")
+        println("  Excellent formation control!")
     elseif formation_error_pct < 10.0
-        println("  ✓ Good formation control")
+        println("  Good formation control")
     else
-        println("  ⚠ Formation control needs tuning")
+        println("  WARNING: Formation control needs tuning")
     end
     
     return controller, time_history, distance_history, amplitude_history
