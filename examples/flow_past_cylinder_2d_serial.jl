@@ -17,6 +17,86 @@
 using BioFlows
 using NetCDF
 
+function run_amr_simulation(config::BioFlows.SimulationConfig, amr_solver::BioFlows.AMRIntegratedSolver, initial_state::BioFlows.SolutionState)
+    """
+    Custom simulation loop for AMR-integrated solvers
+    """
+    # Extract grid from base solver
+    base_grid = amr_solver.base_solver.grid
+    
+    # Initialize output writer using base grid (AMR is internal)
+    writer = BioFlows.NetCDFWriter("$(config.output_config.filename).nc", base_grid, config.output_config)
+    
+    # Initialize NetCDF file and add metadata
+    try
+        BioFlows.initialize_netcdf_file!(writer)
+        if writer.ncfile !== nothing
+            BioFlows.NetCDF.putatt(writer.ncfile, "global", Dict(
+                "domain_Lx" => base_grid.Lx,
+                "domain_Lz" => base_grid.Lz,
+                "amr_enabled" => true,
+                "max_refinement_level" => amr_solver.amr_criteria.max_refinement_level
+            ))
+        end
+        # Add body metadata
+        bodies_for_meta = config.rigid_bodies !== nothing ? config.rigid_bodies : config.flexible_bodies
+        if bodies_for_meta !== nothing
+            BioFlows.annotate_bodies_metadata!(writer, bodies_for_meta)
+        end
+    catch e
+        @warn "Could not initialize AMR NetCDF metadata: $e"
+    end
+    
+    # Time-stepping loop
+    dt = config.dt
+    final_time = config.final_time
+    nsteps = round(Int, final_time / dt)
+    
+    state_old = deepcopy(initial_state)
+    state_new = deepcopy(initial_state)
+    
+    println("AMR Time-stepping: $(nsteps) steps, dt=$(dt)s")
+    
+    for step = 1:nsteps
+        t = step * dt
+        state_old.step = step
+        state_old.t = t
+        
+        # AMR solve step (handles grid adaptation internally)
+        BioFlows.amr_solve_step!(amr_solver, state_new, state_old, dt, config.rigid_bodies)
+        
+        # Output progress
+        if step % 100 == 0 || step == nsteps
+            println("  Step $(step)/$(nsteps), t=$(round(t, digits=3))s, AMR cells: $(amr_solver.amr_statistics["current_refined_cells"])")
+        end
+        
+        # Save output (state_new is ensured to be on original grid by AMR solver)
+        try
+            if config.rigid_bodies !== nothing
+                BioFlows.write_solution!(writer, state_new, config.rigid_bodies, base_grid, config.fluid, t, step)
+            else
+                BioFlows.save_snapshot!(writer, state_new, t, step)
+            end
+        catch e
+            if step == 1  # Only warn on first failure to avoid spam
+                @warn "AMR output writing failed: $e"
+            end
+        end
+        
+        # Swap states for next iteration
+        state_old, state_new = state_new, state_old
+    end
+    
+    # Close output file
+    try
+        BioFlows.close_netcdf!(writer)
+    catch e
+        @warn "Could not close NetCDF file: $e"
+    end
+    
+    println("AMR simulation completed!")
+end
+
 function main()
     println("="^60)
     println("FLOW PAST CYLINDER - SERIAL 2D SIMULATION WITH AMR")
@@ -160,7 +240,14 @@ function main()
     end
     
     # Run the simulation (includes enhanced diagnostics and AMR)
-    BioFlows.run_simulation(config, solver, initial_state)
+    if isa(solver, BioFlows.AMRIntegratedSolver)
+        # AMR solver requires custom simulation loop
+        println("Running AMR simulation with custom integration...")
+        run_amr_simulation(config, solver, initial_state)
+    else
+        # Standard solver uses built-in run_simulation
+        BioFlows.run_simulation(config, solver, initial_state)
+    end
 
     # Simulation complete - analyze results
     println()
