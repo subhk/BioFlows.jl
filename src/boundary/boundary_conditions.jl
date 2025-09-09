@@ -41,28 +41,28 @@ function apply_2d_boundaries!(grid::StaggeredGrid, state::SolutionState,
     if haskey(bc.conditions, (:x, :left))
         condition = bc.conditions[(:x, :left)]
         apply_u_boundary!(state.u, condition, 1, :, t, :left)
-        apply_w_boundary!(state.v, condition, 1, :, t, :left)  # v holds vertical velocity (w) in 2D
+        apply_w_boundary!(state.w, condition, 1, :, t, :left)  # w holds vertical velocity in 2D
     end
     
     # Right boundary (x=Lx)
     if haskey(bc.conditions, (:x, :right))
         condition = bc.conditions[(:x, :right)]
         apply_u_boundary!(state.u, condition, nx+1, :, t, :right)
-        apply_w_boundary!(state.v, condition, nx, :, t, :right)
+        apply_w_boundary!(state.w, condition, nx, :, t, :right)
     end
     
     # Bottom boundary (z=0)
     if haskey(bc.conditions, (:z, :bottom))
         condition = bc.conditions[(:z, :bottom)]
         apply_u_boundary!(state.u, condition, :, 1, t, :bottom)
-        apply_w_boundary!(state.v, condition, :, 1, t, :bottom)
+        apply_w_boundary!(state.w, condition, :, 1, t, :bottom)
     end
     
     # Top boundary (z=Lz)
     if haskey(bc.conditions, (:z, :top))
         condition = bc.conditions[(:z, :top)]
         apply_u_boundary!(state.u, condition, :, nz, t, :top)
-        apply_w_boundary!(state.v, condition, :, nz+1, t, :top)
+        apply_w_boundary!(state.w, condition, :, nz+1, t, :top)
     end
 end
 
