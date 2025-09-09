@@ -18,7 +18,12 @@ function main()
     rank = MPI.Comm_rank(comm)
     nprocs = MPI.Comm_size(comm)
 
-    # Print startup message from rank 0
+    # Debug MPI setup
+    println("DEBUG: Process rank=$rank, nprocs=$nprocs, pid=$(getpid())")
+    flush(stdout)
+    MPI.Barrier(comm)  # Synchronize all processes
+    
+    # Print startup message from rank 0 only
     if rank == 0
         println("="^60)
         println("FLOW PAST CYLINDER - MPI 2D SIMULATION")
@@ -26,6 +31,9 @@ function main()
         println("="^60)
         flush(stdout)
     end
+    
+    # Wait for all processes before continuing
+    MPI.Barrier(comm)
 
     # Physical and numerical parameters
     # Domain geometry
