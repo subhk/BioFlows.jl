@@ -451,11 +451,9 @@ function project_w_top_face!(output_state::SolutionState, local_solution, local_
     
     # Conservative average velocity - assign to correct field
     if total_area > 0.0
-        # Assign to w-velocity field if it exists and has nonzero size; otherwise use v (2D convention)
-        if hasfield(typeof(output_state), :w) && size(output_state.w, 1) > 0 && j_base + 1 <= size(output_state.w, 2)
+        # Assign to w-velocity field (2D XZ plane uses w for vertical velocity)
+        if hasfield(typeof(output_state), :w) && j_base + 1 <= size(output_state.w, 2)
             output_state.w[i_base, j_base + 1] = weighted_flux / total_area
-        elseif hasfield(typeof(output_state), :v) && j_base + 1 <= size(output_state.v, 2)
-            output_state.v[i_base, j_base + 1] = weighted_flux / total_area
         end
     end
 end
@@ -475,9 +473,9 @@ function validate_conservation_2d(output_state::SolutionState, refined_grid::Ref
     for j = 1:nz, i = 1:nx
         # Divergence at cell (i,j)
         dudx = (output_state.u[i+1, j] - output_state.u[i, j]) / dx
-        dvdz = (output_state.v[i, j+1] - output_state.v[i, j]) / dz  # v represents w in XZ
+        dwdz = (output_state.w[i, j+1] - output_state.w[i, j]) / dz  # w is z-velocity in XZ plane
         
-        divergence = dudx + dvdz
+        divergence = dudx + dwdz
         total_mass_error += abs(divergence)
     end
     
@@ -605,13 +603,13 @@ function write_2d_amr_to_base_grid!(base_solution::SolutionState,
                 base_solution.u[i_base, j_base] = u_local_avg
             end
             
-            # Average v-velocity (w in XZ plane, at z-faces)
-            v_local_avg = sum(local_solution.v) / length(local_solution.v)
-            if i_base <= size(base_solution.v, 1) && j_base+1 <= size(base_solution.v, 2)
-                base_solution.v[i_base, j_base+1] = v_local_avg
+            # Average w-velocity (z-direction in XZ plane, at z-faces)
+            w_local_avg = sum(local_solution.w) / length(local_solution.w)
+            if i_base <= size(base_solution.w, 1) && j_base+1 <= size(base_solution.w, 2)
+                base_solution.w[i_base, j_base+1] = w_local_avg
             end
-            if i_base <= size(base_solution.v, 1) && j_base <= size(base_solution.v, 2)
-                base_solution.v[i_base, j_base] = v_local_avg
+            if i_base <= size(base_solution.w, 1) && j_base <= size(base_solution.w, 2)
+                base_solution.w[i_base, j_base] = w_local_avg
             end
             
             # Average pressure (at cell centers)

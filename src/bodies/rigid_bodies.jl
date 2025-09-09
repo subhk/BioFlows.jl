@@ -620,7 +620,7 @@ function compute_body_forces_2d(body::RigidBody, grid::StaggeredGrid, state::Sol
     ρ = fluid.ρ isa ConstantDensity ? fluid.ρ.ρ : error("Variable density not supported")
     μ = fluid.μ
     u_cc = interpolate_u_to_cell_center(state.u, grid)
-    w_cc = interpolate_v_to_cell_center(state.v, grid)  # v stores w in 2D XZ
+    w_cc = interpolate_v_to_cell_center(state.w, grid)  # w is z-velocity in 2D XZ
     dudx = ddx(u_cc, grid); dudz = ddz(u_cc, grid)
     dwdx = ddx(w_cc, grid); dwdz = ddz(w_cc, grid)
 
