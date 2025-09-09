@@ -13,7 +13,7 @@ function main()
     nprocs = MPI.Comm_size(comm)
 
     # Fixed domain and flow parameters
-    nx, nz = 192, 96
+    nx, nz = 144, 48
     Lx, Lz = 6.0, 2.0
     Uin = 1.0
     D = 0.2; 

@@ -806,6 +806,20 @@ function run_simulation_mpi_2d(config::SimulationConfig)
     t = 0.0
     step = 0
 
+    # Initial simulation info
+    if rank == 0
+        println("="^60)
+        println("STARTING MPI 2D SIMULATION")
+        println("Grid: $(config.nx) x $(config.nz) (total: $(config.nx * config.nz) cells)")
+        println("Domain: $(config.Lx) x $(config.Lz)")
+        println("Resolution: dx=$(round(dx, digits=6)), dz=$(round(dz, digits=6))")
+        println("Time: dt=$(config.dt), T_final=$(config.final_time)")
+        println("MPI ranks: $nprocs")
+        println("Output interval: $save_interval (time units)")
+        println("="^60)
+        flush(stdout)
+    end
+
     while t < config.final_time - 1e-12
         step += 1
         dt = min(config.dt, config.final_time - t)
@@ -816,14 +830,29 @@ function run_simulation_mpi_2d(config::SimulationConfig)
         local_old, local_new = local_new, local_old
         t += dt
 
-        # Output + diagnostics
-        if t + 1e-12 >= next_print || step % 100 == 0
-            # Global maxima
+        # Frequent diagnostics every 50 steps
+        if step % 50 == 0
+            # Global maxima for diagnostics
             maxu = MPI.Allreduce(maximum(abs, local_old.u), MPI.MAX, comm)
             maxw = MPI.Allreduce(maximum(abs, local_old.w), MPI.MAX, comm)
             cfl = max(maxu * dt / dx, maxw * dt / dz)
             if rank == 0
-                @info "step=$step t=$(round(t, digits=3)) dt=$(round(dt, digits=4)) CFL=$(round(cfl, digits=3)) max|u|=$(round(maxu, digits=3)) max|w|=$(round(maxw, digits=3))"
+                println("DIAG: iter=$step t=$(round(t, digits=4)) dt=$(round(dt, digits=6)) CFL=$(round(cfl, digits=4)) max|u|=$(round(maxu, digits=4)) max|w|=$(round(maxw, digits=4))")
+            end
+        end
+
+        # Output + detailed diagnostics
+        if t + 1e-12 >= next_print
+            # Global maxima for output
+            maxu = MPI.Allreduce(maximum(abs, local_old.u), MPI.MAX, comm)
+            maxw = MPI.Allreduce(maximum(abs, local_old.w), MPI.MAX, comm)
+            cfl = max(maxu * dt / dx, maxw * dt / dz)
+            if rank == 0
+                println("="^60)
+                println("OUTPUT: iter=$step t=$(round(t, digits=4)) dt=$(round(dt, digits=6))")
+                println("        CFL=$(round(cfl, digits=4)) max|u|=$(round(maxu, digits=4)) max|w|=$(round(maxw, digits=4))")
+                println("        Progress: $(round(100*t/config.final_time, digits=1))% complete")
+                println("="^60)
             end
             # Global NetCDF output (auto-detects MPI state)
             write_solution!(writer, local_old, config.rigid_bodies, global_grid, solver.fluid, t, step)
@@ -831,8 +860,25 @@ function run_simulation_mpi_2d(config::SimulationConfig)
         end
     end
 
+    # Final simulation summary
     if rank == 0
-        println("MPI simulation complete. Global output written to $(config.output_config.filename).nc")
+        final_maxu = MPI.Allreduce(maximum(abs, local_old.u), MPI.MAX, comm)
+        final_maxw = MPI.Allreduce(maximum(abs, local_old.w), MPI.MAX, comm)
+        final_cfl = max(final_maxu * dt / dx, final_maxw * dt / dz)
+        
+        println("="^60)
+        println("MPI 2D SIMULATION COMPLETE")
+        println("Final time: $(round(t, digits=4)) / $(config.final_time)")
+        println("Total iterations: $step")
+        println("Final CFL: $(round(final_cfl, digits=4))")
+        println("Final max|u|: $(round(final_maxu, digits=4))")
+        println("Final max|w|: $(round(final_maxw, digits=4))")
+        println("Output written to: $(config.output_config.filename).nc")
+        println("="^60)
+    else
+        # Other ranks still need to participate in the MPI.Allreduce calls
+        MPI.Allreduce(maximum(abs, local_old.u), MPI.MAX, comm)
+        MPI.Allreduce(maximum(abs, local_old.w), MPI.MAX, comm)
     end
 
     return local_old

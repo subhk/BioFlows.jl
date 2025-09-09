@@ -320,7 +320,7 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition,
     j_end = decomp.j_local_end
     
     # Left-Right exchange (x-direction)
-    if decomp.left_rank != MPI.MPI_PROC_NULL
+    if decomp.left_rank != MPI.PROC_NULL
         # Pack data to send to left neighbor (leftmost interior columns)
         idx = 0
         for j = j_start:j_end
@@ -336,7 +336,7 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition,
         push!(requests, req_send, req_recv)
     end
     
-    if decomp.right_rank != MPI.MPI_PROC_NULL
+    if decomp.right_rank != MPI.PROC_NULL
         # Pack data to send to right neighbor (rightmost interior columns)
         idx = 0
         for j = j_start:j_end
@@ -353,7 +353,7 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition,
     end
     
     # Bottom-Top exchange (y-direction)
-    if decomp.bottom_rank != MPI.MPI_PROC_NULL
+    if decomp.bottom_rank != MPI.PROC_NULL
         # Pack data to send to bottom neighbor (bottom interior rows, including ghost columns)
         idx = 0
         for j = j_start:j_start+n_ghost-1
@@ -369,7 +369,7 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition,
         push!(requests, req_send, req_recv)
     end
     
-    if decomp.top_rank != MPI.MPI_PROC_NULL
+    if decomp.top_rank != MPI.PROC_NULL
         # Pack data to send to top neighbor (top interior rows, including ghost columns)
         idx = 0
         for j = j_end-n_ghost+1:j_end
@@ -389,7 +389,7 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition,
     MPI.Waitall(requests)
     
     # Unpack received data into ghost cells
-    if decomp.left_rank != MPI.MPI_PROC_NULL
+    if decomp.left_rank != MPI.PROC_NULL
         # Unpack from left neighbor into left ghost cells
         idx = 0
         for j = j_start:j_end
@@ -400,7 +400,7 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition,
         end
     end
     
-    if decomp.right_rank != MPI.MPI_PROC_NULL
+    if decomp.right_rank != MPI.PROC_NULL
         # Unpack from right neighbor into right ghost cells
         idx = 0
         for j = j_start:j_end
@@ -411,7 +411,7 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition,
         end
     end
     
-    if decomp.bottom_rank != MPI.MPI_PROC_NULL
+    if decomp.bottom_rank != MPI.PROC_NULL
         # Unpack from bottom neighbor into bottom ghost cells
         idx = 0
         for j = 1:n_ghost
@@ -422,7 +422,7 @@ function exchange_ghost_cells_2d!(decomp::MPI2DDecomposition,
         end
     end
     
-    if decomp.top_rank != MPI.MPI_PROC_NULL
+    if decomp.top_rank != MPI.PROC_NULL
         # Unpack from top neighbor into top ghost cells
         idx = 0
         for j = nz_g-n_ghost+1:nz_g
@@ -476,7 +476,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition,
     end
     
     # Left-Right exchange with optimized packing
-    if decomp.left_rank != MPI.MPI_PROC_NULL
+    if decomp.left_rank != MPI.PROC_NULL
         # OPTIMIZATION: Vectorized packing using view slicing
         send_buf = decomp.send_buffers[:left_u]
         recv_buf = decomp.recv_buffers[:left_u]
@@ -494,7 +494,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition,
         push!(requests, req_send, req_recv)
     end
     
-    if decomp.right_rank != MPI.MPI_PROC_NULL
+    if decomp.right_rank != MPI.PROC_NULL
         # OPTIMIZATION: Use pre-allocated buffers and vectorized packing
         send_buf = decomp.send_buffers[:right_u]
         recv_buf = decomp.recv_buffers[:right_u]
@@ -516,7 +516,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition,
     end
     
     # Bottom-Top exchange (full width including ghost x-columns)
-    if decomp.bottom_rank != MPI.MPI_PROC_NULL
+    if decomp.bottom_rank != MPI.PROC_NULL
         send_buffer = zeros(n_ghost * nx_g)
         idx = 0
         for j = j_start:j_start+n_ghost-1
@@ -534,7 +534,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition,
         decomp.recv_buffers[:bottom_u] = recv_buffer
     end
     
-    if decomp.top_rank != MPI.MPI_PROC_NULL
+    if decomp.top_rank != MPI.PROC_NULL
         send_buffer = zeros(n_ghost * nx_g)
         idx = 0
         for j = j_end-n_ghost+1:j_end
@@ -556,7 +556,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition,
     MPI.Waitall(requests)
     
     # Unpack received data into ghost cells
-    if decomp.left_rank != MPI.MPI_PROC_NULL && haskey(decomp.recv_buffers, :left_u)
+    if decomp.left_rank != MPI.PROC_NULL && haskey(decomp.recv_buffers, :left_u)
         idx = 0
         for j = j_start:j_end
             for i = 1:n_ghost
@@ -566,7 +566,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition,
         end
     end
     
-    if decomp.right_rank != MPI.MPI_PROC_NULL && haskey(decomp.recv_buffers, :right_u)
+    if decomp.right_rank != MPI.PROC_NULL && haskey(decomp.recv_buffers, :right_u)
         idx = 0
         for j = j_start:j_end
             for i = nx_g-n_ghost+1:nx_g
@@ -576,7 +576,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition,
         end
     end
     
-    if decomp.bottom_rank != MPI.MPI_PROC_NULL && haskey(decomp.recv_buffers, :bottom_u)
+    if decomp.bottom_rank != MPI.PROC_NULL && haskey(decomp.recv_buffers, :bottom_u)
         idx = 0
         for j = 1:n_ghost
             for i = 1:nx_g
@@ -586,7 +586,7 @@ function exchange_ghost_cells_staggered_u_2d!(decomp::MPI2DDecomposition,
         end
     end
     
-    if decomp.top_rank != MPI.MPI_PROC_NULL && haskey(decomp.recv_buffers, :top_u)
+    if decomp.top_rank != MPI.PROC_NULL && haskey(decomp.recv_buffers, :top_u)
         idx = 0
         for j = nz_g-n_ghost+1:nz_g
             for i = 1:nx_g

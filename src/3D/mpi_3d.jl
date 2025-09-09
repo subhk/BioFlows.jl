@@ -316,7 +316,7 @@ function exchange_ghost_cells_3d!(decomp::MPI3DDecomposition, field::Union{Array
     requests = MPI.Request[]
     
     # X-direction exchange (left-right)
-    if decomp.left_rank != MPI.MPI_PROC_NULL
+    if decomp.left_rank != MPI.PROC_NULL
         decomp.send_buffers[:left] .= field[1, :, :]
         req = MPI.Isend(decomp.send_buffers[:left], decomp.left_rank, 0, decomp.comm)
         push!(requests, req)
@@ -325,7 +325,7 @@ function exchange_ghost_cells_3d!(decomp::MPI3DDecomposition, field::Union{Array
         push!(requests, req)
     end
     
-    if decomp.right_rank != MPI.MPI_PROC_NULL
+    if decomp.right_rank != MPI.PROC_NULL
         decomp.send_buffers[:right] .= field[end, :, :]
         req = MPI.Isend(decomp.send_buffers[:right], decomp.right_rank, 1, decomp.comm)
         push!(requests, req)
@@ -335,7 +335,7 @@ function exchange_ghost_cells_3d!(decomp::MPI3DDecomposition, field::Union{Array
     end
     
     # Y-direction exchange (bottom-top)
-    if decomp.bottom_rank != MPI.MPI_PROC_NULL
+    if decomp.bottom_rank != MPI.PROC_NULL
         decomp.send_buffers[:bottom] .= field[:, 1, :]
         req = MPI.Isend(decomp.send_buffers[:bottom], decomp.bottom_rank, 2, decomp.comm)
         push!(requests, req)
@@ -344,7 +344,7 @@ function exchange_ghost_cells_3d!(decomp::MPI3DDecomposition, field::Union{Array
         push!(requests, req)
     end
     
-    if decomp.top_rank != MPI.MPI_PROC_NULL
+    if decomp.top_rank != MPI.PROC_NULL
         decomp.send_buffers[:top] .= field[:, end, :]
         req = MPI.Isend(decomp.send_buffers[:top], decomp.top_rank, 3, decomp.comm)
         push!(requests, req)
@@ -354,7 +354,7 @@ function exchange_ghost_cells_3d!(decomp::MPI3DDecomposition, field::Union{Array
     end
     
     # Z-direction exchange (front-back)
-    if decomp.front_rank != MPI.MPI_PROC_NULL
+    if decomp.front_rank != MPI.PROC_NULL
         decomp.send_buffers[:front] .= field[:, :, 1]
         req = MPI.Isend(decomp.send_buffers[:front], decomp.front_rank, 4, decomp.comm)
         push!(requests, req)
@@ -363,7 +363,7 @@ function exchange_ghost_cells_3d!(decomp::MPI3DDecomposition, field::Union{Array
         push!(requests, req)
     end
     
-    if decomp.back_rank != MPI.MPI_PROC_NULL
+    if decomp.back_rank != MPI.PROC_NULL
         decomp.send_buffers[:back] .= field[:, :, end]
         req = MPI.Isend(decomp.send_buffers[:back], decomp.back_rank, 5, decomp.comm)
         push!(requests, req)

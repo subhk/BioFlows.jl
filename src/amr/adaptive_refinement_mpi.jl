@@ -78,7 +78,7 @@ function get_neighbor_ranks(decomp::MPI2DDecomposition)
     
     # Add valid neighbors (not MPI_PROC_NULL)
     for rank in [decomp.left_rank, decomp.right_rank, decomp.bottom_rank, decomp.top_rank]
-        if rank != MPI.MPI_PROC_NULL && rank ∉ neighbors
+        if rank != MPI.PROC_NULL && rank ∉ neighbors
             push!(neighbors, rank)
         end
     end
@@ -91,7 +91,7 @@ function get_neighbor_ranks(decomp::MPI3DDecomposition)
     
     for rank in [decomp.left_rank, decomp.right_rank, decomp.bottom_rank, 
                 decomp.top_rank, decomp.front_rank, decomp.back_rank]
-        if rank != MPI.MPI_PROC_NULL && rank ∉ neighbors
+        if rank != MPI.PROC_NULL && rank ∉ neighbors
             push!(neighbors, rank)
         end
     end

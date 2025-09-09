@@ -105,7 +105,7 @@ function ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::MPIBuffers{T,2}) 
     buffers.active_requests = 0
     
     # X-direction exchange with vectorized packing
-    if decomp.left_rank != MPI.MPI_PROC_NULL
+    if decomp.left_rank != MPI.PROC_NULL
         # Pack left boundary efficiently
         @inbounds for j = 1:nz_local
             for i = 1:n_ghost
@@ -123,7 +123,7 @@ function ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::MPIBuffers{T,2}) 
             buffers.recv_x_left, decomp.left_rank, 101, decomp.comm)
     end
     
-    if decomp.right_rank != MPI.MPI_PROC_NULL
+    if decomp.right_rank != MPI.PROC_NULL
         # Pack right boundary efficiently
         @inbounds for j = 1:nz_local
             for i = 1:n_ghost
@@ -142,7 +142,7 @@ function ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::MPIBuffers{T,2}) 
     end
     
     # Y-direction exchange
-    if decomp.bottom_rank != MPI.MPI_PROC_NULL
+    if decomp.bottom_rank != MPI.PROC_NULL
         # Pack bottom boundary efficiently
         @inbounds for i = 1:nx_local
             for j = 1:n_ghost
@@ -159,7 +159,7 @@ function ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::MPIBuffers{T,2}) 
             buffers.recv_y_bottom, decomp.bottom_rank, 103, decomp.comm)
     end
     
-    if decomp.top_rank != MPI.MPI_PROC_NULL
+    if decomp.top_rank != MPI.PROC_NULL
         # Pack top boundary efficiently
         @inbounds for i = 1:nx_local
             for j = 1:n_ghost
@@ -182,7 +182,7 @@ function ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::MPIBuffers{T,2}) 
     end
     
     # Unpack received data efficiently
-    if decomp.left_rank != MPI.MPI_PROC_NULL
+    if decomp.left_rank != MPI.PROC_NULL
         @inbounds for j = 1:nz_local
             for i = 1:n_ghost
                 field[i, j] = buffers.recv_x_left[(j-1)*n_ghost + i]
@@ -190,7 +190,7 @@ function ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::MPIBuffers{T,2}) 
         end
     end
     
-    if decomp.right_rank != MPI.MPI_PROC_NULL
+    if decomp.right_rank != MPI.PROC_NULL
         @inbounds for j = 1:nz_local
             for i = 1:n_ghost
                 field[nx_local - n_ghost + i, j] = buffers.recv_x_right[(j-1)*n_ghost + i]
@@ -198,7 +198,7 @@ function ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::MPIBuffers{T,2}) 
         end
     end
     
-    if decomp.bottom_rank != MPI.MPI_PROC_NULL
+    if decomp.bottom_rank != MPI.PROC_NULL
         @inbounds for i = 1:nx_local
             for j = 1:n_ghost
                 field[i, j] = buffers.recv_y_bottom[(i-1)*n_ghost + j]
@@ -206,7 +206,7 @@ function ghost_exchange_2d!(field::Matrix{T}, decomp, buffers::MPIBuffers{T,2}) 
         end
     end
     
-    if decomp.top_rank != MPI.MPI_PROC_NULL
+    if decomp.top_rank != MPI.PROC_NULL
         @inbounds for i = 1:nx_local
             for j = 1:n_ghost
                 field[i, nz_local - n_ghost + j] = buffers.recv_y_top[(i-1)*n_ghost + j]
