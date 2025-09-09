@@ -120,18 +120,18 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
     # Define coordinate variables and dims for flow-field saving
     ncfile = NetCDF.create(writer.filepath)
     # Core dims
-    NetCDF.ncdimdef(ncfile, "nx", nx)
+    NetCDF.ncdimdef(ncfile.ncid, "nx", nx)
     if is_3d
-        NetCDF.ncdimdef(ncfile, "ny", ny)
+        NetCDF.ncdimdef(ncfile.ncid, "ny", ny)
     end
-    NetCDF.ncdimdef(ncfile, "nz", nz)
-    NetCDF.ncdimdef(ncfile, "time", writer.config.max_snapshots_per_file)
+    NetCDF.ncdimdef(ncfile.ncid, "nz", nz)
+    NetCDF.ncdimdef(ncfile.ncid, "time", writer.config.max_snapshots_per_file)
     # Staggered dims
-    NetCDF.ncdimdef(ncfile, "nx_u", nx + 1)
+    NetCDF.ncdimdef(ncfile.ncid, "nx_u", nx + 1)
     if is_3d
-        NetCDF.ncdimdef(ncfile, "ny_v", ny + 1)
+        NetCDF.ncdimdef(ncfile.ncid, "ny_v", ny + 1)
     end
-    NetCDF.ncdimdef(ncfile, "nz_w", nz + 1)
+    NetCDF.ncdimdef(ncfile.ncid, "nz_w", nz + 1)
 
     # Coordinate vars
     NetCDF.defvar(ncfile, "x", Float64, ("nx",))
@@ -673,7 +673,7 @@ function save_flexible_body_positions!(writer::NetCDFWriter,
         if !haskey(writer.ncfile.vars, pos_x_var)
             dim_name = "n_points_body_$(body_id)"
             if !haskey(writer.ncfile.dim, dim_name)
-                NetCDF.ncdimdef(writer.ncfile, dim_name, body.n_points)
+                NetCDF.ncdimdef(writer.ncfile.ncid, dim_name, body.n_points)
             end
             NetCDF.defvar(writer.ncfile, pos_x_var, Float64, (dim_name, "time"))
             NetCDF.defvar(writer.ncfile, pos_z_var, Float64, (dim_name, "time"))
