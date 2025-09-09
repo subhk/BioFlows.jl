@@ -155,20 +155,30 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
         return ncfile
     end
 
-    # Coordinate vars
-    NetCDF.defvar(ncfile, "x", Float64, ("nx",))
-    if is_3d
-        NetCDF.defvar(ncfile, "y", Float64, ("ny",))
+    # Coordinate vars - wrap in try-catch
+    try
+        NetCDF.defvar(ncfile, "x", Float64, ("nx",))
+        if is_3d
+            NetCDF.defvar(ncfile, "y", Float64, ("ny",))
+        end
+        NetCDF.defvar(ncfile, "z", Float64, ("nz",))
+        NetCDF.defvar(ncfile, "time", Float64, ("time",))
+    catch e
+        @warn "Failed to define coordinate variables: $e"
+        # Continue with minimal file
     end
-    NetCDF.defvar(ncfile, "z", Float64, ("nz",))
-    NetCDF.defvar(ncfile, "time", Float64, ("time",))
 
-    # Staggered coordinate vars
-    NetCDF.defvar(ncfile, "xu", Float64, ("nx_u",))
-    if is_3d
-        NetCDF.defvar(ncfile, "yv", Float64, ("ny_v",))
+    # Staggered coordinate vars - wrap in try-catch
+    try
+        NetCDF.defvar(ncfile, "xu", Float64, ("nx_u",))
+        if is_3d
+            NetCDF.defvar(ncfile, "yv", Float64, ("ny_v",))
+        end
+        NetCDF.defvar(ncfile, "zw", Float64, ("nz_w",))
+    catch e
+        @warn "Failed to define staggered coordinate variables: $e"
+        # Continue with minimal file
     end
-    NetCDF.defvar(ncfile, "zw", Float64, ("nz_w",))
 
     # Flow-field vars
     if writer.config.save_flow_field
