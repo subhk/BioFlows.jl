@@ -1,18 +1,25 @@
-# Flow past a 2D cylinder using serial computation
+# Flow past a 2D cylinder using serial computation with adaptive mesh refinement
 # Run with: julia --project examples/flow_past_cylinder_2d_serial.jl
 #
 # This example demonstrates:
-# - Serial 2D flow simulation
+# - Serial 2D flow simulation with adaptive mesh refinement (AMR)
 # - Flow around a rigid circular cylinder
-# - Enhanced diagnostic output showing iteration progress
+# - AMR-based grid refinement for improved accuracy near the cylinder
+# - Enhanced diagnostic output showing AMR statistics and iteration progress  
 # - Automatic calculation of drag/lift coefficients
+#
+# AMR Features:
+# - Automatic refinement based on velocity gradients, pressure gradients, vorticity, and distance to bodies
+# - Up to 3 levels of refinement (configurable)
+# - Refinement checking every 5 time steps for optimal performance
+# - Comprehensive AMR performance statistics and timing
 
 using BioFlows
 using NetCDF
 
 function main()
     println("="^60)
-    println("FLOW PAST CYLINDER - SERIAL 2D SIMULATION")
+    println("FLOW PAST CYLINDER - SERIAL 2D SIMULATION WITH AMR")
     println("="^60)
 
     # Physical and numerical parameters
@@ -36,6 +43,14 @@ function main()
     Tfinal = 2.0               # Final simulation time [s]
     save_interval = 0.1        # Output saving interval [s]
     
+    # AMR Parameters (tuned for cylinder flow)
+    amr_velocity_threshold = 2.0      # Velocity gradient threshold for refinement
+    amr_pressure_threshold = 100.0    # Pressure gradient threshold [Pa/m]
+    amr_vorticity_threshold = 10.0    # Vorticity threshold [1/s]
+    amr_body_distance = 0.3           # Distance from body for auto-refinement [m]
+    amr_max_levels = 3                # Maximum refinement levels
+    amr_min_grid_size = 0.002         # Minimum grid size [m]
+    
     # Calculate Reynolds number for reference
     Re = Uin * D / ν
     println("Physical parameters:")
@@ -46,8 +61,8 @@ function main()
     println("  Time: dt=$(dt) s, T_final=$(Tfinal) s")
     println()
 
-    # Build simulation configuration
-    println("Setting up simulation configuration...")
+    # Build simulation configuration with adaptive mesh refinement
+    println("Setting up simulation configuration with adaptive mesh refinement...")
     
     config = BioFlows.create_2d_simulation_config(
         nx=nx, nz=nz,
@@ -59,26 +74,73 @@ function main()
         wall_type=:no_slip,
         dt=dt, final_time=Tfinal,
         use_mpi=false,  # Serial computation
-        adaptive_refinement=false,
+        adaptive_refinement=true,  # Enable adaptive mesh refinement
         output_interval=save_interval,
-        output_file="cylinder2d_serial"
+        output_file="cylinder2d_serial_amr"
     )
+    
+    # Create custom AMR criteria tailored for cylinder flow
+    custom_amr_criteria = BioFlows.AdaptiveRefinementCriteria(
+        velocity_gradient_threshold=amr_velocity_threshold,
+        pressure_gradient_threshold=amr_pressure_threshold,
+        vorticity_threshold=amr_vorticity_threshold,
+        body_distance_threshold=amr_body_distance,
+        max_refinement_level=amr_max_levels,
+        min_grid_size=amr_min_grid_size
+    )
+    
+    # Replace the default AMR criteria with our custom ones
+    config.refinement_criteria = custom_amr_criteria
 
     # Add rigid cylinder obstacle
     println("Adding rigid cylinder: center=($(xc), $(zc)), radius=$(R)")
     config = BioFlows.add_rigid_circle!(config, [xc, zc], R)
 
-    # Start the serial simulation
+    # Display AMR configuration
     println()
-    println("Starting serial 2D simulation...")
-    println("Expected output: cylinder2d_serial.nc and cylinder2d_serial_coeffs.nc")
+    println("Adaptive Mesh Refinement (AMR) Configuration:")
+    println("  AMR enabled: $(config.adaptive_refinement)")
+    if config.adaptive_refinement && config.refinement_criteria !== nothing
+        criteria = config.refinement_criteria
+        println("  Max refinement levels: $(criteria.max_refinement_level)")
+        println("  Velocity gradient threshold: $(criteria.velocity_gradient_threshold)")
+        println("  Pressure gradient threshold: $(criteria.pressure_gradient_threshold)")
+        println("  Vorticity threshold: $(criteria.vorticity_threshold)")
+        println("  Body distance threshold: $(criteria.body_distance_threshold) m")
+        println("  Minimum grid size: $(criteria.min_grid_size) m")
+    end
+
+    # Start the serial simulation with AMR
+    println()
+    println("Starting serial 2D simulation with adaptive mesh refinement...")
+    println("Expected output: cylinder2d_serial_amr.nc and cylinder2d_serial_amr_coeffs.nc")
     println("="^60)
     
     # Create solver and initialize simulation state
-    solver = BioFlows.create_solver(config)
+    base_solver = BioFlows.create_solver(config)
     initial_state = BioFlows.initialize_simulation(config)
     
-    # Run the simulation (includes enhanced diagnostics)
+    # Create AMR-integrated solver if AMR is enabled
+    if config.adaptive_refinement && config.refinement_criteria !== nothing
+        println("Initializing AMR-integrated solver...")
+        # Create AMR solver with tuned parameters for cylinder flow
+        amr_solver = BioFlows.create_amr_integrated_solver(base_solver, config.refinement_criteria; 
+                                                          amr_frequency=5)  # Check for refinement every 5 steps
+        
+        # Validate AMR integration
+        if BioFlows.validate_amr_integration(amr_solver)
+            println("AMR integration validated successfully!")
+            solver = amr_solver
+        else
+            @warn "AMR integration validation failed, continuing with base solver"
+            solver = base_solver
+        end
+    else
+        println("Using base solver (AMR disabled)")
+        solver = base_solver
+    end
+    
+    # Run the simulation (includes enhanced diagnostics and AMR)
     BioFlows.run_simulation(config, solver, initial_state)
 
     # Simulation complete - analyze results
@@ -87,9 +149,16 @@ function main()
     println("SIMULATION COMPLETE")
     println("="^60)
     
+    # Display AMR performance summary if AMR was used
+    if config.adaptive_refinement && config.refinement_criteria !== nothing && isa(solver, BioFlows.AMRIntegratedSolver)
+        println("AMR Performance Summary:")
+        BioFlows.print_amr_summary(solver)
+        println()
+    end
+    
     # Read and display final drag/lift coefficients
     try
-        coeff_path = "cylinder2d_serial_coeffs.nc"
+        coeff_path = "cylinder2d_serial_amr_coeffs.nc"
         if isfile(coeff_path)
             nc = NetCDF.open(coeff_path)
             time = NetCDF.readvar(nc, "time")
@@ -108,7 +177,7 @@ function main()
             println("  Final lift coefficient: Cl = $(round(Cl_last, digits=4))")
             println()
             println("Output files created:")
-            println("  Flow field: cylinder2d_serial.nc")
+            println("  Flow field: cylinder2d_serial_amr.nc")
             println("  Force coefficients: $(coeff_path)")
             
             # Basic flow regime assessment
@@ -123,7 +192,7 @@ function main()
             
         else
             @warn "Coefficient file not found: $(coeff_path)"
-            println("Flow field output: cylinder2d_serial.nc")
+            println("Flow field output: cylinder2d_serial_amr.nc")
         end
     catch e
         @warn "Could not read coefficient data: $e"

@@ -123,7 +123,13 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
     end
 
     # Define coordinate variables and dims for flow-field saving
-    ncfile = NetCDF.create(writer.filepath)
+    try
+        ncfile = NetCDF.create(writer.filepath)
+    catch e
+        @warn "Cannot create NetCDF file: $e. Disabling NetCDF output."
+        writer.ncfile = nothing
+        return nothing
+    end
     
     # Core dims - wrap in try-catch to handle NetCDF errors gracefully
     try
@@ -148,11 +154,17 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
         end
         
         # Create a minimal NetCDF file with just time dimension
-        tdim = NetCDF.NcDim("time", writer.config.max_snapshots_per_file)
-        timevar = NetCDF.NcVar("time", [tdim]; t=Float64)
-        ncfile = NetCDF.create(writer.filepath, timevar)
-        writer.ncfile = ncfile
-        return ncfile
+        try
+            tdim = NetCDF.NcDim("time", writer.config.max_snapshots_per_file)
+            timevar = NetCDF.NcVar("time", [tdim]; t=Float64)
+            ncfile = NetCDF.create(writer.filepath, timevar)
+            writer.ncfile = ncfile
+            return ncfile
+        catch e
+            @warn "Cannot create NetCDF file due to permissions: $e. Disabling NetCDF output."
+            writer.ncfile = nothing
+            return nothing
+        end
     end
 
     # Coordinate vars - wrap in try-catch
@@ -370,6 +382,10 @@ end
 function save_snapshot!(writer::NetCDFWriter, state::SolutionState, current_time::Float64, current_iteration::Int)
     if writer.ncfile === nothing
         initialize_netcdf_file!(writer)
+        # If initialization failed, skip NetCDF output
+        if writer.ncfile === nothing
+            return false
+        end
     end
     
     # Check if we should save
