@@ -97,6 +97,11 @@ mutable struct NetCDFWriter
 end
 
 function initialize_netcdf_file!(writer::NetCDFWriter)
+    # Return if already initialized
+    if writer.ncfile !== nothing
+        return writer.ncfile
+    end
+    
     # Create NetCDF file with appropriate dimensions and variables
     nx = writer.grid.nx
     is_3d = writer.grid.grid_type == ThreeDimensional
@@ -226,6 +231,9 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
         "time_interval" => writer.config.time_interval,
         "iteration_interval" => writer.config.iteration_interval
     ))
+    
+    # End define mode to allow data writing
+    NetCDF.enddef(ncfile)
     
     # Store file handle
     writer.ncfile = ncfile
@@ -673,10 +681,32 @@ function save_flexible_body_positions!(writer::NetCDFWriter,
         if !haskey(writer.ncfile.vars, pos_x_var)
             dim_name = "n_points_body_$(body_id)"
             if !haskey(writer.ncfile.dim, dim_name)
-                NetCDF.ncdimdef(writer.ncfile.ncid, dim_name, body.n_points)
+                try
+                    # Try to put file back in define mode if needed
+                    try
+                        NetCDF.redef(writer.ncfile.ncid)
+                    catch
+                        # Already in define mode or can't redefine
+                    end
+                    NetCDF.ncdimdef(writer.ncfile.ncid, dim_name, body.n_points)
+                catch e
+                    @warn "Could not define NetCDF dimension $dim_name: $e"
+                    return  # Skip this body if we can't define dimensions
+                end
             end
-            NetCDF.defvar(writer.ncfile, pos_x_var, Float64, (dim_name, "time"))
-            NetCDF.defvar(writer.ncfile, pos_z_var, Float64, (dim_name, "time"))
+            try
+                NetCDF.defvar(writer.ncfile, pos_x_var, Float64, (dim_name, "time"))
+                NetCDF.defvar(writer.ncfile, pos_z_var, Float64, (dim_name, "time"))
+                # End define mode again after adding variables
+                try
+                    NetCDF.enddef(writer.ncfile.ncid)
+                catch
+                    # Already in data mode
+                end
+            catch e
+                @warn "Could not define NetCDF variables for body $body_id: $e"
+                return  # Skip this body if we can't define variables
+            end
 
             NetCDF.putatt(writer.ncfile, pos_x_var, Dict(
                 "long_name" => "Flexible body $(body_id) x-coordinates",
