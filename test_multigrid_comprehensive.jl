@@ -28,7 +28,7 @@ function test_basic_multigrid_creation()
         @assert solver.max_iterations == 50 "Max iterations should be 50"
         @assert solver.tolerance == 1e-6 "Tolerance should be 1e-6"
         
-        println("✓ Multi-grid solver creation successful")
+        println("Multi-grid solver creation successful")
         println("  Levels: $(solver.levels)")
         println("  Solver type: $(solver.solver_type)")
         println("  Max iterations: $(solver.max_iterations)")
@@ -124,7 +124,7 @@ function test_2d_poisson_solve()
         @assert rms_error < 1.5 "RMS error should be reasonable for finite difference"
         @assert maximum(abs.(phi_adjusted)) > 0.01 "Solution should be non-trivial"
         
-        println("✓ 2D Poisson solve successful")
+        println("2D Poisson solve successful")
         return true
         
     catch e
@@ -202,7 +202,7 @@ function test_3d_poisson_solve()
         @assert max_error < 1.0 "Maximum error should be reasonable for 3D finite difference"
         @assert rms_error < 0.5 "RMS error should be reasonable for 3D finite difference"
         
-        println("✓ 3D Poisson solve successful")
+        println("3D Poisson solve successful")
         return true
         
     catch e
@@ -257,7 +257,7 @@ function test_convergence_behavior()
             @assert isfinite(solution_norm) "Solution should be finite"
         end
         
-        println("✓ Multi-grid convergence behavior verified")
+        println("Multi-grid convergence behavior verified")
         return true
         
     catch e
@@ -319,7 +319,7 @@ function test_different_grid_levels()
             @assert isfinite(solution_norm) "Solution should be finite"
         end
         
-        println("✓ Different multi-grid levels tested successfully")
+        println("Different multi-grid levels tested successfully")
         return true
         
     catch e
