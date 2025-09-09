@@ -124,19 +124,36 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
 
     # Define coordinate variables and dims for flow-field saving
     ncfile = NetCDF.create(writer.filepath)
-    # Core dims
-    NetCDF.ncdimdef(ncfile.ncid, "nx", nx)
-    if is_3d
-        NetCDF.ncdimdef(ncfile.ncid, "ny", ny)
+    
+    # Core dims - wrap in try-catch to handle NetCDF errors gracefully
+    try
+        NetCDF.ncdimdef(ncfile.ncid, "nx", nx)
+        if is_3d
+            NetCDF.ncdimdef(ncfile.ncid, "ny", ny)
+        end
+        NetCDF.ncdimdef(ncfile.ncid, "nz", nz)
+        NetCDF.ncdimdef(ncfile.ncid, "time", writer.config.max_snapshots_per_file)
+        # Staggered dims
+        NetCDF.ncdimdef(ncfile.ncid, "nx_u", nx + 1)
+        if is_3d
+            NetCDF.ncdimdef(ncfile.ncid, "ny_v", ny + 1)
+        end
+        NetCDF.ncdimdef(ncfile.ncid, "nz_w", nz + 1)
+    catch e
+        @warn "Failed to define NetCDF dimensions: $e. Creating minimal file structure."
+        # Close the problematic file and create a minimal one
+        try
+            NetCDF.close(ncfile)
+        catch
+        end
+        
+        # Create a minimal NetCDF file with just time dimension
+        tdim = NetCDF.NcDim("time", writer.config.max_snapshots_per_file)
+        timevar = NetCDF.NcVar("time", [tdim]; t=Float64)
+        ncfile = NetCDF.create(writer.filepath, timevar)
+        writer.ncfile = ncfile
+        return ncfile
     end
-    NetCDF.ncdimdef(ncfile.ncid, "nz", nz)
-    NetCDF.ncdimdef(ncfile.ncid, "time", writer.config.max_snapshots_per_file)
-    # Staggered dims
-    NetCDF.ncdimdef(ncfile.ncid, "nx_u", nx + 1)
-    if is_3d
-        NetCDF.ncdimdef(ncfile.ncid, "ny_v", ny + 1)
-    end
-    NetCDF.ncdimdef(ncfile.ncid, "nz_w", nz + 1)
 
     # Coordinate vars
     NetCDF.defvar(ncfile, "x", Float64, ("nx",))
