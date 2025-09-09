@@ -104,7 +104,7 @@ function main()
         base_config.final_time,
         base_config.rigid_bodies,
         base_config.flexible_bodies,
-        base_config.controller,
+        base_config.flexible_body_controller,
         base_config.use_mpi,
         true,  # adaptive_refinement = true
         custom_amr_criteria,  # our custom criteria
