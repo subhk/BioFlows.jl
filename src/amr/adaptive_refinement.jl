@@ -401,7 +401,7 @@ function refine_cells_2d!(refined_grid::RefinedGrid, cells_to_refine::Vector{Tup
         # Compute interpolation weights for coupling with base grid
         compute_interpolation_weights_2d!(refined_grid, (i, j), local_grid)
         
-        println("Refined 2D cell ($i, $j) to level $new_level")
+        # Refined 2D cell ($i, $j) to level $new_level (verbose output disabled)
     end
 end
 
