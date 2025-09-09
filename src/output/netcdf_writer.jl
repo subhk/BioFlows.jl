@@ -226,19 +226,28 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
             NetCDF.putatt(ncfile, "w", Dict("long_name" => "vertical velocity (z)", "units" => "m/s"))
         end
         NetCDF.putatt(ncfile, "p", Dict("long_name" => "pressure", "units" => "Pa"))
+        catch e
+            @warn "Failed to define flow field variables: $e"
+            # Continue without flow field variables
+        end
     end
 
-    # Write coordinate data
-    NetCDF.putvar(ncfile, "x", writer.grid.x)
-    if is_3d
-        NetCDF.putvar(ncfile, "y", writer.grid.y)
+    # Write coordinate data - wrap in try-catch
+    try
+        NetCDF.putvar(ncfile, "x", writer.grid.x)
+        if is_3d
+            NetCDF.putvar(ncfile, "y", writer.grid.y)
+        end
+        NetCDF.putvar(ncfile, "z", writer.grid.z)
+        NetCDF.putvar(ncfile, "xu", writer.grid.xu)
+        if is_3d
+            NetCDF.putvar(ncfile, "yv", writer.grid.yv)
+        end
+        NetCDF.putvar(ncfile, "zw", writer.grid.zw)
+    catch e
+        @warn "Failed to write coordinate data: $e"
+        # Continue without coordinate data
     end
-    NetCDF.putvar(ncfile, "z", writer.grid.z)
-    NetCDF.putvar(ncfile, "xu", writer.grid.xu)
-    if is_3d
-        NetCDF.putvar(ncfile, "yv", writer.grid.yv)
-    end
-    NetCDF.putvar(ncfile, "zw", writer.grid.zw)
     
     # Add global attributes
     NetCDF.putatt(ncfile, "global", Dict(
