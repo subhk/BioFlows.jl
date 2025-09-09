@@ -11,6 +11,24 @@ using BioFlows
 using MPI
 using NetCDF
 
+function safe_print_once(section::String, print_func::Function)
+    """Print only once across all MPI processes, even when MPI is broken"""
+    lock_file = ".mpi_print_$(section)_lock"
+    try
+        if !isfile(lock_file)
+            # Try to create lock file atomically
+            io = open(lock_file, "w")
+            write(io, string(getpid()))
+            close(io)
+            print_func()
+            return true
+        end
+    catch
+        # If file creation fails, another process got there first
+        return false
+    end
+    return false
+end
 
 function main()
     MPI.Init()
@@ -18,22 +36,16 @@ function main()
     rank = MPI.Comm_rank(comm)
     nprocs = MPI.Comm_size(comm)
 
-    # Debug MPI setup
-    println("DEBUG: Process rank=$rank, nprocs=$nprocs, pid=$(getpid())")
-    flush(stdout)
-    MPI.Barrier(comm)  # Synchronize all processes
-    
-    # Print startup message from rank 0 only
+    # Print startup message from rank 0 only 
     if rank == 0
-        println("="^60)
-        println("FLOW PAST CYLINDER - MPI 2D SIMULATION")
-        println("Running on $nprocs MPI ranks")
-        println("="^60)
-        flush(stdout)
+        safe_print_once("header") do
+            println("="^60)
+            println("FLOW PAST CYLINDER - MPI 2D SIMULATION")
+            println("Running on $nprocs MPI ranks")
+            println("="^60)
+            flush(stdout)
+        end
     end
-    
-    # Wait for all processes before continuing
-    MPI.Barrier(comm)
 
     # Physical and numerical parameters
     # Domain geometry
@@ -59,20 +71,24 @@ function main()
     # Calculate Reynolds number for reference
     Re = Uin * D / ν
     if rank == 0
-        println("Physical parameters:")
-        println("  Reynolds number: Re = U*D/ν = $(round(Re, digits=1))")
-        println("  Grid resolution: $(nx)×$(nz) = $(nx*nz) cells")
-        println("  Domain size: $(Lx)×$(Lz) m")
-        println("  Cylinder: D=$(D) m at ($(xc), $(zc))")
-        println("  Time: dt=$(dt) s, T_final=$(Tfinal) s")
-        println()
-        flush(stdout)
+        safe_print_once("params") do
+            println("Physical parameters:")
+            println("  Reynolds number: Re = U*D/ν = $(round(Re, digits=1))")
+            println("  Grid resolution: $(nx)×$(nz) = $(nx*nz) cells")
+            println("  Domain size: $(Lx)×$(Lz) m")
+            println("  Cylinder: D=$(D) m at ($(xc), $(zc))")
+            println("  Time: dt=$(dt) s, T_final=$(Tfinal) s")
+            println()
+            flush(stdout)
+        end
     end
 
     # Build simulation configuration
     if rank == 0
-        println("Setting up simulation configuration...")
-        flush(stdout)
+        safe_print_once("config") do
+            println("Setting up simulation configuration...")
+            flush(stdout)
+        end
     end
     
     config = BioFlows.create_2d_simulation_config(
@@ -92,19 +108,23 @@ function main()
 
     # Add rigid cylinder obstacle
     if rank == 0
-        println("Adding rigid cylinder: center=($(xc), $(zc)), radius=$(R)")
-        flush(stdout)
+        safe_print_once("cylinder") do
+            println("Adding rigid cylinder: center=($(xc), $(zc)), radius=$(R)")
+            flush(stdout)
+        end
     end
     config = BioFlows.add_rigid_circle!(config, [xc, zc], R)
     bodies = config.rigid_bodies  # keep a handle for output
 
     # Start the MPI parallel simulation
     if rank == 0
-        println()
-        println("Starting MPI 2D simulation...")
-        println("Expected output: cylinder2d_mpi.nc and cylinder2d_mpi_coeffs.nc")
-        println("="^60)
-        flush(stdout)
+        safe_print_once("simulation") do
+            println()
+            println("Starting MPI 2D simulation...")
+            println("Expected output: cylinder2d_mpi.nc and cylinder2d_mpi_coeffs.nc")
+            println("="^60)
+            flush(stdout)
+        end
     end
     
     # Run the simulation (includes enhanced diagnostics)
