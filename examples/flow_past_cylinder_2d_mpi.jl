@@ -11,21 +11,11 @@ using BioFlows
 using MPI
 using NetCDF
 
-function safe_print_once(section::String, print_func::Function)
-    """Print only once across all MPI processes, even when MPI is broken"""
-    lock_file = ".mpi_print_$(section)_lock"
-    try
-        if !isfile(lock_file)
-            # Try to create lock file atomically
-            io = open(lock_file, "w")
-            write(io, string(getpid()))
-            close(io)
-            print_func()
-            return true
-        end
-    catch
-        # If file creation fails, another process got there first
-        return false
+function safe_print_once(section::String, print_func::Function, rank::Int)
+    """Print only from rank 0 process"""
+    if rank == 0
+        print_func()
+        return true
     end
     return false
 end
@@ -37,15 +27,13 @@ function main()
     nprocs = MPI.Comm_size(comm)
 
     # Print startup message from rank 0 only 
-    if rank == 0
-        safe_print_once("header") do
-            println("="^60)
-            println("FLOW PAST CYLINDER - MPI 2D SIMULATION")
-            println("Running on $nprocs MPI ranks")
-            println("="^60)
-            flush(stdout)
-        end
-    end
+    safe_print_once("header", () -> begin
+        println("="^60)
+        println("FLOW PAST CYLINDER - MPI 2D SIMULATION")
+        println("Running on $nprocs MPI ranks")
+        println("="^60)
+        flush(stdout)
+    end, rank)
 
     # Physical and numerical parameters
     # Domain geometry
@@ -70,26 +58,22 @@ function main()
     
     # Calculate Reynolds number for reference
     Re = Uin * D / ν
-    if rank == 0
-        safe_print_once("params") do
-            println("Physical parameters:")
-            println("  Reynolds number: Re = U*D/ν = $(round(Re, digits=1))")
-            println("  Grid resolution: $(nx)×$(nz) = $(nx*nz) cells")
-            println("  Domain size: $(Lx)×$(Lz) m")
-            println("  Cylinder: D=$(D) m at ($(xc), $(zc))")
-            println("  Time: dt=$(dt) s, T_final=$(Tfinal) s")
-            println()
-            flush(stdout)
-        end
-    end
+    safe_print_once("params", () -> begin
+        println("Physical parameters:")
+        println("  Reynolds number: Re = U*D/ν = $(round(Re, digits=1))")
+        println("  Grid resolution: $(nx)×$(nz) = $(nx*nz) cells")
+        println("  Domain size: $(Lx)×$(Lz) m")
+        println("  Cylinder: D=$(D) m at ($(xc), $(zc))")
+        println("  Time: dt=$(dt) s, T_final=$(Tfinal) s")
+        println()
+        flush(stdout)
+    end, rank)
 
     # Build simulation configuration
-    if rank == 0
-        safe_print_once("config") do
-            println("Setting up simulation configuration...")
-            flush(stdout)
-        end
-    end
+    safe_print_once("config", () -> begin
+        println("Setting up simulation configuration...")
+        flush(stdout)
+    end, rank)
     
     config = BioFlows.create_2d_simulation_config(
         nx=nx, nz=nz,
@@ -107,25 +91,21 @@ function main()
     )
 
     # Add rigid cylinder obstacle
-    if rank == 0
-        safe_print_once("cylinder") do
-            println("Adding rigid cylinder: center=($(xc), $(zc)), radius=$(R)")
-            flush(stdout)
-        end
-    end
+    safe_print_once("cylinder", () -> begin
+        println("Adding rigid cylinder: center=($(xc), $(zc)), radius=$(R)")
+        flush(stdout)
+    end, rank)
     config = BioFlows.add_rigid_circle!(config, [xc, zc], R)
     bodies = config.rigid_bodies  # keep a handle for output
 
     # Start the MPI parallel simulation
-    if rank == 0
-        safe_print_once("simulation") do
-            println()
-            println("Starting MPI 2D simulation...")
-            println("Expected output: cylinder2d_mpi.nc and cylinder2d_mpi_coeffs.nc")
-            println("="^60)
-            flush(stdout)
-        end
-    end
+    safe_print_once("simulation", () -> begin
+        println()
+        println("Starting MPI 2D simulation...")
+        println("Expected output: cylinder2d_mpi.nc and cylinder2d_mpi_coeffs.nc")
+        println("="^60)
+        flush(stdout)
+    end, rank)
     
     # Run the simulation (includes enhanced diagnostics)
     BioFlows.run_simulation_mpi_2d(config)
@@ -181,7 +161,18 @@ function main()
         
         println("="^60)
         flush(stdout)
+        
+        # Clean up lock files
+        for section in ["header", "params", "config", "cylinder", "simulation"]
+            lock_file = ".mpi_print_$(section)_lock"
+            if isfile(lock_file)
+                rm(lock_file, force=true)
+            end
+        end
     end
+    
+    # Finalize MPI
+    MPI.Finalize()
 end
 
 main()
