@@ -129,7 +129,7 @@ module BioFlows
     export ddx, ddy, ddz, d2dx2, d2dy2, d2dz2
     export ddx_at_faces, ddy_at_faces
     export div, grad, laplacian
-    export interpolate_u_to_cell_center, interpolate_v_to_cell_center, interpolate_to_cell_centers
+    export interpolate_u_to_cell_center, interpolate_v_to_cell_center, interpolate_to_cell_centers, interpolate_to_cell_centers_xz
     export verify_operator_accuracy, check_staggered_grid_consistency
 
     # Discretization exports  

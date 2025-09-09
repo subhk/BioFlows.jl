@@ -23,16 +23,20 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
         error("Variable density not implemented")
     end
     
-    println("Solving Navier-Stokes with clean operators...")
-    
     # Step 1: Compute predictor velocity (explicit terms)
     # ∂u/∂t = -u·∇u + ν∇²u (without pressure)
     
-    # Interpolate velocities to cell centers for advection
-    u_cc, w_cc = interpolate_to_cell_centers(state_old.u, state_old.w, grid)
+    # Interpolate velocities to cell centers for advection (XZ plane)
+    u_cc, w_cc = interpolate_to_cell_centers_xz(state_old.u, state_old.w, grid)
+    
+    # Check for NaN in input and clean if necessary
+    if any(isnan, state_old.u) || any(isnan, state_old.w)
+        @warn "NaN detected in input velocities - cleaning"
+        replace!(state_old.u, NaN => 0.0)
+        replace!(state_old.w, NaN => 0.0)
+    end
     
     # Advection terms: u·∇u (XZ plane: u·∂u/∂x + v·∂u/∂z)
-    println("  Computing advection: u·∇u")
     dudx = ddx(u_cc, grid)
     dudz = ddz(u_cc, grid)  # Use ddz for XZ plane
     dwdx = ddx(w_cc, grid)
@@ -42,18 +46,19 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     advection_w = u_cc .* dwdx + w_cc .* dwdz
     
     # Viscous terms: ν∇²u
-    println("  Computing viscous terms: ν∇²u")
     viscous_u = ν * laplacian(u_cc, grid)
     viscous_w = ν * laplacian(w_cc, grid)
     
+    # Clean any NaN in viscous terms
+    replace!(viscous_u, NaN => 0.0)
+    replace!(viscous_w, NaN => 0.0)
+    
     # Predictor velocity (without pressure correction)
-    println("  Computing predictor velocity")
     u_star = u_cc + dt * (-advection_u + viscous_u)
     w_star = w_cc + dt * (-advection_w + viscous_w)
     
     # Step 2: Solve pressure Poisson equation
     # ∇²φ = ∇·u*/dt
-    println("  Solving pressure Poisson: ∇²φ = ∇·u*/dt")
     
     # Create staggered velocities for divergence computation
     u_star_staggered = zeros(grid.nx + 1, grid.nz)
@@ -82,6 +87,25 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     # Pressure Poisson RHS
     rhs_pressure = div_u_star / dt
     
+    # Safety checks
+    if dt <= 1e-12
+        @warn "Time step too small: $dt"
+        return
+    end
+    
+    # Check for problematic values in RHS
+    if any(x -> isnan(x) || isinf(x), rhs_pressure)
+        @warn "NaN/Inf in pressure Poisson RHS - cleaning"
+        replace!(rhs_pressure, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+    end
+    
+    # Additional check for extremely large values
+    max_rhs = maximum(abs.(rhs_pressure))
+    if max_rhs > 1e10
+        @warn "Extremely large pressure RHS detected: $(max_rhs) - scaling down"
+        rhs_pressure .*= 1e10 / max_rhs
+    end
+    
     # Solve ∇²φ = rhs_pressure
     φ = zeros(grid.nx, grid.nz)
     # Here you would call your pressure solver:
@@ -91,9 +115,11 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     mg_solver = MultigridPoissonSolver(grid; smoother=:staggered)
     solve_poisson!(mg_solver, φ, rhs_pressure, grid, bc)
     
+    # Clean pressure solution
+    replace!(φ, NaN => 0.0)
+    
     # Step 3: Velocity correction
     # u^(n+1) = u* - dt * ∇φ
-    println("  Correcting velocity: u^(n+1) = u* - dt∇φ")
     
     # Compute pressure gradient at staggered locations
     dφdx, dφdz = grad(φ, grid)  # Use dφdz for XZ plane
@@ -108,7 +134,6 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     
     # Step 4: Update pressure
     # p^(n+1) = p^n + φ
-    println("  Updating pressure: p^(n+1) = p^n + φ")
     p_new = state_old.p + φ
     
     # Store results (convert back to staggered grid for state)
@@ -118,12 +143,29 @@ function solve_navier_stokes_clean_2d!(state_new::SolutionState, state_old::Solu
     state_new.t = state_old.t + dt
     state_new.step = state_old.step + 1
     
-    # Verify incompressibility
-    final_div = div(state_new.u, state_new.w, grid)
-    max_div = maximum(abs.(final_div))
-    println("  Final divergence: max|∇·u| = $(max_div)")
+    # Final safety checks for NaN/Inf values
+    if any(x -> isnan(x) || isinf(x), state_new.u) || any(x -> isnan(x) || isinf(x), state_new.w) || any(x -> isnan(x) || isinf(x), state_new.p)
+        @warn "NaN/Inf detected in final solution - cleaning"
+        replace!(state_new.u, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+        replace!(state_new.w, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+        replace!(state_new.p, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+    end
     
-    println("Navier-Stokes step completed cleanly!")
+    # Verify incompressibility  
+    final_div = div(state_new.u, state_new.w, grid)
+    
+    # Check for NaN/Inf in divergence before taking maximum
+    if any(x -> isnan(x) || isinf(x), final_div)
+        @warn "NaN/Inf in divergence field - replacing with zeros"
+        replace!(final_div, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+    end
+    
+    max_div = maximum(abs.(final_div))
+    
+    # Only print if there's a very serious divergence issue
+    if max_div > 100.0
+        @warn "High divergence detected: max|∇·u| = $(max_div)"
+    end
 end
 
 

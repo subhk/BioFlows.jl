@@ -261,13 +261,13 @@ function ensure_output_on_original_grid!(amr_solver::AMRIntegratedSolver, state:
     # Verify that state dimensions match original base grid
     if base_grid.grid_type == TwoDimensional
         expected_u_size = (base_grid.nx + 1, base_grid.nz)
-        expected_v_size = (base_grid.nx, base_grid.nz + 1)
+        expected_w_size = (base_grid.nx, base_grid.nz + 1)  # For XZ-plane 2D, we use w not v
         expected_p_size = (base_grid.nx, base_grid.nz)
         
-        if size(state.u) != expected_u_size || size(state.v) != expected_v_size || size(state.p) != expected_p_size
+        if size(state.u) != expected_u_size || size(state.w) != expected_w_size || size(state.p) != expected_p_size
             error("AMR solver state is not on original grid! " *
-                  "Expected u:$expected_u_size, v:$expected_v_size, p:$expected_p_size, " *
-                  "got u:$(size(state.u)), v:$(size(state.v)), p:$(size(state.p))")
+                  "Expected u:$expected_u_size, w:$expected_w_size, p:$expected_p_size, " *
+                  "got u:$(size(state.u)), w:$(size(state.w)), p:$(size(state.p))")
         end
     else
         expected_u_size = (base_grid.nx + 1, base_grid.ny, base_grid.nz)

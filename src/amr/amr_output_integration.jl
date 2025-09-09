@@ -41,7 +41,9 @@ function project_amr_to_original_grid!(output_state::SolutionState,
     else
         # Copy base grid data to output (3D)
         output_state.u .= current_state.u
-        output_state.v .= current_state.v
+        if hasfield(typeof(current_state), :v) && current_state.v !== nothing
+            output_state.v .= current_state.v
+        end
         if hasfield(typeof(current_state), :w) && current_state.w !== nothing
             output_state.w .= current_state.w
         end
@@ -95,7 +97,7 @@ function project_2d_refined_to_original!(output_state::SolutionState,
                 project_w_velocity_2d!(output_state, local_solution, local_grid,
                                       i_base, j_base, refinement_level, base_grid)
                 
-                println("PROJECTED: Refined cell ($i_base, $j_base) level $refinement_level to original grid")
+                # Refined cell projection (verbose output disabled)
             end
         end
     end
@@ -817,7 +819,7 @@ function integrate_amr_with_existing_output!(output_writer, refined_grid::Refine
     base_grid = refined_grid.base_grid
     if base_grid.grid_type == TwoDimensional
         @assert size(output_state.u) == (base_grid.nx + 1, base_grid.nz) "Output u velocity not on original grid"
-        @assert size(output_state.v) == (base_grid.nx, base_grid.nz + 1) "Output v velocity not on original grid"
+        @assert size(output_state.w) == (base_grid.nx, base_grid.nz + 1) "Output w velocity not on original grid"
         @assert size(output_state.p) == (base_grid.nx, base_grid.nz) "Output pressure not on original grid"
         println("VERIFIED: Output 2D data on original grid ($(base_grid.nx)×$(base_grid.nz))")
     else
@@ -960,7 +962,7 @@ function save_amr_to_netcdf!(netcdf_writer, refined_grid::RefinedGrid, state::So
     base_grid = refined_grid.base_grid
     if base_grid.grid_type == TwoDimensional
         @assert size(output_state.u) == (base_grid.nx + 1, base_grid.nz) "AMR output u not on original grid"
-        @assert size(output_state.v) == (base_grid.nx, base_grid.nz + 1) "AMR output v not on original grid" 
+        @assert size(output_state.w) == (base_grid.nx, base_grid.nz + 1) "AMR output w not on original grid" 
         @assert size(output_state.p) == (base_grid.nx, base_grid.nz) "AMR output p not on original grid"
         println("   VERIFIED: 2D data on original grid ($(base_grid.nx)×$(base_grid.nz))")
     else

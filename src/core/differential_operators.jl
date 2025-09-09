@@ -134,38 +134,68 @@ ddy_at_faces(field::AbstractArray, grid::StaggeredGrid) = derivative_at_faces(fi
 
 Generic 2nd derivative computation along specified dimension.
 """
-function second_derivative_1d(field::AbstractArray{T,N}, h::T, dim::Int) where {T,N}
+# Simplified implementations to avoid LLVM compilation issues
+function second_derivative_1d(field::Matrix{T}, h::T, dim::Int) where {T}
     result = zeros(T, size(field))
-    n = size(field, dim)
+    nx, ny = size(field)
     
-    for idx in CartesianIndices(field)
-        i = idx[dim]
-        if 2 <= i <= n-1
-            idx_p1 = CartesianIndex(Tuple(idx[j] == i && j == dim ? i+1 : idx[j] for j in 1:N))
-            idx_m1 = CartesianIndex(Tuple(idx[j] == i && j == dim ? i-1 : idx[j] for j in 1:N))
-            result[idx] = (field[idx_p1] - 2*field[idx] + field[idx_m1]) / h^2
+    if dim == 1  # d/dx direction
+        @inbounds for j in 1:ny, i in 2:nx-1
+            result[i,j] = (field[i+1,j] - 2*field[i,j] + field[i-1,j]) / h^2
+        end
+        # Neumann BC: copy interior values to boundaries
+        @inbounds for j in 1:ny
+            result[1,j] = result[2,j]
+            result[nx,j] = result[nx-1,j]
+        end
+    elseif dim == 2  # d/dy direction  
+        @inbounds for j in 2:ny-1, i in 1:nx
+            result[i,j] = (field[i,j+1] - 2*field[i,j] + field[i,j-1]) / h^2
+        end
+        # Neumann BC: copy interior values to boundaries
+        @inbounds for i in 1:nx
+            result[i,1] = result[i,2]
+            result[i,ny] = result[i,ny-1]
         end
     end
     
-    # Apply homogeneous Neumann BC for demonstration
-    apply_neumann_bc!(result, dim)
     return result
 end
 
-function apply_neumann_bc!(result::AbstractArray{T,N}, dim::Int) where {T,N}
-    n = size(result, dim)
+function second_derivative_1d(field::Array{T,3}, h::T, dim::Int) where {T}
+    result = zeros(T, size(field))
+    nx, ny, nz = size(field)
     
-    # Copy interior values to boundaries
-    for idx in CartesianIndices(result)
-        i = idx[dim]
-        if i == 1
-            interior_idx = CartesianIndex(Tuple(idx[j] == 1 && j == dim ? 2 : idx[j] for j in 1:N))
-            result[idx] = result[interior_idx]
-        elseif i == n
-            interior_idx = CartesianIndex(Tuple(idx[j] == n && j == dim ? n-1 : idx[j] for j in 1:N))
-            result[idx] = result[interior_idx]
+    if dim == 1  # d/dx direction
+        @inbounds for k in 1:nz, j in 1:ny, i in 2:nx-1
+            result[i,j,k] = (field[i+1,j,k] - 2*field[i,j,k] + field[i-1,j,k]) / h^2
+        end
+        # Neumann BC
+        @inbounds for k in 1:nz, j in 1:ny
+            result[1,j,k] = result[2,j,k]
+            result[nx,j,k] = result[nx-1,j,k]
+        end
+    elseif dim == 2  # d/dy direction
+        @inbounds for k in 1:nz, j in 2:ny-1, i in 1:nx
+            result[i,j,k] = (field[i,j+1,k] - 2*field[i,j,k] + field[i,j-1,k]) / h^2
+        end
+        # Neumann BC
+        @inbounds for k in 1:nz, i in 1:nx
+            result[i,1,k] = result[i,2,k]
+            result[i,ny,k] = result[i,ny-1,k]
+        end
+    elseif dim == 3  # d/dz direction
+        @inbounds for k in 2:nz-1, j in 1:ny, i in 1:nx
+            result[i,j,k] = (field[i,j,k+1] - 2*field[i,j,k] + field[i,j,k-1]) / h^2
+        end
+        # Neumann BC
+        @inbounds for j in 1:ny, i in 1:nx
+            result[i,j,1] = result[i,j,2]
+            result[i,j,nz] = result[i,j,nz-1]
         end
     end
+    
+    return result
 end
 
 """
@@ -190,12 +220,25 @@ d2dz2(field::AbstractArray, grid::StaggeredGrid) = second_derivative_1d(field, g
 Compute divergence ∇·u with 2nd order accuracy on staggered grid.
 """
 function div(u::Matrix{T}, v::Matrix{T}, grid::StaggeredGrid) where T
-    nx, ny = grid.nx, grid.ny
-    result = zeros(T, nx, ny)
-    dx, dy = grid.dx, grid.dy
-    
-    @inbounds for j = 1:ny, i = 1:nx
-        result[i, j] = (u[i+1, j] - u[i, j]) / dx + (v[i, j+1] - v[i, j]) / dy
+    # For 2D grids, check if this is XY or XZ plane
+    if grid.grid_type == TwoDimensional
+        # XZ plane: use nx, nz dimensions
+        nx, nz = grid.nx, grid.nz
+        result = zeros(T, nx, nz)
+        dx, dz = grid.dx, grid.dz
+        
+        @inbounds for j = 1:nz, i = 1:nx
+            result[i, j] = (u[i+1, j] - u[i, j]) / dx + (v[i, j+1] - v[i, j]) / dz
+        end
+    else
+        # XY plane: use nx, ny dimensions
+        nx, ny = grid.nx, grid.ny
+        result = zeros(T, nx, ny)
+        dx, dy = grid.dx, grid.dy
+        
+        @inbounds for j = 1:ny, i = 1:nx
+            result[i, j] = (u[i+1, j] - u[i, j]) / dx + (v[i, j+1] - v[i, j]) / dy
+        end
     end
     
     return result
@@ -234,8 +277,43 @@ end
 
 Compute Laplacian ∇²field.
 """
-function laplacian(field::Matrix, grid::StaggeredGrid)
-    d2dx2(field, grid) .+ d2dy2(field, grid)
+function laplacian(field::Matrix{T}, grid::StaggeredGrid) where T
+    # Optimized 2D laplacian to avoid function call overhead
+    result = zeros(T, size(field))
+    nx, ny = size(field)
+    dx, dy = grid.dx, grid.dy
+    inv_dx2, inv_dy2 = 1.0/dx^2, 1.0/dy^2
+    
+    # Interior points
+    @inbounds for j in 2:ny-1, i in 2:nx-1
+        result[i,j] = inv_dx2 * (field[i+1,j] - 2*field[i,j] + field[i-1,j]) +
+                      inv_dy2 * (field[i,j+1] - 2*field[i,j] + field[i,j-1])
+    end
+    
+    # Boundary conditions: Neumann (zero gradient)
+    # Left and right boundaries
+    @inbounds for j in 2:ny-1
+        result[1,j] = inv_dx2 * (field[2,j] - field[1,j]) +
+                      inv_dy2 * (field[1,j+1] - 2*field[1,j] + field[1,j-1])
+        result[nx,j] = inv_dx2 * (field[nx-1,j] - field[nx,j]) +
+                       inv_dy2 * (field[nx,j+1] - 2*field[nx,j] + field[nx,j-1])
+    end
+    
+    # Top and bottom boundaries
+    @inbounds for i in 2:nx-1
+        result[i,1] = inv_dx2 * (field[i+1,1] - 2*field[i,1] + field[i-1,1]) +
+                      inv_dy2 * (field[i,2] - field[i,1])
+        result[i,ny] = inv_dx2 * (field[i+1,ny] - 2*field[i,ny] + field[i-1,ny]) +
+                       inv_dy2 * (field[i,ny-1] - field[i,ny])
+    end
+    
+    # Corner points
+    result[1,1] = inv_dx2 * (field[2,1] - field[1,1]) + inv_dy2 * (field[1,2] - field[1,1])
+    result[nx,1] = inv_dx2 * (field[nx-1,1] - field[nx,1]) + inv_dy2 * (field[nx,2] - field[nx,1])
+    result[1,ny] = inv_dx2 * (field[2,ny] - field[1,ny]) + inv_dy2 * (field[1,ny-1] - field[1,ny])
+    result[nx,ny] = inv_dx2 * (field[nx-1,ny] - field[nx,ny]) + inv_dy2 * (field[nx,ny-1] - field[nx,ny])
+    
+    return result
 end
 
 function laplacian(field::Array{T,3}, grid::StaggeredGrid) where T
@@ -263,6 +341,25 @@ function interpolate_to_cell_centers(u::Matrix{T}, v::Matrix{T}, grid::Staggered
     end
     
     return u_cc, v_cc
+end
+
+# Specialized version for 2D XZ-plane (u, w components)
+function interpolate_to_cell_centers_xz(u::Matrix{T}, w::Matrix{T}, grid::StaggeredGrid) where T
+    nx, nz = grid.nx, grid.nz
+    u_cc = zeros(T, nx, nz)
+    w_cc = zeros(T, nx, nz)
+    
+    # Interpolate u from x-faces to cell centers
+    @inbounds for j = 1:nz, i = 1:nx
+        u_cc[i, j] = 0.5 * (u[i, j] + u[i+1, j])
+    end
+    
+    # Interpolate w from z-faces to cell centers  
+    @inbounds for j = 1:nz, i = 1:nx
+        w_cc[i, j] = 0.5 * (w[i, j] + w[i, j+1])
+    end
+    
+    return u_cc, w_cc
 end
 
 function interpolate_to_cell_centers(u::Array{T,3}, v::Array{T,3}, w::Array{T,3}, grid::StaggeredGrid) where T

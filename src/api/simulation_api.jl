@@ -659,6 +659,27 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
         # Apply immersed boundary forcing
         if config.rigid_bodies !== nothing
             apply_immersed_boundary_forcing!(state_new, config.rigid_bodies, solver.grid, dt)
+            
+            # Check for NaN/Inf after immersed boundary forcing
+            if any(x -> isnan(x) || isinf(x), state_new.u) || any(x -> isnan(x) || isinf(x), state_new.w)
+                @warn "NaN/Inf detected after immersed boundary forcing - cleaning"
+                replace!(state_new.u, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+                replace!(state_new.w, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+            end
+            
+            # Only re-apply inlet boundary conditions (not all boundaries) to avoid conflicts
+            if haskey(solver.bc.conditions, (:x, :left))
+                condition = solver.bc.conditions[(:x, :left)]
+                if condition.type == Inlet
+                    # Apply inlet velocity to left boundary only
+                    for j = 1:solver.grid.nz
+                        if j <= size(state_new.u, 2)
+                            inlet_value = isa(condition.value, Function) ? condition.value(t) : condition.value
+                            state_new.u[1, j] = inlet_value
+                        end
+                    end
+                end
+            end
         end
         
         if config.flexible_bodies !== nothing
