@@ -365,7 +365,7 @@ function test_boundary_conditions()
                 solve_poisson!(solver, phi, rhs, grid, bc)
                 solution_norm = norm(phi)
                 
-                println("  $(name): norm=$(round(solution_norm, digits=6)) ✓")
+                println("  $(name): norm=$(round(solution_norm, digits=6))")
                 
                 @assert solution_norm > 1e-10 "Solution should be non-trivial"
                 @assert isfinite(solution_norm) "Solution should be finite"
@@ -375,7 +375,7 @@ function test_boundary_conditions()
             end
         end
         
-        println("✓ Boundary condition testing completed")
+        println("Boundary condition testing completed")
         return true
         
     catch e
@@ -417,7 +417,7 @@ function run_all_multigrid_tests()
     println("Multi-Grid Test Results: $tests_passed/$total_tests tests passed")
     
     if tests_passed == total_tests
-        println("All multi-grid tests passed! ✓")
+        println("All multi-grid tests passed!")
         println("\nMulti-Grid Solver Status: WORKING CORRECTLY")
         println("\nKey features verified:")
         println("- Multi-grid solver creation and configuration")
