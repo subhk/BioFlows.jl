@@ -161,14 +161,6 @@ function main()
         
         println("="^60)
         flush(stdout)
-        
-        # Clean up lock files
-        for section in ["header", "params", "config", "cylinder", "simulation"]
-            lock_file = ".mpi_print_$(section)_lock"
-            if isfile(lock_file)
-                rm(lock_file, force=true)
-            end
-        end
     end
     
     # Finalize MPI
