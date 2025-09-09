@@ -356,8 +356,8 @@ function save_snapshot!(writer::NetCDFWriter, state::SolutionState, current_time
                 NetCDF.putvar(writer.ncfile, "p", state.p, start=[1, 1, 1, snapshot_idx])
             else
                 NetCDF.putvar(writer.ncfile, "u", state.u, start=[1, 1, snapshot_idx])
-                # 2D vertical velocity is stored as "w" and comes from state.v array
-                NetCDF.putvar(writer.ncfile, "w", state.v, start=[1, 1, snapshot_idx])
+                # 2D vertical velocity is stored as "w" and comes from state.w array
+                NetCDF.putvar(writer.ncfile, "w", state.w, start=[1, 1, snapshot_idx])
                 NetCDF.putvar(writer.ncfile, "p", state.p, start=[1, 1, snapshot_idx])
             end
         end
@@ -1251,8 +1251,8 @@ function validate_state_data(state::SolutionState, grid::StaggeredGrid)
             @error "u-velocity dimensions mismatch: expected $(grid.nx+1)×$(grid.nz), got $(size(state.u))"
             return false
         end
-        if size(state.v, 1) != grid.nx || size(state.v, 2) != grid.nz + 1
-            @error "v-velocity dimensions mismatch (2D): expected $(grid.nx)×$(grid.nz+1), got $(size(state.v))"
+        if size(state.w, 1) != grid.nx || size(state.w, 2) != grid.nz + 1
+            @error "w-velocity dimensions mismatch (2D): expected $(grid.nx)×$(grid.nz+1), got $(size(state.w))"
             return false
         end
         if size(state.p, 1) != grid.nx || size(state.p, 2) != grid.nz
@@ -1397,7 +1397,7 @@ function write_solution!(writer::NetCDFWriter,
     v_j_hi = jle + (je == nzg ? 1 : 0)
 
     u_blk = @view state.u[ils:u_i_hi, jls:jle]
-    v_blk = @view state.v[ils:ile, jls:v_j_hi]
+    v_blk = @view state.w[ils:ile, jls:v_j_hi]
     p_blk = @view state.p[ils:ile, jls:jle]
 
     # Root assembles global arrays and writes
@@ -1434,7 +1434,7 @@ function write_solution!(writer::NetCDFWriter,
         # Build global state and write
         gstate = SolutionState2D(writer.grid.nx, writer.grid.nz)
         gstate.u .= u_glob
-        gstate.v .= v_glob
+        gstate.w .= v_glob
         gstate.p .= p_glob
         gstate.t = current_time
         gstate.step = current_iteration

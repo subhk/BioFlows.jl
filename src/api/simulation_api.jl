@@ -699,10 +699,10 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
                 max_w = maximum(abs, state_old.w)
                 println("  max|u|=$(round(max_u, digits=4)), max|v|=$(round(max_v, digits=4)), max|w|=$(round(max_w, digits=4))")
             else
-                cfl = compute_cfl_2d(state_old.u, state_old.v, solver.grid, dt)
+                cfl = compute_cfl_2d(state_old.u, state_old.w, solver.grid, dt)
                 max_u = maximum(abs, state_old.u)
-                max_v = maximum(abs, state_old.v)  # v holds vertical velocity (w) in 2D
-                println("  max|u|=$(round(max_u, digits=4)), max|v|=$(round(max_v, digits=4))")
+                max_w = maximum(abs, state_old.w)  # w holds vertical velocity in 2D XZ plane
+                println("  max|u|=$(round(max_u, digits=4)), max|w|=$(round(max_w, digits=4))")
             end
             println("  CFL = $(round(cfl, digits=4))")
         end
@@ -779,7 +779,7 @@ function run_simulation_mpi_2d(config::SimulationConfig)
         u_init = 0.0
     end
     local_old.u .= u_init
-    local_old.v .= 0.0
+    local_old.w .= 0.0
     local_old.p .= 0.0
     local_old.t = 0.0
     local_old.step = 0
@@ -820,10 +820,10 @@ function run_simulation_mpi_2d(config::SimulationConfig)
         if t + 1e-12 >= next_print || step % 100 == 0
             # Global maxima
             maxu = MPI.Allreduce(maximum(abs, local_old.u), MPI.MAX, comm)
-            maxv = MPI.Allreduce(maximum(abs, local_old.v), MPI.MAX, comm)
-            cfl = max(maxu * dt / dx, maxv * dt / dz)
+            maxw = MPI.Allreduce(maximum(abs, local_old.w), MPI.MAX, comm)
+            cfl = max(maxu * dt / dx, maxw * dt / dz)
             if rank == 0
-                @info "step=$step t=$(round(t, digits=3)) dt=$(round(dt, digits=4)) CFL=$(round(cfl, digits=3)) max|u|=$(round(maxu, digits=3)) max|v|=$(round(maxv, digits=3))"
+                @info "step=$step t=$(round(t, digits=3)) dt=$(round(dt, digits=4)) CFL=$(round(cfl, digits=3)) max|u|=$(round(maxu, digits=3)) max|w|=$(round(maxw, digits=3))"
             end
             # Global NetCDF output (auto-detects MPI state)
             write_solution!(writer, local_old, config.rigid_bodies, global_grid, solver.fluid, t, step)

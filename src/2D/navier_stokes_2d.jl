@@ -176,7 +176,7 @@ function demonstrate_clean_vs_traditional()
     div_u_trad = zeros(grid.nx, grid.nz)
     for j = 1:grid.nz, i = 1:grid.nx
         div_u_trad[i, j] = (state.u[i+1, j] - state.u[i, j]) / grid.dx + 
-                           (state.v[i, j+1] - state.v[i, j]) / grid.dz  # Use dz for XZ plane
+                           (state.w[i, j+1] - state.w[i, j]) / grid.dz  # Use dz for XZ plane, w is z-velocity
     end
     println("Result: max|∇·u| = $(maximum(abs.(div_u_trad)))")
     
