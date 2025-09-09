@@ -63,11 +63,19 @@ function run_amr_simulation(config::BioFlows.SimulationConfig, amr_solver::BioFl
         state_old.t = t
         
         # AMR solve step (handles grid adaptation internally)
-        BioFlows.amr_solve_step!(amr_solver, state_new, state_old, dt, config.rigid_bodies)
+        try
+            BioFlows.amr_solve_step!(amr_solver, state_new, state_old, dt, config.rigid_bodies)
+        catch e
+            @warn "AMR solve step failed at step $step: $e"
+            # Fallback: copy old state to new (essentially skip this time step)
+            state_new = deepcopy(state_old)
+            break
+        end
         
         # Output progress
         if step % 100 == 0 || step == nsteps
-            println("  Step $(step)/$(nsteps), t=$(round(t, digits=3))s, AMR cells: $(amr_solver.amr_statistics["current_refined_cells"])")
+            amr_cells = get(amr_solver.amr_statistics, "current_refined_cells", 0)
+            println("  Step $(step)/$(nsteps), t=$(round(t, digits=3))s, AMR cells: $(amr_cells)")
         end
         
         # Save output (state_new is ensured to be on original grid by AMR solver)
@@ -222,16 +230,26 @@ function main()
     # Create AMR-integrated solver if AMR is enabled
     if config.adaptive_refinement && config.refinement_criteria !== nothing
         println("Initializing AMR-integrated solver...")
-        # Create AMR solver with tuned parameters for cylinder flow
-        amr_solver = BioFlows.create_amr_integrated_solver(base_solver, config.refinement_criteria; 
-                                                          amr_frequency=5)  # Check for refinement every 5 steps
-        
-        # Validate AMR integration
-        if BioFlows.validate_amr_integration(amr_solver)
-            println("AMR integration validated successfully!")
-            solver = amr_solver
-        else
-            @warn "AMR integration validation failed, continuing with base solver"
+        try
+            # Create AMR solver with tuned parameters for cylinder flow
+            amr_solver = BioFlows.create_amr_integrated_solver(base_solver, config.refinement_criteria; 
+                                                              amr_frequency=5)  # Check for refinement every 5 steps
+            
+            # Validate AMR integration
+            try
+                if BioFlows.validate_amr_integration(amr_solver)
+                    println("AMR integration validated successfully!")
+                    solver = amr_solver
+                else
+                    @warn "AMR integration validation failed, continuing with base solver"
+                    solver = base_solver
+                end
+            catch e
+                @warn "AMR validation threw an error: $e, falling back to base solver"
+                solver = base_solver
+            end
+        catch e
+            @warn "Failed to create AMR solver: $e, falling back to base solver"
             solver = base_solver
         end
     else
