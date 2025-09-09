@@ -49,16 +49,16 @@ function apply_boundary_conditions_2d_base!(grid::StaggeredGrid, state::Solution
             state.u[1, j] = bc.inlet_velocity_profile(z, t)
             # Set v (w-velocity in XZ plane) based on inlet conditions
             if hasfield(typeof(bc), :inlet_w_velocity)
-                state.v[1, j] = bc.inlet_w_velocity(z, t)
+                state.w[1, j] = bc.inlet_w_velocity(z, t)
             else
-                state.v[1, j] = 0.0  # Default to no vertical flow
+                state.w[1, j] = 0.0  # Default to no vertical flow
             end
         end
     elseif bc.x_left == :no_slip
         # No-slip wall
         for j = 1:nz
             state.u[1, j] = 0.0
-            state.v[1, j] = 0.0
+            state.w[1, j] = 0.0
         end
     end
     
@@ -67,7 +67,7 @@ function apply_boundary_conditions_2d_base!(grid::StaggeredGrid, state::Solution
         for j = 1:nz
             # Convective outlet: ∂u/∂x = 0
             state.u[nx+1, j] = state.u[nx, j]
-            state.v[nx, j] = state.v[nx-1, j]  # Extrapolate v
+            state.w[nx, j] = state.w[nx-1, j]  # Extrapolate w
             # For pressure, apply specified outlet pressure or zero gradient
             if hasfield(typeof(bc), :outlet_pressure)
                 state.p[nx, j] = bc.outlet_pressure(grid.z[j], t)
@@ -79,7 +79,7 @@ function apply_boundary_conditions_2d_base!(grid::StaggeredGrid, state::Solution
         # No-slip wall
         for j = 1:nz
             state.u[nx+1, j] = 0.0
-            state.v[nx, j] = 0.0
+            state.w[nx, j] = 0.0
         end
     end
     
@@ -88,7 +88,7 @@ function apply_boundary_conditions_2d_base!(grid::StaggeredGrid, state::Solution
         # No-slip bottom wall
         for i = 1:nx
             state.u[i, 1] = 0.0
-            state.v[i, 1] = 0.0
+            state.w[i, 1] = 0.0
         end
         for i = 1:nx+1
             state.u[i, 1] = 0.0  # Ensure u velocity at x-faces is also zero
@@ -96,7 +96,7 @@ function apply_boundary_conditions_2d_base!(grid::StaggeredGrid, state::Solution
     elseif bc.z_bottom == :free_slip
         # Free-slip bottom wall
         for i = 1:nx
-            state.v[i, 1] = 0.0  # No penetration
+            state.w[i, 1] = 0.0  # No penetration
             # ∂u/∂z = 0 (no shear)
             state.u[i, 1] = state.u[i, 2]
         end
@@ -111,7 +111,7 @@ function apply_boundary_conditions_2d_base!(grid::StaggeredGrid, state::Solution
         # No-slip top wall
         for i = 1:nx
             state.u[i, nz] = 0.0
-            state.v[i, nz+1] = 0.0
+            state.w[i, nz+1] = 0.0
         end
         for i = 1:nx+1
             state.u[i, nz] = 0.0
@@ -119,7 +119,7 @@ function apply_boundary_conditions_2d_base!(grid::StaggeredGrid, state::Solution
     elseif bc.z_top == :free_slip
         # Free-slip top wall
         for i = 1:nx
-            state.v[i, nz+1] = 0.0  # No penetration
+            state.w[i, nz+1] = 0.0  # No penetration
             # ∂u/∂z = 0 (no shear)
             state.u[i, nz] = state.u[i, nz-1]
         end

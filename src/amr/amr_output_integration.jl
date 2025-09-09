@@ -30,9 +30,9 @@ function project_amr_to_original_grid!(output_state::SolutionState,
     if base_grid.grid_type == TwoDimensional
         # Copy base grid data to output (2D XZ plane)
         output_state.u .= current_state.u
-        # In 2D, the vertical velocity is stored in state.v (w-equivalent)
-        if hasfield(typeof(output_state), :v) && hasfield(typeof(current_state), :v)
-            output_state.v .= current_state.v
+        # In 2D, the vertical velocity is stored in state.w 
+        if hasfield(typeof(output_state), :w) && hasfield(typeof(current_state), :w)
+            output_state.w .= current_state.w
         end
         output_state.p .= current_state.p
         
@@ -132,11 +132,9 @@ function get_local_refined_solution_2d(refined_grid::RefinedGrid, cell_idx::Tupl
     
     # Simple interpolation from base grid (in practice, this would be the refined solution)
     base_u_val = current_state.u[i_base, j_base]
-    # FIXED: Get w-velocity for XZ plane
-    base_w_val = if hasfield(typeof(current_state), :w) && current_state.w !== nothing
+    # Get w-velocity for 2D XZ plane
+    base_w_val = if hasfield(typeof(current_state), :w)
         current_state.w[i_base, j_base]
-    elseif hasfield(typeof(current_state), :v)
-        current_state.v[i_base, j_base]  # Fallback: v representing w
     else
         0.0
     end
@@ -413,11 +411,9 @@ function project_w_bottom_face!(output_state::SolutionState, local_solution, loc
     
     # Conservative average velocity - assign to correct field
     if total_area > 0.0
-        # Assign to w-velocity field if it exists and has nonzero size; otherwise use v (2D convention)
-        if hasfield(typeof(output_state), :w) && size(output_state.w, 1) > 0 && size(output_state.w, 2) > 0
+        # Assign to w-velocity field if it exists (2D XZ plane uses w for vertical velocity)
+        if hasfield(typeof(output_state), :w)
             output_state.w[i_base, j_base] = weighted_flux / total_area
-        elseif hasfield(typeof(output_state), :v)
-            output_state.v[i_base, j_base] = weighted_flux / total_area
         end
     end
 end
