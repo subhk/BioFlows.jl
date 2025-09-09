@@ -182,6 +182,7 @@ function initialize_netcdf_file!(writer::NetCDFWriter)
 
     # Flow-field vars
     if writer.config.save_flow_field
+        try
         if is_3d
             NetCDF.defvar(ncfile, "u", Float64, ("nx_u", "ny", "nz", "time"))
             NetCDF.defvar(ncfile, "v", Float64, ("nx", "ny_v", "nz", "time"))
