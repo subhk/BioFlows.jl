@@ -114,8 +114,8 @@ function main()
     println("="^60)
 
     # Physical and numerical parameters
-    # Domain geometry - minimal resolution for debugging
-    nx, nz = 150, 50            # Minimal grid points to debug LLVM error
+    # Domain geometry - smaller grid for better mass conservation
+    nx, nz = 100, 30            # Smaller grid for better AMR mass conservation
     Lx, Lz = 6.0, 2.0         # Physical domain size [m]
     
     # Flow parameters
