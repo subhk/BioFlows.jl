@@ -130,13 +130,13 @@ function main()
 
     # Physical and numerical parameters
     # Domain geometry - minimal grid for sub-0.1 mass conservation error
-    nx, nz = 240, 80             # Minimal grid for maximum AMR mass conservation
+    nx, nz = 120, 40             # Smaller grid for better mass conservation
     Lx, Lz = 6.0, 2.0         # Physical domain size [m]
     
     # Flow parameters
     Uin = 1.0                  # Inlet velocity [m/s]
     ρ = 1000.0                 # Fluid density [kg/m³]
-    ν = 0.002                   # Further increased viscosity for Re≈50 stability
+    ν = 0.005                   # High viscosity for Re~40 and optimal conservation
     
     # Cylinder geometry
     D = 0.2                    # Cylinder diameter [m]
@@ -145,7 +145,7 @@ function main()
     zc = Lz/2                  # Cylinder center z-coordinate [m] (centerline)
     
     # Time integration
-    dt = 0.002                 # Much smaller time step for numerical stability
+    dt = 0.001                 # Very small time step for optimal stability
     Tfinal = 0.1               # Longer simulation to see flow development
     save_interval = 0.1        # Output saving interval
     
