@@ -115,7 +115,7 @@ function main()
 
     # Physical and numerical parameters
     # Domain geometry - smaller grid for better mass conservation
-    nx, nz = 100, 30            # Smaller grid for better AMR mass conservation
+    nx, nz = 240, 80            # Smaller grid for better AMR mass conservation
     Lx, Lz = 6.0, 2.0         # Physical domain size [m]
     
     # Flow parameters
