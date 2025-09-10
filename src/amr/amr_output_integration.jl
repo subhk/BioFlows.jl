@@ -689,10 +689,27 @@ function validate_conservation_2d(output_state::SolutionState, refined_grid::Ref
             
             println("  Iteration $iter: error = $avg_mass_error, total_correction = $total_correction, max_correction = $max_correction")
             
-            # Stop if converged or not improving
+            # Stop if converged or not improving  
             if avg_mass_error < 0.02 || total_correction < 1e-10 || abs(prev_error - avg_mass_error) < 1e-6
                 break
             end
+        end
+        
+        # Apply Trixi.jl-inspired physics-aware post-processing
+        if avg_mass_error > 0.05
+            println("APPLYING Trixi-style physics-aware correction (error: $avg_mass_error)")
+            apply_trixi_physics_aware_correction!(output_state, base_grid)
+            
+            # Recalculate error after Trixi correction
+            total_mass_error = 0.0
+            for j = 1:nz, i = 1:nx
+                dudx = (output_state.u[i+1, j] - output_state.u[i, j]) / dx
+                dwdz = (output_state.w[i, j+1] - output_state.w[i, j]) / dz
+                divergence = dudx + dwdz
+                total_mass_error += abs(divergence)
+            end
+            avg_mass_error = total_mass_error / (nx * nz)
+            println("  After Trixi physics-aware correction: error = $avg_mass_error")
         end
         
         # If still above target, apply gentle additional smoothing
