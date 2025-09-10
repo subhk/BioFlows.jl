@@ -92,8 +92,8 @@ function AMRLevel(grid_type::GridType, level::Int, nx::Int, nz::Int,
     w = nothing              # No w-velocity for 2D
     p = zeros(nx, nz)        # p at cell centers
     
-    needs_refinement = falses(nx, nz)
-    children = Matrix{Union{Nothing, AMRLevel}}(nothing, nx, nz)
+    needs_refinement = falses(nx, nz)::Matrix{Bool}
+    children = Matrix{Union{Nothing, AMRLevel}}(nothing, nx, nz)::Matrix{Union{Nothing, AMRLevel}}
     
     AMRLevel(level, nx, ny, nz, dx, dy, dz, grid_type,
              x_centers, y_centers, z_centers, x_faces, y_faces, z_faces,
