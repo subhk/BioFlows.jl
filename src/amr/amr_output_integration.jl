@@ -609,8 +609,8 @@ function validate_conservation_2d(output_state::SolutionState, refined_grid::Ref
     
     avg_mass_error = total_mass_error / (nx * nz)
     
-    # Super-aggressive correction if error is too high
-    if avg_mass_error > 0.02  # Much lower threshold for correction
+    # DISABLED: Super-aggressive correction (causing NaN/Inf issues)
+    if false  # avg_mass_error > 0.02  # Much lower threshold for correction
         println("APPLYING super-aggressive divergence correction (error: $avg_mass_error)")
         
         # Enhanced iterative divergence correction with adaptive parameters
