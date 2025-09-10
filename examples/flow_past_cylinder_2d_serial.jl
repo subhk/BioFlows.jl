@@ -136,7 +136,7 @@ function main()
     # Flow parameters
     Uin = 1.0                  # Inlet velocity [m/s]
     ρ = 1000.0                 # Fluid density [kg/m³]
-    ν = 0.001                   # Increased viscosity to stabilize
+    ν = 0.002                   # Further increased viscosity for Re≈50 stability
     
     # Cylinder geometry
     D = 0.2                    # Cylinder diameter [m]
@@ -145,7 +145,7 @@ function main()
     zc = Lz/2                  # Cylinder center z-coordinate [m] (centerline)
     
     # Time integration
-    dt = 0.005                 # Smaller time step for stability with cylinder
+    dt = 0.002                 # Much smaller time step for numerical stability
     Tfinal = 0.1               # Longer simulation to see flow development
     save_interval = 0.1        # Output saving interval
     
@@ -201,7 +201,7 @@ function main()
         wall_type=:no_slip,
         dt=dt, final_time=Tfinal,
         use_mpi=false,  # Serial computation
-        adaptive_refinement=false,  # Disable AMR for now to test conservative interpolation
+        adaptive_refinement=true,  # Enable AMR to test conservative interpolation
         output_interval=save_interval,
         output_file="cylinder2d_serial_amr"
     )
