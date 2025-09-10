@@ -567,13 +567,23 @@ function validate_conservation_2d(output_state::SolutionState, refined_grid::Ref
     
     avg_mass_error = total_mass_error / (nx * nz)
     
-    # Aggressive correction if error is too high
-    if avg_mass_error > 0.05  # Target threshold for correction
-        println("APPLYING aggressive divergence correction (error: $avg_mass_error)")
+    # Super-aggressive correction if error is too high
+    if avg_mass_error > 0.02  # Much lower threshold for correction
+        println("APPLYING super-aggressive divergence correction (error: $avg_mass_error)")
         
-        # Iterative divergence correction
-        for iter = 1:3
+        # Enhanced iterative divergence correction with adaptive parameters
+        for iter = 1:8  # More iterations
             total_correction = 0.0
+            max_correction = 0.0
+            
+            # Adaptive correction strength
+            correction_strength = if iter <= 3
+                0.5  # More aggressive initial correction
+            elseif iter <= 6
+                0.3  # Medium correction
+            else
+                0.1  # Gentle final correction
+            end
             
             for j = 1:nz, i = 1:nx
                 # Recalculate divergence
@@ -581,25 +591,46 @@ function validate_conservation_2d(output_state::SolutionState, refined_grid::Ref
                 dwdz = (output_state.w[i, j+1] - output_state.w[i, j]) / dz
                 divergence = dudx + dwdz
                 
-                if abs(divergence) > 1e-6
-                    # Correction factor to reduce divergence
-                    correction_factor = -0.3 * divergence  # Conservative correction
+                if abs(divergence) > 1e-8  # Lower threshold
+                    # Enhanced correction factor with better distribution
+                    correction_factor = -correction_strength * divergence
+                    max_correction = max(max_correction, abs(correction_factor))
                     
-                    # Apply correction to velocities (preserving staggered grid structure)
+                    # Better distributed correction to velocities
+                    u_correction = correction_factor * dx * 0.4
+                    w_correction = correction_factor * dz * 0.4
+                    
+                    # Apply to all faces with proper weighting
                     if i < nx
-                        output_state.u[i+1, j] += correction_factor * dx * 0.5
+                        output_state.u[i+1, j] += u_correction
                     end
                     if i > 1
-                        output_state.u[i, j] -= correction_factor * dx * 0.5
+                        output_state.u[i, j] -= u_correction
                     end
                     if j < nz
-                        output_state.w[i, j+1] += correction_factor * dz * 0.5
+                        output_state.w[i, j+1] += w_correction
                     end
                     if j > 1
-                        output_state.w[i, j] -= correction_factor * dz * 0.5
+                        output_state.w[i, j] -= w_correction
                     end
                     
                     total_correction += abs(correction_factor)
+                end
+            end
+            
+            # Additional smoothing pass to reduce oscillations
+            if iter % 2 == 0  # Every other iteration
+                for j = 1:nz, i = 2:nx
+                    if i < nx
+                        u_smooth = (output_state.u[i-1, j] + 2*output_state.u[i, j] + output_state.u[i+1, j]) / 4.0
+                        output_state.u[i, j] = 0.9 * output_state.u[i, j] + 0.1 * u_smooth
+                    end
+                end
+                for j = 2:nz, i = 1:nx
+                    if j < nz
+                        w_smooth = (output_state.w[i, j-1] + 2*output_state.w[i, j] + output_state.w[i, j+1]) / 4.0
+                        output_state.w[i, j] = 0.9 * output_state.w[i, j] + 0.1 * w_smooth
+                    end
                 end
             end
             
@@ -611,12 +642,13 @@ function validate_conservation_2d(output_state::SolutionState, refined_grid::Ref
                 divergence = dudx + dwdz
                 total_mass_error += abs(divergence)
             end
+            prev_error = avg_mass_error
             avg_mass_error = total_mass_error / (nx * nz)
             
-            println("  Iteration $iter: error = $avg_mass_error, total_correction = $total_correction")
+            println("  Iteration $iter: error = $avg_mass_error, total_correction = $total_correction, max_correction = $max_correction")
             
-            # Stop if converged or correction is too small
-            if avg_mass_error < 0.05 || total_correction < 1e-8
+            # Stop if converged or not improving
+            if avg_mass_error < 0.02 || total_correction < 1e-10 || abs(prev_error - avg_mass_error) < 1e-6
                 break
             end
         end
