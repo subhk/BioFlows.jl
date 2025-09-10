@@ -134,13 +134,13 @@ function main()
     Tfinal = 0.1               # Longer simulation to see flow development
     save_interval = 0.1        # Output saving interval
     
-    # AMR Parameters (tuned for cylinder flow)
-    amr_velocity_threshold = 2.0      # Velocity gradient threshold for refinement
-    amr_pressure_threshold = 100.0    # Pressure gradient threshold [Pa/m]
-    amr_vorticity_threshold = 10.0    # Vorticity threshold [1/s]
-    amr_body_distance = 0.3           # Distance from body for auto-refinement [m]
-    amr_max_levels = 3                # Maximum refinement levels
-    amr_min_grid_size = 0.002         # Minimum grid size [m]
+    # AMR Parameters (conservative settings to reduce mass conservation error)
+    amr_velocity_threshold = 5.0      # Higher velocity gradient threshold for refinement
+    amr_pressure_threshold = 200.0    # Higher pressure gradient threshold [Pa/m]
+    amr_vorticity_threshold = 20.0    # Higher vorticity threshold [1/s]
+    amr_body_distance = 0.2           # Smaller distance from body for auto-refinement [m]
+    amr_max_levels = 2                # Reduced maximum refinement levels
+    amr_min_grid_size = 0.004         # Larger minimum grid size [m]
     
     # Calculate Reynolds number for reference
     Re = Uin * D / ν
