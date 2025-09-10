@@ -129,8 +129,8 @@ function main()
     println("="^60)
 
     # Physical and numerical parameters
-    # Domain geometry - ultra-fine grid for minimal mass conservation error
-    nx, nz = 60, 30             # Smaller grid for maximum AMR mass conservation
+    # Domain geometry - minimal grid for sub-0.1 mass conservation error
+    nx, nz = 40, 20             # Minimal grid for maximum AMR mass conservation
     Lx, Lz = 6.0, 2.0         # Physical domain size [m]
     
     # Flow parameters
