@@ -609,22 +609,22 @@ function validate_conservation_2d(output_state::SolutionState, refined_grid::Ref
     
     avg_mass_error = total_mass_error / (nx * nz)
     
-    # DISABLED: Super-aggressive correction (causing NaN/Inf issues)
-    if false  # avg_mass_error > 0.02  # Much lower threshold for correction
-        println("APPLYING super-aggressive divergence correction (error: $avg_mass_error)")
+    # Conservative correction to improve mass conservation without instability
+    if avg_mass_error > 0.05  # Modest threshold for correction
+        println("APPLYING conservative divergence correction (error: $avg_mass_error)")
         
-        # Enhanced iterative divergence correction with adaptive parameters
-        for iter = 1:8  # More iterations
+        # Conservative iterative divergence correction
+        for iter = 1:3  # Fewer iterations to prevent instability
             total_correction = 0.0
             max_correction = 0.0
             
-            # Adaptive correction strength
-            correction_strength = if iter <= 3
-                0.5  # More aggressive initial correction
-            elseif iter <= 6
-                0.3  # Medium correction
+            # Conservative correction strength to prevent instability
+            correction_strength = if iter == 1
+                0.2  # Gentle initial correction
+            elseif iter == 2
+                0.1  # Mild correction
             else
-                0.1  # Gentle final correction
+                0.05  # Very gentle final correction
             end
             
             for j = 1:nz, i = 1:nx
