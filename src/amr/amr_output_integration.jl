@@ -132,20 +132,87 @@ function get_local_refined_solution_2d(refined_grid::RefinedGrid, cell_idx::Tupl
         p = zeros(local_nx, local_nz)           # p at cell centers
     )
     
-    # Simple interpolation from base grid (in practice, this would be the refined solution)
-    base_u_val = current_state.u[i_base, j_base]
-    # Get w-velocity for 2D XZ plane
-    base_w_val = if hasfield(typeof(current_state), :w)
-        current_state.w[i_base, j_base]
-    else
-        0.0
-    end
-    base_p_val = current_state.p[i_base, j_base]
+    # Higher-order conservative interpolation from base grid neighbors
+    base_grid = refined_grid.base_grid
     
-    # Fill local arrays with interpolated/refined values
-    fill!(local_solution.u, base_u_val)
-    fill!(local_solution.w, base_w_val)
-    fill!(local_solution.p, base_p_val)
+    # Get neighboring values for bilinear interpolation with bounds checking
+    function safe_get_u(i, j)
+        if i >= 1 && i <= size(current_state.u, 1) && j >= 1 && j <= size(current_state.u, 2)
+            return current_state.u[i, j]
+        else
+            return current_state.u[clamp(i, 1, size(current_state.u, 1)), clamp(j, 1, size(current_state.u, 2))]
+        end
+    end
+    
+    function safe_get_w(i, j)
+        if hasfield(typeof(current_state), :w)
+            if i >= 1 && i <= size(current_state.w, 1) && j >= 1 && j <= size(current_state.w, 2)
+                return current_state.w[i, j]
+            else
+                return current_state.w[clamp(i, 1, size(current_state.w, 1)), clamp(j, 1, size(current_state.w, 2))]
+            end
+        else
+            return 0.0
+        end
+    end
+    
+    function safe_get_p(i, j)
+        if i >= 1 && i <= size(current_state.p, 1) && j >= 1 && j <= size(current_state.p, 2)
+            return current_state.p[i, j]
+        else
+            return current_state.p[clamp(i, 1, size(current_state.p, 1)), clamp(j, 1, size(current_state.p, 2))]
+        end
+    end
+    
+    # Bilinear interpolation for refined cells
+    dx_fine = local_grid.dx
+    dz_fine = local_grid.dz
+    dx_base = base_grid.dx
+    dz_base = base_grid.dz
+    
+    # Fill local arrays with bilinear interpolation
+    for j_local = 1:local_nz+1, i_local = 1:local_nx+1
+        # Local coordinates within the refined cell (0 to 1)
+        xi = (i_local - 1) * dx_fine / dx_base
+        zeta = (j_local - 1) * dz_fine / dz_base
+        
+        # Clamp to avoid extrapolation
+        xi = clamp(xi, 0.0, 1.0)
+        zeta = clamp(zeta, 0.0, 1.0)
+        
+        # Bilinear interpolation weights
+        w00 = (1.0 - xi) * (1.0 - zeta)
+        w10 = xi * (1.0 - zeta)  
+        w01 = (1.0 - xi) * zeta
+        w11 = xi * zeta
+        
+        # Get neighbor values with bounds checking
+        u00 = safe_get_u(i_base, j_base)
+        u10 = safe_get_u(i_base + 1, j_base)
+        u01 = safe_get_u(i_base, j_base + 1)
+        u11 = safe_get_u(i_base + 1, j_base + 1)
+        
+        w00_val = safe_get_w(i_base, j_base)
+        w10_val = safe_get_w(i_base + 1, j_base)
+        w01_val = safe_get_w(i_base, j_base + 1)
+        w11_val = safe_get_w(i_base + 1, j_base + 1)
+        
+        p00 = safe_get_p(i_base, j_base)
+        p10 = safe_get_p(i_base + 1, j_base)
+        p01 = safe_get_p(i_base, j_base + 1)
+        p11 = safe_get_p(i_base + 1, j_base + 1)
+        
+        # Interpolated values
+        if i_local <= local_nx + 1 && j_local <= local_nz
+            local_solution.u[i_local, j_local] = w00 * u00 + w10 * u10 + w01 * u01 + w11 * u11
+        end
+        if i_local <= local_nx && j_local <= local_nz + 1
+            local_solution.w[i_local, j_local] = w00 * w00_val + w10 * w10_val + w01 * w01_val + w11 * w11_val
+        end
+        if i_local <= local_nx && j_local <= local_nz
+            local_solution.p[i_local, j_local] = w00 * p00 + w10 * p10 + w01 * p01 + w11 * p11
+        end
+    end
     
     return local_solution
 end
