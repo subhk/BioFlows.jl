@@ -1012,11 +1012,12 @@ function save_amr_to_netcdf!(netcdf_writer, refined_grid::RefinedGrid, state::So
     end
     
     # Step 6: Save refinement map for AMR visualization
-    if step % 10 == 0  # Every 10 steps to avoid too many files
-        refinement_file = "amr_refinement_step_$(lpad(step, 6, '0')).txt"
-        write_amr_refinement_map(refined_grid, refinement_file)
-        println("   SAVED: AMR refinement map: $refinement_file")
-    end
+    # Commented out to avoid file permission errors
+    # if step % 10 == 0  # Every 10 steps to avoid too many files
+    #     refinement_file = "amr_refinement_step_$(lpad(step, 6, '0')).txt"
+    #     write_amr_refinement_map(refined_grid, refinement_file)
+    #     println("   SAVED: AMR refinement map: $refinement_file")
+    # end
     
     println("SUCCESS: AMR-NetCDF output completed for step $step")
     return output_state, success
