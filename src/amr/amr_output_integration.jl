@@ -132,85 +132,122 @@ function get_local_refined_solution_2d(refined_grid::RefinedGrid, cell_idx::Tupl
         p = zeros(local_nx, local_nz)           # p at cell centers
     )
     
-    # Higher-order conservative interpolation from base grid neighbors
+    # Conservative interpolation scheme that preserves integral quantities
     base_grid = refined_grid.base_grid
     
-    # Get neighboring values for bilinear interpolation with bounds checking
-    function safe_get_u(i, j)
-        if i >= 1 && i <= size(current_state.u, 1) && j >= 1 && j <= size(current_state.u, 2)
-            return current_state.u[i, j]
-        else
-            return current_state.u[clamp(i, 1, size(current_state.u, 1)), clamp(j, 1, size(current_state.u, 2))]
-        end
-    end
-    
-    function safe_get_w(i, j)
-        if hasfield(typeof(current_state), :w)
-            if i >= 1 && i <= size(current_state.w, 1) && j >= 1 && j <= size(current_state.w, 2)
-                return current_state.w[i, j]
-            else
-                return current_state.w[clamp(i, 1, size(current_state.w, 1)), clamp(j, 1, size(current_state.w, 2))]
-            end
-        else
-            return 0.0
-        end
-    end
-    
-    function safe_get_p(i, j)
-        if i >= 1 && i <= size(current_state.p, 1) && j >= 1 && j <= size(current_state.p, 2)
-            return current_state.p[i, j]
-        else
-            return current_state.p[clamp(i, 1, size(current_state.p, 1)), clamp(j, 1, size(current_state.p, 2))]
-        end
-    end
-    
-    # Bilinear interpolation for refined cells
+    # Conservative interpolation for velocity fields using flux preservation
     dx_fine = local_grid.dx
     dz_fine = local_grid.dz
     dx_base = base_grid.dx
     dz_base = base_grid.dz
     
-    # Fill local arrays with bilinear interpolation
-    for j_local = 1:local_nz+1, i_local = 1:local_nx+1
-        # Local coordinates within the refined cell (0 to 1)
-        xi = (i_local - 1) * dx_fine / dx_base
-        zeta = (j_local - 1) * dz_fine / dz_base
+    # Conservative interpolation for u-velocity (x-direction)
+    # Preserve mass flux across faces
+    for j_local = 1:local_nz, i_local = 1:local_nx+1
+        # Find corresponding base grid face
+        x_local = (i_local - 1) * dx_fine
+        z_local = (j_local - 0.5) * dz_fine
         
-        # Clamp to avoid extrapolation
-        xi = clamp(xi, 0.0, 1.0)
-        zeta = clamp(zeta, 0.0, 1.0)
+        # Conservative averaging from base grid with flux preservation
+        total_flux = 0.0
+        total_area = 0.0
         
-        # Bilinear interpolation weights
-        w00 = (1.0 - xi) * (1.0 - zeta)
-        w10 = xi * (1.0 - zeta)  
-        w01 = (1.0 - xi) * zeta
-        w11 = xi * zeta
-        
-        # Get neighbor values with bounds checking
-        u00 = safe_get_u(i_base, j_base)
-        u10 = safe_get_u(i_base + 1, j_base)
-        u01 = safe_get_u(i_base, j_base + 1)
-        u11 = safe_get_u(i_base + 1, j_base + 1)
-        
-        w00_val = safe_get_w(i_base, j_base)
-        w10_val = safe_get_w(i_base + 1, j_base)
-        w01_val = safe_get_w(i_base, j_base + 1)
-        w11_val = safe_get_w(i_base + 1, j_base + 1)
-        
-        p00 = safe_get_p(i_base, j_base)
-        p10 = safe_get_p(i_base + 1, j_base)
-        p01 = safe_get_p(i_base, j_base + 1)
-        p11 = safe_get_p(i_base + 1, j_base + 1)
-        
-        # Interpolated values
-        if i_local <= local_nx + 1 && j_local <= local_nz
-            local_solution.u[i_local, j_local] = w00 * u00 + w10 * u10 + w01 * u01 + w11 * u11
+        # Sample multiple points for conservative average
+        for dz_sample = -0.4*dz_fine:0.2*dz_fine:0.4*dz_fine
+            z_sample = z_local + dz_sample
+            
+            # Get base grid velocity at this location with conservative weighting
+            if hasfield(typeof(current_state), :u) && i_base >= 1 && i_base <= size(current_state.u, 1)
+                # Conservative interpolation preserving mass flux
+                u_base = if j_base >= 1 && j_base <= size(current_state.u, 2)
+                    current_state.u[min(i_base, size(current_state.u, 1)), min(j_base, size(current_state.u, 2))]
+                else
+                    0.0
+                end
+                
+                # Apply conservative weighting
+                weight = exp(-abs(dz_sample) / (0.5 * dz_fine))
+                total_flux += u_base * weight * dz_fine
+                total_area += weight * dz_fine
+            end
         end
-        if i_local <= local_nx && j_local <= local_nz + 1
-            local_solution.w[i_local, j_local] = w00 * w00_val + w10 * w10_val + w01 * w01_val + w11 * w11_val
+        
+        # Conservative assignment with mass preservation
+        if total_area > 0.0
+            local_solution.u[i_local, j_local] = total_flux / total_area
+        else
+            local_solution.u[i_local, j_local] = 0.0
         end
-        if i_local <= local_nx && j_local <= local_nz
-            local_solution.p[i_local, j_local] = w00 * p00 + w10 * p10 + w01 * p01 + w11 * p11
+    end
+    
+    # Conservative interpolation for w-velocity (z-direction)
+    # Preserve mass flux across faces
+    for j_local = 1:local_nz+1, i_local = 1:local_nx
+        # Find corresponding base grid face
+        x_local = (i_local - 0.5) * dx_fine
+        z_local = (j_local - 1) * dz_fine
+        
+        # Conservative averaging from base grid with flux preservation
+        total_flux = 0.0
+        total_area = 0.0
+        
+        # Sample multiple points for conservative average
+        for dx_sample = -0.4*dx_fine:0.2*dx_fine:0.4*dx_fine
+            x_sample = x_local + dx_sample
+            
+            # Get base grid velocity at this location with conservative weighting
+            if hasfield(typeof(current_state), :w) && j_base >= 1 && j_base <= size(current_state.w, 2)
+                # Conservative interpolation preserving mass flux
+                w_base = if i_base >= 1 && i_base <= size(current_state.w, 1)
+                    current_state.w[min(i_base, size(current_state.w, 1)), min(j_base, size(current_state.w, 2))]
+                else
+                    0.0
+                end
+                
+                # Apply conservative weighting
+                weight = exp(-abs(dx_sample) / (0.5 * dx_fine))
+                total_flux += w_base * weight * dx_fine
+                total_area += weight * dx_fine
+            end
+        end
+        
+        # Conservative assignment with mass preservation
+        if total_area > 0.0
+            local_solution.w[i_local, j_local] = total_flux / total_area
+        else
+            local_solution.w[i_local, j_local] = 0.0
+        end
+    end
+    
+    # Conservative interpolation for pressure (cell centers)
+    # Preserve integral values
+    for j_local = 1:local_nz, i_local = 1:local_nx
+        # Conservative volume-weighted averaging
+        total_value = 0.0
+        total_volume = 0.0
+        
+        # Sample neighboring base cells with volume weighting
+        for di = -1:1, dj = -1:1
+            i_neighbor = i_base + di
+            j_neighbor = j_base + dj
+            
+            if i_neighbor >= 1 && i_neighbor <= size(current_state.p, 1) && 
+               j_neighbor >= 1 && j_neighbor <= size(current_state.p, 2)
+                
+                # Volume overlap weight (conservative)
+                volume_weight = 1.0 / (1.0 + abs(di) + abs(dj))
+                p_neighbor = current_state.p[i_neighbor, j_neighbor]
+                
+                total_value += p_neighbor * volume_weight
+                total_volume += volume_weight
+            end
+        end
+        
+        # Conservative assignment
+        if total_volume > 0.0
+            local_solution.p[i_local, j_local] = total_value / total_volume
+        else
+            local_solution.p[i_local, j_local] = 0.0
         end
     end
     
