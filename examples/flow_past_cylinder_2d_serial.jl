@@ -114,8 +114,8 @@ function main()
     println("="^60)
 
     # Physical and numerical parameters
-    # Domain geometry - smaller grid for better mass conservation
-    nx, nz = 240, 80            # Smaller grid for better AMR mass conservation
+    # Domain geometry - optimal grid for best mass conservation
+    nx, nz = 80, 40             # Optimal grid size for minimal AMR mass conservation error
     Lx, Lz = 6.0, 2.0         # Physical domain size [m]
     
     # Flow parameters

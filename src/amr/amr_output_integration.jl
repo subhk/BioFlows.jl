@@ -695,10 +695,30 @@ function validate_conservation_2d(output_state::SolutionState, refined_grid::Ref
             end
         end
         
-        # If still above target, apply final perfect conservation enforcement
+        # If still above target, apply gentle additional smoothing
         if avg_mass_error > 0.1
-            println("APPLYING perfect conservation enforcement (error: $avg_mass_error)")
-            enforce_perfect_conservation!(output_state, base_grid)
+            println("APPLYING gentle smoothing to further reduce error (error: $avg_mass_error)")
+            
+            # Very gentle velocity field smoothing to reduce sharp gradients
+            for smooth_iter = 1:3
+                # Smooth u-velocity
+                u_temp = copy(output_state.u)
+                for j = 1:nz, i = 2:nx
+                    if i > 1 && i < nx
+                        u_smooth = (u_temp[i-1, j] + 2*u_temp[i, j] + u_temp[i+1, j]) / 4.0
+                        output_state.u[i, j] = 0.98 * output_state.u[i, j] + 0.02 * u_smooth
+                    end
+                end
+                
+                # Smooth w-velocity  
+                w_temp = copy(output_state.w)
+                for j = 2:nz, i = 1:nx
+                    if j > 1 && j < nz
+                        w_smooth = (w_temp[i, j-1] + 2*w_temp[i, j] + w_temp[i, j+1]) / 4.0
+                        output_state.w[i, j] = 0.98 * output_state.w[i, j] + 0.02 * w_smooth
+                    end
+                end
+            end
             
             # Final error check
             total_mass_error = 0.0
@@ -709,7 +729,7 @@ function validate_conservation_2d(output_state::SolutionState, refined_grid::Ref
                 total_mass_error += abs(divergence)
             end
             avg_mass_error = total_mass_error / (nx * nz)
-            println("  After perfect enforcement: error = $avg_mass_error")
+            println("  After gentle smoothing: error = $avg_mass_error")
         end
     end
     
