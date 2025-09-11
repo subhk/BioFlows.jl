@@ -128,8 +128,8 @@ function AMRLevel(grid_type::GridType, level::Int, nx::Int, ny::Int, nz::Int,
     w = zeros(nx, ny, nz+1)      # w at z-faces
     p = zeros(nx, ny, nz)        # p at cell centers
     
-    needs_refinement = falses(nx, ny, nz)
-    children = Array{Union{Nothing, AMRLevel}}(nothing, nx, ny, nz)
+    needs_refinement = falses(nx, ny, nz)::Array{Bool,3}
+    children = Array{Union{Nothing, AMRLevel}}(nothing, nx, ny, nz)::Array{Union{Nothing, AMRLevel},3}
     
     AMRLevel(level, nx, ny, nz, dx, dy, dz, grid_type,
              x_centers, y_centers, z_centers, x_faces, y_faces, z_faces,
