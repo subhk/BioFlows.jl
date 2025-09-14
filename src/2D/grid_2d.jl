@@ -3,7 +3,11 @@ function create_2d_solver(nx::Int, nz::Int, Lx::Float64, Lz::Float64,
                          grid_type::GridType=TwoDimensional,
                          time_scheme::TimeSteppingScheme=RungeKutta2(),
                          use_mpi::Bool=false,
-                         origin_x::Float64=0.0, origin_z::Float64=0.0)
+                         origin_x::Float64=0.0, origin_z::Float64=0.0,
+                         mg_levels::Int=5, mg_max_iterations::Int=300,
+                         mg_tolerance::Float64=1e-12,
+                         mg_smoother::Symbol=:staggered,
+                         mg_cycle::Symbol=:V)
     
     if grid_type == TwoDimensional
         grid = StaggeredGrid2D(nx, nz, Lx, Lz; origin_x=origin_x, origin_z=origin_z)
@@ -12,9 +16,15 @@ function create_2d_solver(nx::Int, nz::Int, Lx::Float64, Lz::Float64,
     end
     
     if use_mpi
-        return MPINavierStokesSolver2D(nx, nz, Lx, Lz, fluid, bc, time_scheme)
+        return MPINavierStokesSolver2D(nx, nz, Lx, Lz, fluid, bc, time_scheme;
+                                       mg_levels=mg_levels, mg_max_iterations=mg_max_iterations,
+                                       mg_tolerance=mg_tolerance, mg_smoother=mg_smoother,
+                                       mg_cycle=mg_cycle)
     else
-        return NavierStokesSolver2D(grid, fluid, bc, time_scheme)
+        return NavierStokesSolver2D(grid, fluid, bc, time_scheme;
+                                    mg_levels=mg_levels, mg_max_iterations=mg_max_iterations,
+                                    mg_tolerance=mg_tolerance, mg_smoother=mg_smoother,
+                                    mg_cycle=mg_cycle)
     end
 end
 

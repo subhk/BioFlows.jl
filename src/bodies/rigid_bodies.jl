@@ -41,7 +41,7 @@ function compute_drag_lift_coefficients(body::RigidBody, grid::StaggeredGrid,
 
     # Cell-centered velocity fields and their gradients
     u_cc = interpolate_u_to_cell_center(state.u, grid)
-    w_cc = interpolate_v_to_cell_center(state.v, grid)  # v stores w in XZ
+    w_cc = interpolate_w_to_cell_center(state.w, grid)  # w is z-velocity in XZ
     dudx = ddx(u_cc, grid); dudz = ddz(u_cc, grid)
     dwdx = ddx(w_cc, grid); dwdz = ddz(w_cc, grid)
 

@@ -55,7 +55,11 @@ function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int,
                                          Lx::Float64, Lz::Float64,
                                          fluid::FluidProperties, bc::BoundaryConditions,
                                          time_scheme::TimeSteppingScheme;
-                                         comm::MPI.Comm=MPI.COMM_WORLD)
+                                         comm::MPI.Comm=MPI.COMM_WORLD,
+                                         mg_levels::Int=5, mg_max_iterations::Int=300,
+                                         mg_tolerance::Float64=1e-12,
+                                         mg_smoother::Symbol=:staggered,
+                                         mg_cycle::Symbol=:V)
     
     # Create optimized MPI decomposition
     decomp = MPI2DDecomposition(nx_global, nz_global, comm)
@@ -82,8 +86,10 @@ function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int,
     local_diffusion_u = zeros(nx_local+1, nz_local)
     local_diffusion_w = zeros(nx_local, nz_local+1)  # Fixed: w for z-velocity
     
-    # Create multigrid solver (pure Julia implementation; works on local subdomain)
-    multigrid_solver = MultigridPoissonSolver(local_grid; smoother=:staggered)
+    # Create multigrid solver (pure Julia) using provided settings
+    multigrid_solver = MultigridPoissonSolver(local_grid; smoother=mg_smoother,
+                                              tolerance=mg_tolerance, max_iterations=mg_max_iterations,
+                                              levels=mg_levels, cycle_type=mg_cycle)
     
     MPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme, multigrid_solver,
                                     mpi_buffers, load_balancer, comm_overlapper,
@@ -99,7 +105,8 @@ Highly optimized MPI solve step with comprehensive performance enhancements.
 """
 function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D, 
                                      local_state_new::SolutionState,
-                                     local_state_old::SolutionState, dt::Float64)
+                                     local_state_old::SolutionState, dt::Float64,
+                                     bodies::Union{RigidBodyCollection,Nothing}=nothing)
     
     # Start timing for load balancing analysis
     step_start_time = time()
@@ -116,8 +123,15 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
     ghost_exchange_2d!(local_state_old.u, decomp, solver.mpi_buffers)
     ghost_exchange_2d!(local_state_old.w, decomp, solver.mpi_buffers)
     
-    # STEP 4: Compute divergence with optimized operations
-    compute_divergence_2d!(solver.local_div_u, local_state_old.u, local_state_old.w, solver.local_grid)
+    # STEP 4: Compute divergence (masked if bodies present)
+    use_masks = lowercase(get(ENV, "BIOFLOWS_MASKED_PROJECTION", "1")) in ("1","true","yes","on")
+    eps_mul = try parse(Float64, get(ENV, "BIOFLOWS_MASKS_EPS_MUL", "2.0")) catch; 2.0 end
+    if use_masks && (bodies !== nothing)
+        chi_u, chi_w = build_solid_mask_faces_2d(bodies, solver.local_grid; eps_mul=eps_mul)
+        masked_divergence_2d!(solver.local_div_u, local_state_old.u, local_state_old.w, solver.local_grid, chi_u, chi_w)
+    else
+        compute_divergence_2d!(solver.local_div_u, local_state_old.u, local_state_old.w, solver.local_grid)
+    end
     
     # STEP 5: Solve pressure Poisson with optimized multigrid
     solver.local_rhs_p .= solver.local_div_u ./ dt
@@ -127,7 +141,16 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
                   solver.local_grid, solver.bc)
     
     # STEP 6: Velocity correction with vectorized operations
-    correct_velocity_2d!(local_state_new, local_state_old, solver.local_phi, dt, solver.local_grid)
+    if use_masks && (bodies !== nothing)
+        dpdx = zeros(size(local_state_old.u))
+        dpdz = zeros(size(local_state_old.w))
+        gradient_pressure_2d!(dpdx, dpdz, solver.local_phi, solver.local_grid)
+        chi_u, chi_w = build_solid_mask_faces_2d(bodies, solver.local_grid; eps_mul=eps_mul)
+        local_state_new.u .= local_state_old.u .- dt .* (1 .- chi_u) .* dpdx
+        local_state_new.w .= local_state_old.w .- dt .* (1 .- chi_w) .* dpdz
+    else
+        correct_velocity_2d!(local_state_new, local_state_old, solver.local_phi, dt, solver.local_grid)
+    end
     
     # STEP 7: Pressure update
     if solver.fluid.ρ isa ConstantDensity

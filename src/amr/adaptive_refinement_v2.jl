@@ -233,8 +233,9 @@ function initialize_multigrid_solvers!(hierarchy::AMRHierarchy)
                                         origin_z=amr_level.z_min)
         end
         
-        # Create staggered-aware multigrid solver
-        return MultigridPoissonSolver(local_grid; smoother=:staggered, tolerance=1e-8)
+        # Create staggered-aware multigrid solver with tighter convergence
+        return MultigridPoissonSolver(local_grid; smoother=:staggered,
+                                      tolerance=1e-12, max_iterations=300, levels=5)
     end
     
     # Initialize solver for base level

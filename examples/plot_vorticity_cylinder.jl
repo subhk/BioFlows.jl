@@ -106,7 +106,7 @@ function interpolate_to_centers_w(w::AbstractArray)
 end
 
 function compute_vorticity_2d(ncfile::String; tsel=:last)
-    nc = NetCDF.open(ncfile)
+    return NetCDF.open(ncfile) do nc
     # Coordinates
     x = NetCDF.readvar(nc, "x")
     z = NetCDF.readvar(nc, "z")
@@ -116,7 +116,6 @@ function compute_vorticity_2d(ncfile::String; tsel=:last)
     time = haskey(nc.vars, "time") ? NetCDF.readvar(nc, "time") : nothing
 
     if u === nothing || w === nothing
-        NetCDF.close(nc)
         error("NetCDF file does not contain required 2D variables 'u' and 'w'")
     end
 
@@ -137,7 +136,6 @@ function compute_vorticity_2d(ncfile::String; tsel=:last)
         end
     end
     if tidx < 1 || tidx > nt
-        NetCDF.close(nc)
         error("Invalid time index $(tidx); file has $(nt) snapshots")
     end
 
@@ -158,8 +156,8 @@ function compute_vorticity_2d(ncfile::String; tsel=:last)
     du_dz = central_diff_z(u_cc, dz)
     ω = dw_dx .- du_dz
 
-    NetCDF.close(nc)
     return x, z, ω
+    end
 end
 
 function plot_vorticity(ncfile::String; tsel=:last, xc::Union{Nothing,Float64}=nothing,
@@ -180,57 +178,57 @@ function plot_vorticity(ncfile::String; tsel=:last, xc::Union{Nothing,Float64}=n
 
     # Overlay multiple rigid bodies if available from metadata
     try
-        nc = NetCDF.open(ncfile)
-        nrigid = haskey(nc.atts, ("global","rigid_bodies")) ? NetCDF.readatt(nc, "global", "rigid_bodies") : 0
-        for i in 1:nrigid
-            typ = haskey(nc.atts, ("global","body_$(i)_type")) ? NetCDF.readatt(nc, "global", "body_$(i)_type") : ""
-            if typ == "Circle"
-                cx0 = NetCDF.readatt(nc, "global", "body_$(i)_center_x")
-                cz0 = NetCDF.readatt(nc, "global", "body_$(i)_center_z")
-                r0  = NetCDF.readatt(nc, "global", "body_$(i)_radius")
-                θ = range(0, 2π, length=200)
-                px = cx0 .+ r0 .* cos.(θ)
-                pz = cz0 .+ r0 .* sin.(θ)
-                plot!(px, pz, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
-            elseif typ == "Square"
-                cx0 = NetCDF.readatt(nc, "global", "body_$(i)_center_x")
-                cz0 = NetCDF.readatt(nc, "global", "body_$(i)_center_z")
-                side = NetCDF.readatt(nc, "global", "body_$(i)_side")
-                ang  = haskey(nc.atts, ("global","body_$(i)_angle")) ? NetCDF.readatt(nc, "global", "body_$(i)_angle") : 0.0
-                # Square corners in body frame
-                s = side/2
-                pts = [(-s,-s), (s,-s), (s,s), (-s,s)]
-                cosθ = cos(ang); sinθ = sin(ang)
-                px = Float64[]; pz = Float64[]
-                for (x0,z0) in pts
-                    xr = cosθ*x0 + sinθ*z0
-                    zr = -sinθ*x0 + cosθ*z0
-                    push!(px, cx0 + xr)
-                    push!(pz, cz0 + zr)
+        NetCDF.open(ncfile) do nc
+            nrigid = haskey(nc.atts, ("global","rigid_bodies")) ? NetCDF.readatt(nc, "global", "rigid_bodies") : 0
+            for i in 1:nrigid
+                typ = haskey(nc.atts, ("global","body_$(i)_type")) ? NetCDF.readatt(nc, "global", "body_$(i)_type") : ""
+                if typ == "Circle"
+                    cx0 = NetCDF.readatt(nc, "global", "body_$(i)_center_x")
+                    cz0 = NetCDF.readatt(nc, "global", "body_$(i)_center_z")
+                    r0  = NetCDF.readatt(nc, "global", "body_$(i)_radius")
+                    θ = range(0, 2π, length=200)
+                    px = cx0 .+ r0 .* cos.(θ)
+                    pz = cz0 .+ r0 .* sin.(θ)
+                    plot!(px, pz, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
+                elseif typ == "Square"
+                    cx0 = NetCDF.readatt(nc, "global", "body_$(i)_center_x")
+                    cz0 = NetCDF.readatt(nc, "global", "body_$(i)_center_z")
+                    side = NetCDF.readatt(nc, "global", "body_$(i)_side")
+                    ang  = haskey(nc.atts, ("global","body_$(i)_angle")) ? NetCDF.readatt(nc, "global", "body_$(i)_angle") : 0.0
+                    # Square corners in body frame
+                    s = side/2
+                    pts = [(-s,-s), (s,-s), (s,s), (-s,s)]
+                    cosθ = cos(ang); sinθ = sin(ang)
+                    px = Float64[]; pz = Float64[]
+                    for (x0,z0) in pts
+                        xr = cosθ*x0 + sinθ*z0
+                        zr = -sinθ*x0 + cosθ*z0
+                        push!(px, cx0 + xr)
+                        push!(pz, cz0 + zr)
+                    end
+                    push!(px, px[1]); push!(pz, pz[1])
+                    plot!(px, pz, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
+                elseif typ == "Rectangle"
+                    cx0 = NetCDF.readatt(nc, "global", "body_$(i)_center_x")
+                    cz0 = NetCDF.readatt(nc, "global", "body_$(i)_center_z")
+                    w   = NetCDF.readatt(nc, "global", "body_$(i)_width")
+                    h   = NetCDF.readatt(nc, "global", "body_$(i)_height")
+                    ang  = haskey(nc.atts, ("global","body_$(i)_angle")) ? NetCDF.readatt(nc, "global", "body_$(i)_angle") : 0.0
+                    s1, s2 = w/2, h/2
+                    pts = [(-s1,-s2), (s1,-s2), (s1,s2), (-s1,s2)]
+                    cosθ = cos(ang); sinθ = sin(ang)
+                    px = Float64[]; pz = Float64[]
+                    for (x0,z0) in pts
+                        xr = cosθ*x0 + sinθ*z0
+                        zr = -sinθ*x0 + cosθ*z0
+                        push!(px, cx0 + xr)
+                        push!(pz, cz0 + zr)
+                    end
+                    push!(px, px[1]); push!(pz, pz[1])
+                    plot!(px, pz, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
                 end
-                push!(px, px[1]); push!(pz, pz[1])
-                plot!(px, pz, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
-            elseif typ == "Rectangle"
-                cx0 = NetCDF.readatt(nc, "global", "body_$(i)_center_x")
-                cz0 = NetCDF.readatt(nc, "global", "body_$(i)_center_z")
-                w   = NetCDF.readatt(nc, "global", "body_$(i)_width")
-                h   = NetCDF.readatt(nc, "global", "body_$(i)_height")
-                ang  = haskey(nc.atts, ("global","body_$(i)_angle")) ? NetCDF.readatt(nc, "global", "body_$(i)_angle") : 0.0
-                s1, s2 = w/2, h/2
-                pts = [(-s1,-s2), (s1,-s2), (s1,s2), (-s1,s2)]
-                cosθ = cos(ang); sinθ = sin(ang)
-                px = Float64[]; pz = Float64[]
-                for (x0,z0) in pts
-                    xr = cosθ*x0 + sinθ*z0
-                    zr = -sinθ*x0 + cosθ*z0
-                    push!(px, cx0 + xr)
-                    push!(pz, cz0 + zr)
-                end
-                push!(px, px[1]); push!(pz, pz[1])
-                plot!(px, pz, seriestype=:shape, fillcolor=:black, linecolor=:black, alpha=1.0)
             end
         end
-        NetCDF.close(nc)
     catch e
         @warn "Could not overlay rigid bodies: $e"
     end
@@ -245,11 +243,12 @@ function main()
     # Auto-detect cylinder metadata from NetCDF attributes if not provided
     if xc === nothing || zc === nothing || R === nothing
         try
-            nc = NetCDF.open(filepath)
-            cx_att = haskey(nc.atts, ("global","cylinder_x")) ? NetCDF.readatt(nc, "global", "cylinder_x") : nothing
-            cz_att = haskey(nc.atts, ("global","cylinder_z")) ? NetCDF.readatt(nc, "global", "cylinder_z") : nothing
-            cr_att = haskey(nc.atts, ("global","cylinder_radius")) ? NetCDF.readatt(nc, "global", "cylinder_radius") : nothing
-            NetCDF.close(nc)
+            cx_att = nothing; cz_att = nothing; cr_att = nothing
+            NetCDF.open(filepath) do nc
+                cx_att = haskey(nc.atts, ("global","cylinder_x")) ? NetCDF.readatt(nc, "global", "cylinder_x") : nothing
+                cz_att = haskey(nc.atts, ("global","cylinder_z")) ? NetCDF.readatt(nc, "global", "cylinder_z") : nothing
+                cr_att = haskey(nc.atts, ("global","cylinder_radius")) ? NetCDF.readatt(nc, "global", "cylinder_radius") : nothing
+            end
             if xc === nothing && cx_att !== nothing; xc = cx_att; end
             if zc === nothing && cz_att !== nothing; zc = cz_att; end
             if R === nothing && cr_att !== nothing; R = cr_att; end
@@ -260,14 +259,14 @@ function main()
     # Fallback: try first rigid body metadata
     if (xc === nothing || zc === nothing || R === nothing)
         try
-            nc = NetCDF.open(filepath)
-            typ = haskey(nc.atts, ("global","body_1_type")) ? NetCDF.readatt(nc, "global", "body_1_type") : ""
-            if typ == "Circle"
-                if xc === nothing; xc = NetCDF.readatt(nc, "global", "body_1_center_x"); end
-                if zc === nothing; zc = NetCDF.readatt(nc, "global", "body_1_center_z"); end
-                if R === nothing; R = NetCDF.readatt(nc, "global", "body_1_radius"); end
+            NetCDF.open(filepath) do nc
+                typ = haskey(nc.atts, ("global","body_1_type")) ? NetCDF.readatt(nc, "global", "body_1_type") : ""
+                if typ == "Circle"
+                    if xc === nothing; xc = NetCDF.readatt(nc, "global", "body_1_center_x"); end
+                    if zc === nothing; zc = NetCDF.readatt(nc, "global", "body_1_center_z"); end
+                    if R === nothing; R = NetCDF.readatt(nc, "global", "body_1_radius"); end
+                end
             end
-            NetCDF.close(nc)
         catch e
             @warn "Could not read rigid body metadata: $e"
         end

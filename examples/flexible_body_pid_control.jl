@@ -35,7 +35,8 @@ function main()
         adaptive_refinement = false,
         output_interval = 0.2,
         output_file = "flexible_pid_control",
-        output_max_snapshots = 100
+        output_max_snapshots = 100,
+        poisson_strict = true
     )
     
     # Create two flexible flags at different heights

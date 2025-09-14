@@ -171,15 +171,15 @@ function collect_frames_and_range(files)
     frames = Vector{Tuple{String,Int,Float64}}()
     ωmin = Inf; ωmax = -Inf
     for f in files
-        nc = NetCDF.open(f)
-        _, _, time = read_coords_and_times(nc)
-        nt = length(time)
-        for t = 1:nt
-            x, z, ω = vorticity_frame(nc, t)
-            ωmin = min(ωmin, minimum(ω)); ωmax = max(ωmax, maximum(ω))
-            push!(frames, (f, t, time[t]))
+        NetCDF.open(f) do nc
+            _, _, time = read_coords_and_times(nc)
+            nt = length(time)
+            for t = 1:nt
+                x, z, ω = vorticity_frame(nc, t)
+                ωmin = min(ωmin, minimum(ω)); ωmax = max(ωmax, maximum(ω))
+                push!(frames, (f, t, time[t]))
+            end
         end
-        NetCDF.close(nc)
     end
     return frames, ωmin, ωmax
 end
@@ -199,9 +199,9 @@ function main()
     crange = (-oabs, oabs)
 
     # Prepare first file bodies metadata for overlay
-    nc0 = NetCDF.open(files[1])
-    bodies = read_rigid_bodies_metadata(nc0)
-    NetCDF.close(nc0)
+    bodies = NetCDF.open(files[1]) do nc0
+        read_rigid_bodies_metadata(nc0)
+    end
 
     # Animation
     # Optional palette via ENV VORTICITY_PALETTE (default :balance)
@@ -212,9 +212,10 @@ function main()
     end
 
     anim = @animate for (f, tidx, tval) in frames
-        nc = NetCDF.open(f)
-        x, z, ω = vorticity_frame(nc, tidx)
-        NetCDF.close(nc)
+        x = nothing; z = nothing; ω = nothing
+        NetCDF.open(f) do nc
+            x, z, ω = vorticity_frame(nc, tidx)
+        end
         # Mask body interiors
         mask_bodies!(ω, x, z, bodies)
         ttl = @sprintf("Vorticity t=%.3f (%s)", tval, basename(f))

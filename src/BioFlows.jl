@@ -5,7 +5,6 @@ module BioFlows
     # using ParametricBodies  
     using PencilArrays  
     using ForwardDiff  
-    using NetCDF
     using MPI
 
     # Core types and infrastructure first
@@ -50,9 +49,16 @@ module BioFlows
 
     # AMR integration (depends on solver types above)
     include("amr/amr_integration.jl")
-
-    include("output/netcdf_writer.jl")
+    include("output/output_config.jl")
+    # Declare generic writer API that concrete writers (JLD2Output) extend
+    function write_solution! end
+    function close! end
+    include("output/jld2_writer.jl")
     include("api/simulation_api.jl")
+
+    # Masked immersed-boundary thin adapter
+    include("masked_ib/mod.jl")
+
 
     # High-level user API exports
     export SimulationConfig, create_2d_simulation_config, create_3d_simulation_config
@@ -97,6 +103,9 @@ module BioFlows
     export BoundaryConditions, BoundaryConditions2D, BoundaryConditions3D
     export InletBC, PressureOutletBC, VelocityOutletBC, NoSlipBC, FreeSlipBC, PeriodicBC
     export apply_immersed_boundary_forcing!
+    export apply_body_volume_penalty!
+    export apply_inlet_volume_penalty!
+    export apply_outlet_volume_penalty!
 
     # Adaptive refinement exports (original)
     export AdaptiveRefinementCriteria, RefinedGrid, adapt_grid!
@@ -120,10 +129,7 @@ module BioFlows
     export refine_for_boundary_layers!, apply_anisotropic_refinement!
 
     # Output exports
-    export NetCDFConfig, NetCDFWriter, write_solution!, close!
-    export save_body_force_coefficients!, save_complete_snapshot!, setup_netcdf_output
-    # Temporarily disabled: export save_flexible_body_positions!, create_position_only_writer
-    export save_body_kinematics_snapshot!, save_body_positions_only!
+    export NetCDFConfig, write_solution!, close!
 
     # Differential operator exports
     export ddx, ddy, ddz, d2dx2, d2dy2, d2dz2
@@ -152,9 +158,13 @@ module BioFlows
     export compute_drag_lift_coefficients, compute_body_coefficients_collection, compute_instantaneous_power
     export add_flexible_bodies_with_controller!
 
+
     # Multigrid solver exports
     export MultigridPoissonSolver, solve_poisson!, show_solver_info
     export compute_pressure_gradient_to_faces!, compute_velocity_divergence_from_faces!
     export create_amr_integrated_solver, amr_solve_step!
+
+    # Masked IB adapter export
+    export MaskedIB
 
 end

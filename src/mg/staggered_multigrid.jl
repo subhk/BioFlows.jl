@@ -428,7 +428,8 @@ function staggered_restrict!(mg::StaggeredMultiLevelPoisson{T}, level::Int) wher
         i_fine = 2*i - 1
         j_fine = 2*j - 1
         
-        if i_fine <= nx_fine && j_fine <= ny_fine
+        # Check bounds for all indices used in stencil
+        if i_fine >= 2 && i_fine <= nx_fine-1 && j_fine >= 2 && j_fine <= ny_fine-1
             # Full weighting: 1/16 * [1 2 1; 2 4 2; 1 2 1] stencil
             b_coarse[i, j] = 0.0625 * (
                 1.0 * (r_fine[i_fine-1, j_fine-1] + r_fine[i_fine+1, j_fine-1] + 
@@ -437,6 +438,9 @@ function staggered_restrict!(mg::StaggeredMultiLevelPoisson{T}, level::Int) wher
                        r_fine[i_fine-1, j_fine] + r_fine[i_fine+1, j_fine]) +
                 4.0 * r_fine[i_fine, j_fine]
             )
+        elseif i_fine >= 1 && i_fine <= nx_fine && j_fine >= 1 && j_fine <= ny_fine
+            # Simple injection for near-boundary points
+            b_coarse[i, j] = r_fine[i_fine, j_fine]
         end
     end
     

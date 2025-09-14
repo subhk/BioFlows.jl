@@ -170,8 +170,9 @@ function create_mg_solver_for_level(amr_level)
                                     origin_z=amr_level.z_min)  # Fixed: use correct z origin
     end
     
-    # Create staggered-aware multigrid solver
-    return MultigridPoissonSolver(local_grid; smoother=:staggered, tolerance=1e-8)
+    # Create staggered-aware multigrid solver with tighter convergence
+    return MultigridPoissonSolver(local_grid; smoother=:staggered,
+                                  tolerance=1e-12, max_iterations=300, levels=5)
 end
 
 # Export AMR helper functions

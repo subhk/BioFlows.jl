@@ -87,7 +87,14 @@ function derivative_at_faces(field::AbstractArray{T,N}, grid::StaggeredGrid, dim
     output_size = Tuple(i == dim ? input_size[i] + 1 : input_size[i] for i in 1:N)
     result = zeros(T, output_size)
     
-    h = (dim == 1) ? grid.dx : (dim == 2) ? grid.dy : grid.dz
+    # Choose spacing respecting 2D XZ-plane (ny=0, dy=0)
+    h = if dim == 1
+        grid.dx
+    elseif dim == 2
+        (N == 2 && grid.grid_type == TwoDimensional) ? grid.dz : grid.dy
+    else
+        grid.dz
+    end
     n = input_size[dim]
     
     for idx in CartesianIndices(result)
@@ -414,6 +421,17 @@ function interpolate_v_to_cell_center(v::Matrix{T}, grid::StaggeredGrid) where T
     end
 end
 
+# Convenience: explicit w-to-cell-center interpolation
+function interpolate_w_to_cell_center(w::Matrix{T}, grid::StaggeredGrid) where T
+    # 2D XZ plane: w has shape (nx, nz+1)
+    nx, nz = grid.nx, grid.nz
+    w_cc = zeros(T, nx, nz)
+    @inbounds for j = 1:nz, i = 1:nx
+        w_cc[i, j] = 0.5 * (w[i, j] + w[i, j+1])
+    end
+    return w_cc
+end
+
 function interpolate_u_to_cell_center(u::Array{T,3}, grid::StaggeredGrid) where T
     nx, ny, nz = grid.nx, grid.ny, grid.nz
     u_cc = zeros(T, nx, ny, nz)
@@ -430,6 +448,15 @@ function interpolate_v_to_cell_center(v::Array{T,3}, grid::StaggeredGrid) where 
         v_cc[i, j, k] = 0.5 * (v[i, j, k] + v[i, j+1, k])
     end
     return v_cc
+end
+
+function interpolate_w_to_cell_center(w::Array{T,3}, grid::StaggeredGrid) where T
+    nx, ny, nz = grid.nx, grid.ny, grid.nz
+    w_cc = zeros(T, nx, ny, nz)
+    @inbounds for k = 1:nz, j = 1:ny, i = 1:nx
+        w_cc[i, j, k] = 0.5 * (w[i, j, k] + w[i, j, k+1])
+    end
+    return w_cc
 end
 
 # =============================================================================

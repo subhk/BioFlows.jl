@@ -2,7 +2,11 @@ function create_3d_solver(nx::Int, ny::Int, nz::Int, Lx::Float64, Ly::Float64, L
                          fluid::FluidProperties, bc::BoundaryConditions;
                          time_scheme::TimeSteppingScheme=RungeKutta2(),
                          use_mpi::Bool=false,
-                         origin_x::Float64=0.0, origin_y::Float64=0.0, origin_z::Float64=0.0)
+                         origin_x::Float64=0.0, origin_y::Float64=0.0, origin_z::Float64=0.0,
+                         mg_levels::Int=5, mg_max_iterations::Int=300,
+                         mg_tolerance::Float64=1e-12,
+                         mg_smoother::Symbol=:staggered,
+                         mg_cycle::Symbol=:V)
     
     grid = StaggeredGrid3D(nx, ny, nz, Lx, Ly, Lz; 
                           origin_x=origin_x, origin_y=origin_y, origin_z=origin_z)
@@ -10,7 +14,10 @@ function create_3d_solver(nx::Int, ny::Int, nz::Int, Lx::Float64, Ly::Float64, L
     if use_mpi
         return MPINavierStokesSolver3D(nx, ny, nz, Lx, Ly, Lz, fluid, bc, time_scheme)
     else
-        return NavierStokesSolver3D(grid, fluid, bc, time_scheme)
+        return NavierStokesSolver3D(grid, fluid, bc, time_scheme;
+                                    mg_levels=mg_levels, mg_max_iterations=mg_max_iterations,
+                                    mg_tolerance=mg_tolerance, mg_smoother=mg_smoother,
+                                    mg_cycle=mg_cycle)
     end
 end
 

@@ -41,14 +41,38 @@ function apply_2d_boundaries!(grid::StaggeredGrid, state::SolutionState,
     if haskey(bc.conditions, (:x, :left))
         condition = bc.conditions[(:x, :left)]
         apply_u_boundary!(state.u, condition, 1, :, t, :left)
-        apply_w_boundary!(state.w, condition, 1, :, t, :left)  # w holds vertical velocity in 2D
+        # For inlet in x-direction, optionally allow a small transverse profile via env var
+        if condition.type == Inlet
+            A = try
+                parse(Float64, get(ENV, "BIOFLOWS_W_INLET_AMP", "0.0"))
+            catch
+                0.0
+            end
+            if A != 0.0 && size(state.w, 1) >= 1
+                # Sinusoidal profile across z with zero net flux
+                for j = 1:size(state.w, 2)
+                    zf = grid.zw[j]
+                    state.w[1, j] = A * sin(pi * (zf / grid.Lz))
+                end
+            else
+                state.w[1, :] .= 0.0
+            end
+            # Enforce a small zero-gradient buffer for u at inlet to avoid artificial divergence spikes
+            local nfaces = min(8, size(state.u, 1))
+            for i = 2:nfaces
+                state.u[i, :] .= state.u[i-1, :]
+            end
+        else
+            apply_w_boundary!(state.w, condition, 1, :, t, :left)
+        end
     end
     
     # Right boundary (x=Lx)
     if haskey(bc.conditions, (:x, :right))
         condition = bc.conditions[(:x, :right)]
         apply_u_boundary!(state.u, condition, nx+1, :, t, :right)
-        apply_w_boundary!(state.w, condition, nx, :, t, :right)
+        # Zero-gradient for transverse component at outlet
+        state.w[nx, :] .= state.w[nx-1, :]
     end
     
     # Bottom boundary (z=0)

@@ -59,7 +59,11 @@ end
 
 function NavierStokesSolver3D(grid::StaggeredGrid, fluid::FluidProperties,
                              bc::BoundaryConditions, time_scheme::TimeSteppingScheme;
-                             pressure_correction::Bool=true)
+                             pressure_correction::Bool=true,
+                             mg_levels::Int=5, mg_max_iterations::Int=300,
+                             mg_tolerance::Float64=1e-12,
+                             mg_smoother::Symbol=:staggered,
+                             mg_cycle::Symbol=:V)
     nx, ny, nz = grid.nx, grid.ny, grid.nz
     
     # Initialize work arrays
@@ -69,8 +73,10 @@ function NavierStokesSolver3D(grid::StaggeredGrid, fluid::FluidProperties,
     phi = zeros(nx, ny, nz)
     rhs_p = zeros(nx, ny, nz)
     
-    # Create multigrid solver for optimal performance
-    mg_solver = MultigridPoissonSolver(grid; smoother=:staggered)
+    # Create multigrid solver using provided settings
+    mg_solver = MultigridPoissonSolver(grid; smoother=mg_smoother,
+                                       tolerance=mg_tolerance, max_iterations=mg_max_iterations,
+                                       levels=mg_levels, cycle_type=mg_cycle)
     
     NavierStokesSolver3D(grid, fluid, bc, time_scheme, mg_solver, pressure_correction,
                         u_star, v_star, w_star, phi, rhs_p)

@@ -37,9 +37,18 @@ struct SimulationConfig
     use_mpi::Bool
     adaptive_refinement::Bool
     refinement_criteria::Union{AdaptiveRefinementCriteria, Nothing}
+    use_waterlily::Bool  # Keep for backward compatibility
+    immersed_boundary_method::ImmersedBoundaryMethod
     
     # Output options
     output_config::NetCDFConfig
+
+    # Pressure Poisson (multigrid) options
+    mg_levels::Int
+    mg_max_iterations::Int
+    mg_tolerance::Float64
+    mg_smoother::Symbol
+    mg_cycle::Symbol
 end
 
 """
@@ -90,6 +99,8 @@ function create_2d_simulation_config(;
     final_time::Float64 = 10.0,
     use_mpi::Bool = false,
     adaptive_refinement::Bool = false,
+    immersed_boundary_method::ImmersedBoundaryMethod = VolumePenalty,
+    use_masked_ib::Bool = false,
     output_interval::Float64 = 0.1,
     output_file::String = "bioflow_2d",
     # Output config advanced options
@@ -100,7 +111,14 @@ function create_2d_simulation_config(;
     output_save_body_positions::Bool = true,
     output_save_force_coefficients::Bool = true,
     output_reference_velocity::Float64 = 1.0,
-    output_flow_direction::Vector{Float64} = [1.0, 0.0])
+    output_flow_direction::Vector{Float64} = [1.0, 0.0],
+    # Poisson multigrid controls
+    poisson_levels::Int = 5,
+    poisson_max_iterations::Int = 300,
+    poisson_tolerance::Float64 = 1e-12,
+    poisson_smoother::Symbol = :staggered,
+    poisson_cycle::Symbol = :V,
+    poisson_strict::Bool = false)
     
     # Create fluid properties
     if density_type == :constant
@@ -158,6 +176,9 @@ function create_2d_simulation_config(;
         error("Unknown time scheme: $time_scheme")
     end
     
+    # If convenience flag is set, prefer masked IB (BDIM)
+    ib_method_eff = use_masked_ib ? BDIM : immersed_boundary_method
+
     # Create output configuration (align with NetCDFConfig signature)
     output_config = NetCDFConfig(output_file;
         max_snapshots_per_file=output_max_snapshots,
@@ -171,6 +192,20 @@ function create_2d_simulation_config(;
         flow_direction=output_flow_direction,
     )
     
+    # Optionally enforce a strict Poisson setting bundle
+    eff_poisson_levels = poisson_levels
+    eff_poisson_maxiter = poisson_max_iterations
+    eff_poisson_tol = poisson_tolerance
+    eff_poisson_smoother = poisson_smoother
+    eff_poisson_cycle = poisson_cycle
+    if poisson_strict
+        eff_poisson_levels = max(eff_poisson_levels, 6)
+        eff_poisson_maxiter = max(eff_poisson_maxiter, 500)
+        eff_poisson_tol = min(eff_poisson_tol, 1e-12)
+        eff_poisson_smoother = :staggered
+        eff_poisson_cycle = :V
+    end
+
     # Create refinement criteria if needed
     refinement_criteria = adaptive_refinement ? AdaptiveRefinementCriteria() : nothing
     
@@ -178,8 +213,10 @@ function create_2d_simulation_config(;
         grid_type, nx, 0, nz, Lx, 0.0, Lz, origin,  # XZ plane: ny=0, Ly=0.0
         fluid, bc, time_scheme_obj, dt, final_time,
         nothing, nothing, nothing,  # No bodies or controller by default
-        use_mpi, adaptive_refinement, refinement_criteria,
-        output_config
+        use_mpi, adaptive_refinement, refinement_criteria, false, ib_method_eff,
+        output_config,
+        eff_poisson_levels, eff_poisson_maxiter, eff_poisson_tol,
+        eff_poisson_smoother, eff_poisson_cycle
     )
 end
 
@@ -320,6 +357,8 @@ function create_3d_simulation_config(;
     final_time::Float64 = 10.0,
     use_mpi::Bool = false,
     adaptive_refinement::Bool = false,
+    immersed_boundary_method::ImmersedBoundaryMethod = VolumePenalty,
+    use_masked_ib::Bool = false,
     output_interval::Float64 = 0.1,
     output_file::String = "bioflow_3d",
     # Output config advanced options
@@ -330,7 +369,14 @@ function create_3d_simulation_config(;
     output_save_body_positions::Bool = true,
     output_save_force_coefficients::Bool = true,
     output_reference_velocity::Float64 = 1.0,
-    output_flow_direction::Vector{Float64} = [1.0, 0.0])
+    output_flow_direction::Vector{Float64} = [1.0, 0.0],
+    # Poisson multigrid controls
+    poisson_levels::Int = 5,
+    poisson_max_iterations::Int = 300,
+    poisson_tolerance::Float64 = 1e-12,
+    poisson_smoother::Symbol = :staggered,
+    poisson_cycle::Symbol = :V,
+    poisson_strict::Bool = false)
     
     # Create fluid properties
     if density_type == :constant
@@ -382,6 +428,9 @@ function create_3d_simulation_config(;
         error("Unknown time scheme: $time_scheme")
     end
     
+    # If convenience flag is set, prefer masked IB (BDIM) [2D supported; 3D TBD]
+    ib_method_eff = use_masked_ib ? BDIM : immersed_boundary_method
+
     # Create output configuration (align with NetCDFConfig signature)
     output_config = NetCDFConfig(output_file;
         max_snapshots_per_file=output_max_snapshots,
@@ -395,6 +444,20 @@ function create_3d_simulation_config(;
         flow_direction=output_flow_direction,
     )
     
+    # Optionally enforce a strict Poisson setting bundle
+    eff_poisson_levels = poisson_levels
+    eff_poisson_maxiter = poisson_max_iterations
+    eff_poisson_tol = poisson_tolerance
+    eff_poisson_smoother = poisson_smoother
+    eff_poisson_cycle = poisson_cycle
+    if poisson_strict
+        eff_poisson_levels = max(eff_poisson_levels, 6)
+        eff_poisson_maxiter = max(eff_poisson_maxiter, 500)
+        eff_poisson_tol = min(eff_poisson_tol, 1e-12)
+        eff_poisson_smoother = :staggered
+        eff_poisson_cycle = :V
+    end
+
     # Create refinement criteria if needed
     refinement_criteria = adaptive_refinement ? AdaptiveRefinementCriteria() : nothing
     
@@ -402,8 +465,10 @@ function create_3d_simulation_config(;
         ThreeDimensional, nx, ny, nz, Lx, Ly, Lz, origin,
         fluid, bc, time_scheme_obj, dt, final_time,
         nothing, nothing, nothing,  # No bodies or controller by default
-        use_mpi, adaptive_refinement, refinement_criteria,
-        output_config
+        use_mpi, adaptive_refinement, refinement_criteria, false, ib_method_eff,
+        output_config,
+        eff_poisson_levels, eff_poisson_maxiter, eff_poisson_tol,
+        eff_poisson_smoother, eff_poisson_cycle
     )
 end
 
@@ -433,8 +498,13 @@ function add_rigid_circle!(config::SimulationConfig, center::Vector{Float64}, ra
         config.Lx, config.Ly, config.Lz, config.origin,
         config.fluid, config.bc, config.time_scheme, config.dt, config.final_time,
         rb, config.flexible_bodies, config.flexible_body_controller,
-        config.use_mpi, config.adaptive_refinement, config.refinement_criteria,
-        config.output_config
+        config.use_mpi, config.adaptive_refinement, config.refinement_criteria, config.use_waterlily, config.immersed_boundary_method,
+        config.output_config,
+        config.mg_levels,
+        config.mg_max_iterations,
+        config.mg_tolerance,
+        config.mg_smoother,
+        config.mg_cycle
     )
 end
 
@@ -458,8 +528,13 @@ function add_rigid_square!(config::SimulationConfig, center::Vector{Float64}, si
         config.Lx, config.Ly, config.Lz, config.origin,
         config.fluid, config.bc, config.time_scheme, config.dt, config.final_time,
         rb, config.flexible_bodies, config.flexible_body_controller,
-        config.use_mpi, config.adaptive_refinement, config.refinement_criteria,
-        config.output_config
+        config.use_mpi, config.adaptive_refinement, config.refinement_criteria, config.use_waterlily, config.immersed_boundary_method,
+        config.output_config,
+        config.mg_levels,
+        config.mg_max_iterations,
+        config.mg_tolerance,
+        config.mg_smoother,
+        config.mg_cycle
     )
 end
 
@@ -521,7 +596,12 @@ function create_solver(config::SimulationConfig)
             use_mpi=config.use_mpi,
             origin_x=config.origin[1],
             origin_y=config.origin[2], 
-            origin_z=config.origin[3]
+            origin_z=config.origin[3],
+            mg_levels=config.mg_levels,
+            mg_max_iterations=config.mg_max_iterations,
+            mg_tolerance=config.mg_tolerance,
+            mg_smoother=config.mg_smoother,
+            mg_cycle=config.mg_cycle
         )
     else
         return create_2d_solver(
@@ -531,7 +611,12 @@ function create_solver(config::SimulationConfig)
             time_scheme=config.time_scheme,
             use_mpi=config.use_mpi,
             origin_x=config.origin[1],
-            origin_z=config.origin[2]
+            origin_z=config.origin[2],
+            mg_levels=config.mg_levels,
+            mg_max_iterations=config.mg_max_iterations,
+            mg_tolerance=config.mg_tolerance,
+            mg_smoother=config.mg_smoother,
+            mg_cycle=config.mg_cycle
         )
     end
 end
@@ -589,22 +674,15 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
         println("  Flexible bodies: $(length(config.flexible_bodies.bodies))")
     end
     
-    # Initialize output
-    writer = NetCDFWriter("$(config.output_config.filename).nc", solver.grid, config.output_config)
-    # Attach domain metadata and body info for plotting/post-processing
-    try
-        # Ensure file exists and has core vars
-        initialize_netcdf_file!(writer)
-        NetCDF.putatt(writer.ncfile, "global", Dict(
-            "domain_Lx"=>solver.grid.Lx,
-            "domain_Lz"=>solver.grid.Lz,
-            "inlet_velocity"=>(config.bc isa BoundaryConditions2D ? (config.bc.left isa InletBC ? (config.bc.left.u) : 0.0) : 0.0),
-        ))
-        # Prefer rigid bodies for geometry; flexible handled with count only
-        bodies_for_meta = config.rigid_bodies !== nothing ? config.rigid_bodies : (config.flexible_bodies !== nothing ? config.flexible_bodies : nothing)
-        annotate_bodies_metadata!(writer, bodies_for_meta)
-    catch e
-        @warn "Could not annotate NetCDF metadata: $e"
+    # Determine if any output is requested
+    save_enabled = (config.output_config.save_flow_field ||
+                    config.output_config.save_body_positions ||
+                    config.output_config.save_force_coefficients)
+
+    # Initialize output only if saving is enabled
+    writer = nothing
+    if save_enabled
+        writer = JLD2Output.JLD2Writer("$(config.output_config.filename).jld2", solver.grid, config.output_config)
     end
 
     # Initialize adaptive refinement if needed
@@ -627,11 +705,12 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
     # Select bodies to save (if any)
     bodies_for_output = config.rigid_bodies !== nothing ? config.rigid_bodies : (config.flexible_bodies !== nothing ? config.flexible_bodies : nothing)
     
-    if config.adaptive_refinement
-        # Project AMR-enhanced data to original grid and save
-        save_amr_to_netcdf!(writer, refined_grid, state_old, step, t; bodies=bodies_for_output)
-    else
-        write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
+    if save_enabled
+        if config.adaptive_refinement
+            JLD2Output.save_amr_to_output!(writer, refined_grid, state_old, step, t; bodies=bodies_for_output)
+        else
+            write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step; dt=config.dt)
+        end
     end
     
     # Diagnostics step frequency (env override: BIOFLOWS_DIAG_EVERY)
@@ -650,15 +729,25 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
             amr_solve_step!(amr_solver, state_new, state_old, dt)
         else
             if config.grid_type == ThreeDimensional
-                solve_step_3d!(solver, state_new, state_old, dt)
+                if (config.immersed_boundary_method == BDIM) && (config.rigid_bodies !== nothing)
+                    MaskedIB.masked_ib_step!(solver, state_new, state_old, dt, config.rigid_bodies)
+                else
+                    solve_step_3d!(solver, state_new, state_old, dt)
+                end
             else
-                solve_step_2d!(solver, state_new, state_old, dt)
+                # 2D: route to masked-IB adapter when BDIM is selected
+                if (config.immersed_boundary_method == BDIM) && (config.rigid_bodies !== nothing)
+                    MaskedIB.masked_ib_step!(solver, state_new, state_old, dt, config.rigid_bodies)
+                else
+                    solve_step_2d!(solver, state_new, state_old, dt, config.rigid_bodies)
+                end
             end
         end
         
         # Apply immersed boundary forcing
-        if config.rigid_bodies !== nothing
-            apply_immersed_boundary_forcing!(state_new, config.rigid_bodies, solver.grid, dt)
+        if config.rigid_bodies !== nothing && config.immersed_boundary_method != BDIM
+            # Only apply post-step forcing for non-BDIM methods
+            apply_immersed_boundary_forcing!(state_new, config.rigid_bodies, solver.grid, dt; method=config.immersed_boundary_method)
             
             # Check for NaN/Inf after immersed boundary forcing
             if any(x -> isnan(x) || isinf(x), state_new.u) || any(x -> isnan(x) || isinf(x), state_new.w)
@@ -677,6 +766,35 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
                             inlet_value = isa(condition.value, Function) ? condition.value(t) : condition.value
                             state_new.u[1, j] = inlet_value
                         end
+                    end
+                end
+            end
+        end
+
+        # Clean any NaN/Inf for robustness (all methods)
+        try
+            replace!(state_new.u, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+        catch; end
+        if hasproperty(state_new, :v)
+            try
+                replace!(state_new.v, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+            catch; end
+        end
+        try
+            replace!(state_new.w, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+        catch; end
+        try
+            replace!(state_new.p, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+        catch; end
+
+        # Re-apply inlet boundary condition to left boundary (avoid drift)
+        if haskey(solver.bc.conditions, (:x, :left))
+            condition = solver.bc.conditions[(:x, :left)]
+            if condition.type == Inlet
+                for j = 1:solver.grid.nz
+                    if j <= size(state_new.u, 2)
+                        inlet_value = isa(condition.value, Function) ? condition.value(t) : condition.value
+                        state_new.u[1, j] = inlet_value
                     end
                 end
             end
@@ -703,12 +821,14 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
         
         # Output
         if t >= next_output_time || (diag_steps > 0 && step % diag_steps == 0)
-            if config.adaptive_refinement
-                save_amr_to_netcdf!(writer, refined_grid, state_old, step, t; bodies=bodies_for_output)
-            else
-                write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
+            if save_enabled
+                if config.adaptive_refinement
+                    JLD2Output.save_amr_to_output!(writer, refined_grid, state_old, step, t; bodies=bodies_for_output)
+                else
+                    write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step; dt=dt)
+                end
+                next_output_time += config.output_config.time_interval
             end
-            next_output_time += config.output_config.time_interval
             
             println("Step $step: t = $(round(t, digits=4)), dt = $(round(dt, digits=6))")
             
@@ -724,18 +844,40 @@ function run_simulation(config::SimulationConfig, solver, initial_state::Solutio
                 max_u = maximum(abs, state_old.u)
                 max_w = maximum(abs, state_old.w)  # w holds vertical velocity in 2D XZ plane
                 println("  max|u|=$(round(max_u, digits=4)), max|w|=$(round(max_w, digits=4))")
+                # Optional: report masked divergence (fluid-only) to verify masked projection
+                if (config.rigid_bodies !== nothing) && (lowercase(get(ENV, "BIOFLOWS_REPORT_MASKED_DIV", "")) in ("1","true","yes"))
+                    try
+                        chi_u, chi_w = build_solid_mask_faces_2d(config.rigid_bodies, solver.grid; eps_mul=try parse(Float64, get(ENV, "BIOFLOWS_MASKS_EPS_MUL", "2.0")) catch; 2.0 end)
+                        div_m = zeros(Float64, solver.grid.nx, solver.grid.nz)
+                        masked_divergence_2d!(div_m, state_old.u, state_old.w, solver.grid, chi_u, chi_w)
+                        println("  max|(∇·u)_masked|=$(round(maximum(abs, div_m), digits=6))")
+                    catch e
+                        @warn "Could not compute masked divergence diagnostic: $e"
+                    end
+                end
             end
             println("  CFL = $(round(cfl, digits=4))")
         end
     end
     
     # Final output
-    if config.adaptive_refinement
-        save_amr_to_netcdf!(writer, refined_grid, state_old, step, t; bodies=bodies_for_output)
-    else
-        write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step)
+    if save_enabled
+        if config.adaptive_refinement
+            JLD2Output.save_amr_to_output!(writer, refined_grid, state_old, step, t; bodies=bodies_for_output)
+        else
+            write_solution!(writer, state_old, bodies_for_output, solver.grid, config.fluid, t, step; dt=config.dt)
+        end
+        close!(writer)
+        # Default: finalize stacked arrays unless explicitly disabled
+        finalize_ok = lowercase(get(ENV, "BIOFLOWS_JLD2_STACKED", "1")) in ("1","true","yes")
+        if finalize_ok
+            try
+                JLD2Output.finalize_stacked!("$(config.output_config.filename)")
+            catch e
+                @warn "Could not finalize stacked JLD2 arrays: $e"
+            end
+        end
     end
-    close!(writer)
     
     println("Simulation completed!")
     println("Output saved to $(config.output_config.filename)")
@@ -807,15 +949,8 @@ function run_simulation_mpi_2d(config::SimulationConfig)
 
     # Global grid + writer
     global_grid = StaggeredGrid2D(config.nx, config.nz, config.Lx, config.Lz)
-    writer = NetCDFWriter("$(config.output_config.filename).nc", global_grid, config.output_config)
+    writer = JLD2Output.JLD2Writer("$(config.output_config.filename).jld2", global_grid, config.output_config)
     if rank == 0
-        initialize_netcdf_file!(writer)
-        # Annotate metadata
-        NetCDF.putatt(writer.ncfile, "global", Dict(
-            "domain_Lx"=>config.Lx, "domain_Lz"=>config.Lz,
-        ))
-        bodies_for_meta = config.rigid_bodies !== nothing ? config.rigid_bodies : (config.flexible_bodies !== nothing ? config.flexible_bodies : nothing)
-        annotate_bodies_metadata!(writer, bodies_for_meta)
         println("MPI run with $nprocs ranks: 2D, $(config.nx)x$(config.nz), dt=$(config.dt), T=$(config.final_time)")
     end
 
@@ -845,7 +980,7 @@ function run_simulation_mpi_2d(config::SimulationConfig)
         step += 1
         dt = min(config.dt, config.final_time - t)
 
-        mpi_solve_step_2d!(solver, local_new, local_old, dt)
+        mpi_solve_step_2d!(solver, local_new, local_old, dt, config.rigid_bodies)
 
         # Swap
         local_old, local_new = local_new, local_old
@@ -856,9 +991,14 @@ function run_simulation_mpi_2d(config::SimulationConfig)
             # Global maxima for diagnostics
             maxu = MPI.Allreduce(maximum(abs, local_old.u), MPI.MAX, comm)
             maxw = MPI.Allreduce(maximum(abs, local_old.w), MPI.MAX, comm)
+            # Compute local divergence and reduce global max
+            div_local = zeros(Float64, solver.local_grid.nx, solver.local_grid.nz)
+            divergence_2d!(div_local, local_old.u, local_old.w, solver.local_grid)
+            maxdiv_local = maximum(abs, div_local)
+            maxdiv = MPI.Allreduce(maxdiv_local, MPI.MAX, comm)
             cfl = max(maxu * dt / dx, maxw * dt / dz)
             if rank == 0
-                println("DIAG: iter=$step t=$(round(t, digits=4)) dt=$(round(dt, digits=6)) CFL=$(round(cfl, digits=4)) max|u|=$(round(maxu, digits=4)) max|w|=$(round(maxw, digits=4))")
+                println("DIAG: iter=$step t=$(round(t, digits=4)) dt=$(round(dt, digits=6)) CFL=$(round(cfl, digits=4)) max|u|=$(round(maxu, digits=4)) max|w|=$(round(maxw, digits=4)) max|∇·u|=$(round(maxdiv, digits=6))")
             end
         end
 
@@ -867,16 +1007,21 @@ function run_simulation_mpi_2d(config::SimulationConfig)
             # Global maxima for output
             maxu = MPI.Allreduce(maximum(abs, local_old.u), MPI.MAX, comm)
             maxw = MPI.Allreduce(maximum(abs, local_old.w), MPI.MAX, comm)
+            # Compute global max divergence
+            div_local = zeros(Float64, solver.local_grid.nx, solver.local_grid.nz)
+            divergence_2d!(div_local, local_old.u, local_old.w, solver.local_grid)
+            maxdiv_local = maximum(abs, div_local)
+            maxdiv = MPI.Allreduce(maxdiv_local, MPI.MAX, comm)
             cfl = max(maxu * dt / dx, maxw * dt / dz)
             if rank == 0
                 println("="^60)
                 println("OUTPUT: iter=$step t=$(round(t, digits=4)) dt=$(round(dt, digits=6))")
-                println("        CFL=$(round(cfl, digits=4)) max|u|=$(round(maxu, digits=4)) max|w|=$(round(maxw, digits=4))")
+                println("        CFL=$(round(cfl, digits=4)) max|u|=$(round(maxu, digits=4)) max|w|=$(round(maxw, digits=4)) max|∇·u|=$(round(maxdiv, digits=6))")
                 println("        Progress: $(round(100*t/config.final_time, digits=1))% complete")
                 println("="^60)
             end
             # Global NetCDF output (auto-detects MPI state)
-            write_solution!(writer, local_old, config.rigid_bodies, global_grid, solver.fluid, t, step)
+            write_solution!(writer, local_old, config.rigid_bodies, global_grid, solver.fluid, t, step; dt=dt)
             next_print += save_interval
         end
     end
@@ -894,7 +1039,16 @@ function run_simulation_mpi_2d(config::SimulationConfig)
         println("Final CFL: $(round(final_cfl, digits=4))")
         println("Final max|u|: $(round(final_maxu, digits=4))")
         println("Final max|w|: $(round(final_maxw, digits=4))")
-        println("Output written to: $(config.output_config.filename).nc")
+        println("Output written to: $(config.output_config.filename).jld2")
+        # Finalize stacked arrays by default on root
+        finalize_ok = lowercase(get(ENV, "BIOFLOWS_JLD2_STACKED", "1")) in ("1","true","yes")
+        if finalize_ok
+            try
+                JLD2Output.finalize_stacked!("$(config.output_config.filename)")
+            catch e
+                @warn "Could not finalize stacked JLD2 arrays: $e"
+            end
+        end
         println("="^60)
     else
         # Other ranks still need to participate in the MPI.Allreduce calls
@@ -942,14 +1096,8 @@ function run_simulation_mpi_3d(config::SimulationConfig)
 
     # Global writer (root initializes)
     global_grid = StaggeredGrid3D(config.nx, config.ny, config.nz, config.Lx, config.Ly, config.Lz)
-    writer = NetCDFWriter("$(config.output_config.filename).nc", global_grid, config.output_config)
+    writer = JLD2Output.JLD2Writer("$(config.output_config.filename).jld2", global_grid, config.output_config)
     if rank == 0
-        initialize_netcdf_file!(writer)
-        NetCDF.putatt(writer.ncfile, "global", Dict(
-            "domain_Lx"=>config.Lx, "domain_Ly"=>config.Ly, "domain_Lz"=>config.Lz,
-        ))
-        bodies_for_meta = config.rigid_bodies !== nothing ? config.rigid_bodies : (config.flexible_bodies !== nothing ? config.flexible_bodies : nothing)
-        annotate_bodies_metadata!(writer, bodies_for_meta)
         println("MPI run with $nprocs ranks: 3D, $(config.nx)x$(config.ny)x$(config.nz), dt=$(config.dt), T=$(config.final_time)")
     end
 
@@ -981,13 +1129,21 @@ function run_simulation_mpi_3d(config::SimulationConfig)
             end
             # Wrap local SolutionState3D in MPISolutionState3D for writer gather
             local_mpi = MPISolutionState3D{Float64}(local_old.u, local_old.v, local_old.w, local_old.p, local_old.t, local_old.step, decomp)
-            write_solution!(writer, local_mpi, config.rigid_bodies, global_grid, solver.fluid, t, step)
+            write_solution!(writer, local_mpi, config.rigid_bodies, global_grid, solver.fluid, t, step; dt=dt)
             next_print += save_interval
         end
     end
 
     if rank == 0
-        println("MPI 3D simulation complete. Global output written to $(config.output_config.filename).nc")
+        println("MPI 3D simulation complete. Global output written to $(config.output_config.filename).jld2")
+        finalize_ok = lowercase(get(ENV, "BIOFLOWS_JLD2_STACKED", "1")) in ("1","true","yes")
+        if finalize_ok
+            try
+                JLD2Output.finalize_stacked!("$(config.output_config.filename)")
+            catch e
+                @warn "Could not finalize stacked JLD2 arrays: $e"
+            end
+        end
     end
     return local_old
 end

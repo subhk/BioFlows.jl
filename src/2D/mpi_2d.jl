@@ -752,7 +752,11 @@ end
 function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int, Lx::Float64, Lz::Float64,
                                 fluid::FluidProperties, bc::BoundaryConditions, 
                                 time_scheme::TimeSteppingScheme;
-                                comm::MPI.Comm=MPI.COMM_WORLD)
+                                comm::MPI.Comm=MPI.COMM_WORLD,
+                                mg_levels::Int=5, mg_max_iterations::Int=300,
+                                mg_tolerance::Float64=1e-12,
+                                mg_smoother::Symbol=:staggered,
+                                mg_cycle::Symbol=:V)
     # Create MPI decomposition
     decomp = MPI2DDecomposition(nx_global, nz_global, comm)
     
@@ -766,8 +770,10 @@ function MPINavierStokesSolver2D(nx_global::Int, nz_global::Int, Lx::Float64, Lz
     local_phi = zeros(nx_local, nz_local)
     local_rhs_p = zeros(nx_local, nz_local)
     
-    # Create multigrid solver (pure Julia implementation; MPI integration handled at higher level)
-    multigrid_solver = MultigridPoissonSolver(local_grid; smoother=:staggered)
+    # Create multigrid solver (pure Julia) using provided settings
+    multigrid_solver = MultigridPoissonSolver(local_grid; smoother=mg_smoother,
+                                              tolerance=mg_tolerance, max_iterations=mg_max_iterations,
+                                              levels=mg_levels, cycle_type=mg_cycle)
     
     MPINavierStokesSolver2D(decomp, local_grid, fluid, bc, time_scheme, multigrid_solver,
                            local_u_star, local_w_star, local_phi, local_rhs_p)
@@ -775,7 +781,8 @@ end
 
 function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
                             local_state_new,
-                            local_state_old, dt::Float64)
+                            local_state_old, dt::Float64,
+                            bodies::Union{RigidBodyCollection,Nothing}=nothing)
     # Minimal distributed fractional step using advection + diffusion + pressure projection
     decomp = solver.decomp
     grid = solver.local_grid
@@ -807,9 +814,17 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
     exchange_ghost_cells_staggered_u_2d!(decomp, local_state_new.u)
     exchange_ghost_cells_staggered_w_2d!(decomp, local_state_new.w)
 
-    # Build Poisson RHS and solve for pressure correction
-    divergence_2d!(solver.local_div_u, local_state_new.u, local_state_new.w, grid)
-    solver.local_rhs_p .= solver.local_div_u ./ dt
+    # Build Poisson RHS (fluid-only if bodies present) and solve for pressure correction
+    use_masks = lowercase(get(ENV, "BIOFLOWS_MASKED_PROJECTION", "1")) in ("1","true","yes","on")
+    eps_mul = try parse(Float64, get(ENV, "BIOFLOWS_MASKS_EPS_MUL", "2.0")) catch; 2.0 end
+    if use_masks && (bodies !== nothing)
+        chi_u, chi_w = build_solid_mask_faces_2d(bodies, grid; eps_mul=eps_mul)
+        masked_divergence_2d!(solver.local_div_u, local_state_new.u, local_state_new.w, grid, chi_u, chi_w)
+        solver.local_rhs_p .= solver.local_div_u ./ dt
+    else
+        divergence_2d!(solver.local_div_u, local_state_new.u, local_state_new.w, grid)
+        solver.local_rhs_p .= solver.local_div_u ./ dt
+    end
 
     solve_poisson!(solver.multigrid_solver, solver.local_phi, solver.local_rhs_p, grid, solver.bc)
 
@@ -817,8 +832,14 @@ function mpi_solve_step_2d!(solver::MPINavierStokesSolver2D,
     dpdx = zeros(size(local_state_new.u))
     dpdz = zeros(size(local_state_new.w))
     gradient_pressure_2d!(dpdx, dpdz, solver.local_phi, grid)
-    local_state_new.u .-= dt .* dpdx
-    local_state_new.w .-= dt .* dpdz
+    if use_masks && (bodies !== nothing)
+        chi_u, chi_w = build_solid_mask_faces_2d(bodies, grid; eps_mul=eps_mul)
+        local_state_new.u .-= dt .* (1 .- chi_u) .* dpdx
+        local_state_new.w .-= dt .* (1 .- chi_w) .* dpdz
+    else
+        local_state_new.u .-= dt .* dpdx
+        local_state_new.w .-= dt .* dpdz
+    end
 
     # Update pressure (optional projection update)
     ρ = solver.fluid.ρ isa ConstantDensity ? solver.fluid.ρ.ρ : error("Variable density not implemented")
