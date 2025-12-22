@@ -1,7 +1,5 @@
 using JLD2
 
-const WL = WaterLily
-
 """
     CenterFieldWriter(filename::AbstractString="center_fields.jld2";
                       interval::Real=0.1,
@@ -34,8 +32,8 @@ end
 Check the simulation time and, if the configured interval has elapsed, append a
 snapshot with cell-centred velocity and vorticity to the writer's JLD2 file.
 """
-function maybe_save!(writer::CenterFieldWriter, sim::WL.AbstractSimulation)
-    t = WL.sim_time(sim)
+function maybe_save!(writer::CenterFieldWriter, sim::AbstractSimulation)
+    t = sim_time(sim)
     if t + eps(writer.interval) < writer.next_time
         return writer
     end
@@ -47,10 +45,10 @@ function maybe_save!(writer::CenterFieldWriter, sim::WL.AbstractSimulation)
     return writer
 end
 
-function _write_snapshot!(writer::CenterFieldWriter, sim::WL.AbstractSimulation)
+function _write_snapshot!(writer::CenterFieldWriter, sim::AbstractSimulation)
     vel = cell_center_velocity(sim; strip_ghosts=writer.strip_ghosts)
     vort = cell_center_vorticity(sim; strip_ghosts=writer.strip_ghosts)
-    time = WL.sim_time(sim)
+    time = sim_time(sim)
     jldopen(writer.filename, writer.samples == 0 ? "w" : "a") do file
         group = "snapshot_$(writer.samples + 1)"
         file["$group/time"] = time
