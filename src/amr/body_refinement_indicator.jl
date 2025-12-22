@@ -5,6 +5,13 @@ Computes refinement indicators based on body proximity and flow gradients.
 Used by the AMR system to determine which cells need refinement.
 """
 
+# Helper function for body proximity indicator
+@inline function _body_indicator_value(body::AbstractBody, I::CartesianIndex, T::Type, threshold, t)
+    x = loc(0, I, T)
+    d = sdf(body, x, T(t))
+    abs(d) < threshold ? one(T) : zero(T)
+end
+
 """
     compute_body_refinement_indicator(flow::Flow, body::AbstractBody;
                                       distance_threshold=2.0, t=0.0)
@@ -28,18 +35,30 @@ function compute_body_refinement_indicator(flow::Flow{N,T}, body::AbstractBody;
     indicator = similar(flow.p)
     fill!(indicator, zero(T))
     threshold = T(distance_threshold)
+    tt = T(t)
 
-    # Use the @inside macro to iterate over interior cells
-    @inside indicator[I] = begin
-        # Get position at cell center
-        x = loc(0, I, T)
-        # Compute signed distance to body
-        d = sdf(body, x, T(t))
-        # Mark for refinement if within threshold distance
-        abs(d) < threshold ? one(T) : zero(T)
+    # Iterate over interior cells
+    for I in inside(flow.p)
+        indicator[I] = _body_indicator_value(body, I, T, threshold, tt)
     end
 
     return indicator
+end
+
+# Helper for 2D velocity gradient
+@inline function _velocity_gradient_2d(u, I)
+    # ∂u/∂x
+    dudx = u[I, 1] - u[I-δ(1,I), 1]
+    # ∂u/∂z (central average)
+    dudz = (u[I+δ(2,I), 1] + u[I+δ(2,I)-δ(1,I), 1] -
+            u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) / 4
+    # ∂w/∂x (central average)
+    dwdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)-δ(2,I), 2] -
+            u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) / 4
+    # ∂w/∂z
+    dwdz = u[I, 2] - u[I-δ(2,I), 2]
+
+    sqrt(dudx^2 + dudz^2 + dwdx^2 + dwdz^2)
 end
 
 """
@@ -57,44 +76,39 @@ function compute_velocity_gradient_indicator(flow::Flow{N,T}) where {N,T}
     u = flow.u
 
     if N == 2
-        @inside indicator[I] = begin
-            # Compute velocity gradient components at cell center
-            # ∂u/∂x
-            dudx = (u[I, 1] - u[I-δ(1,I), 1])
-            # ∂u/∂z
-            dudz = (u[I+δ(2,I), 1] + u[I+δ(2,I)-δ(1,I), 1] -
-                    u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) / 4
-            # ∂w/∂x
-            dwdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)-δ(2,I), 2] -
-                    u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) / 4
-            # ∂w/∂z
-            dwdz = (u[I, 2] - u[I-δ(2,I), 2])
-
-            # Frobenius norm of velocity gradient tensor
-            sqrt(dudx^2 + dudz^2 + dwdx^2 + dwdz^2)
+        for I in inside(flow.p)
+            indicator[I] = _velocity_gradient_2d(u, I)
         end
     else  # N == 3
-        @inside indicator[I] = begin
+        for I in inside(flow.p)
             grad_sq = zero(T)
             for i in 1:N
                 for j in 1:N
-                    # Approximate ∂uᵢ/∂xⱼ at cell center
                     if i == j
-                        # Diagonal: forward difference
                         du = u[I, i] - u[I-δ(j,I), i]
                     else
-                        # Off-diagonal: central average
                         du = (u[I+δ(j,I), i] + u[I+δ(j,I)-δ(i,I), i] -
                               u[I-δ(j,I), i] - u[I-δ(j,I)-δ(i,I), i]) / 4
                     end
                     grad_sq += du^2
                 end
             end
-            sqrt(grad_sq)
+            indicator[I] = sqrt(grad_sq)
         end
     end
 
     return indicator
+end
+
+# Helper for 2D vorticity
+@inline function _vorticity_2d(u, I)
+    # ∂w/∂x at cell center
+    dwdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)-δ(2,I), 2] -
+            u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) / 4
+    # ∂u/∂z at cell center
+    dudz = (u[I+δ(2,I), 1] + u[I+δ(2,I)-δ(1,I), 1] -
+            u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) / 4
+    abs(dwdx - dudz)
 end
 
 """
@@ -112,20 +126,11 @@ function compute_vorticity_indicator(flow::Flow{N,T}) where {N,T}
     u = flow.u
 
     if N == 2
-        # 2D vorticity: ω = ∂w/∂x - ∂u/∂z
-        @inside indicator[I] = begin
-            # ∂w/∂x at cell center
-            dwdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)-δ(2,I), 2] -
-                    u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) / 4
-            # ∂u/∂z at cell center
-            dudz = (u[I+δ(2,I), 1] + u[I+δ(2,I)-δ(1,I), 1] -
-                    u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) / 4
-            abs(dwdx - dudz)
+        for I in inside(flow.p)
+            indicator[I] = _vorticity_2d(u, I)
         end
     else  # N == 3
-        # 3D vorticity magnitude: |ω| = sqrt(ωₓ² + ωᵧ² + ωᵤ²)
-        @inside indicator[I] = begin
-            # Compute vorticity components
+        for I in inside(flow.p)
             # ωₓ = ∂w/∂y - ∂v/∂z
             dwdy = (u[I+δ(2,I), 3] + u[I+δ(2,I)-δ(3,I), 3] -
                     u[I-δ(2,I), 3] - u[I-δ(2,I)-δ(3,I), 3]) / 4
@@ -147,7 +152,7 @@ function compute_vorticity_indicator(flow::Flow{N,T}) where {N,T}
                     u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) / 4
             omega_z = dvdx - dudy
 
-            sqrt(omega_x^2 + omega_y^2 + omega_z^2)
+            indicator[I] = sqrt(omega_x^2 + omega_y^2 + omega_z^2)
         end
     end
 
@@ -211,12 +216,22 @@ function compute_combined_indicator(flow::Flow{N,T}, body::AbstractBody;
     end
 
     # Threshold-based activation
-    grad_ind .= grad_ind .> T(gradient_threshold / max(grad_max, one(T)))
-    vort_ind .= vort_ind .> T(vorticity_threshold / max(vort_max, one(T)))
+    gt = T(gradient_threshold / max(grad_max, one(T)))
+    vt = T(vorticity_threshold / max(vort_max, one(T)))
 
     # Combine with weights
     combined = similar(flow.p)
-    @inside combined[I] = bw * body_ind[I] + gw * grad_ind[I] + vw * vort_ind[I]
+    for I in inside(flow.p)
+        g_active = grad_ind[I] > gt ? one(T) : zero(T)
+        v_active = vort_ind[I] > vt ? one(T) : zero(T)
+        combined[I] = bw * body_ind[I] + gw * g_active + vw * v_active
+    end
+
+    # Set boundary values to zero
+    fill!(view(combined, 1, :), zero(T))
+    fill!(view(combined, size(combined, 1), :), zero(T))
+    fill!(view(combined, :, 1), zero(T))
+    fill!(view(combined, :, size(combined, 2)), zero(T))
 
     return combined
 end
