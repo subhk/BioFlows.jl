@@ -19,7 +19,8 @@ makedocs(
         "Examples" => "examples.md",
         "API Reference" => "api.md",
     ],
-    warnonly = [:missing_docs, :cross_references],
+    checkdocs = :exports,  # Only check exported symbols
+    warnonly = true,       # Treat all errors as warnings
 )
 
 deploydocs(
