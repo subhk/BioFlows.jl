@@ -143,26 +143,23 @@ function enforce_all_interface_consistency!(u_coarse::AbstractArray{T},
 end
 
 """
-    amr_mom_step!(flow::Flow, cp::CompositePoisson, body=nothing)
+    amr_mom_step!(flow::Flow, cp::CompositePoisson; λ=quick)
 
 AMR-aware momentum step using predictor-corrector scheme.
+The body is already incorporated into flow.μ₀ and flow.V via measure!().
 
 # Arguments
-- `flow`: Flow object
+- `flow`: Flow object (should have measure! called beforehand for body)
 - `cp`: CompositePoisson solver
-- `body`: Optional body for immersed boundary
+- `λ`: Convective scheme function (default: quick)
 """
 function amr_mom_step!(flow::Flow{D,T}, cp::CompositePoisson{T};
-                       body=nothing, λ=quick) where {D,T}
+                       λ=quick) where {D,T}
     # Predictor step
     conv_diff!(flow.f, flow.u, flow.σ, λ; ν=flow.ν)
 
-    # Apply BDIM if body present
-    if body !== nothing && typeof(body) != NoBody
-        BDIM!(flow, body)
-    elseif hasfield(typeof(flow), :V)
-        BDIM!(flow)
-    end
+    # Apply BDIM (body info is in flow.μ₀ and flow.V)
+    BDIM!(flow)
 
     # Project to divergence-free
     amr_project!(flow, cp)
@@ -170,11 +167,7 @@ function amr_mom_step!(flow::Flow{D,T}, cp::CompositePoisson{T};
     # Corrector step
     conv_diff!(flow.f, flow.u, flow.σ, λ; ν=flow.ν)
 
-    if body !== nothing && typeof(body) != NoBody
-        BDIM!(flow, body)
-    elseif hasfield(typeof(flow), :V)
-        BDIM!(flow)
-    end
+    BDIM!(flow)
 
     amr_project!(flow, cp, 0.5)
 

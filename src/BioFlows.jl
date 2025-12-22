@@ -367,7 +367,7 @@ function sim_step!(amr::AMRSimulation; remeasure=true, λ=quick, udf=nothing, kw
 
     # Use AMR solver if patches exist, otherwise fall back to base solver
     if amr.amr_active && has_patches(amr.composite_pois)
-        amr_mom_step!(amr.sim.flow, amr.composite_pois; body=amr.sim.body, λ)
+        amr_mom_step!(amr.sim.flow, amr.composite_pois; λ)
     else
         mom_step!(amr.sim.flow, amr.sim.pois; λ, udf, kwargs...)
     end
