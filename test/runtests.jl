@@ -52,3 +52,6 @@ using JLD2
     sim_step!(sphere; remeasure=false)
     @test sim_time(sphere) > 0
 end
+
+# Include AMR tests
+include("test_amr.jl")
