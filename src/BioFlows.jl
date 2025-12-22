@@ -78,6 +78,15 @@ export AutoBody,Bodies,measure,sdf,+,-
 _silent_include("Metrics.jl")
 export MeanFlow,update!,uu!,uu
 
+# AMR (Adaptive Mesh Refinement) functionality
+_silent_include("amr/amr_types.jl")
+_silent_include("amr/bioflows_amr_adapter.jl")
+_silent_include("amr/body_refinement_indicator.jl")
+export StaggeredGrid, SolutionState, RefinedGrid, GridType, TwoDimensional, ThreeDimensional
+export FlowToGridAdapter, flow_to_staggered_grid, flow_to_solution_state
+export compute_body_refinement_indicator, compute_velocity_gradient_indicator
+export compute_vorticity_indicator, compute_combined_indicator
+
 # Simulation container
 abstract type AbstractSimulation end
 """
