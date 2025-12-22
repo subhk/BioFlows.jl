@@ -89,6 +89,19 @@ export compute_body_refinement_indicator, compute_velocity_gradient_indicator
 export compute_vorticity_indicator, compute_combined_indicator
 export mark_cells_for_refinement, apply_buffer_zone!
 
+# AMR Composite Grid Poisson Solver
+_silent_include("amr/refined_fields.jl")
+_silent_include("amr/patch_poisson.jl")
+_silent_include("amr/interface_operators.jl")
+_silent_include("amr/composite_poisson.jl")
+_silent_include("amr/composite_solver.jl")
+_silent_include("amr/patch_creation.jl")
+_silent_include("amr/amr_project.jl")
+export CompositePoisson, PatchPoisson, RefinedVelocityField, RefinedVelocityPatch
+export add_patch!, remove_patch!, get_patch, clear_patches!, has_patches, num_patches
+export create_patches!, update_patches!, ensure_proper_nesting!
+export amr_project!, amr_mom_step!, check_amr_divergence, regrid_amr!
+
 # Simulation container
 abstract type AbstractSimulation end
 """
@@ -261,6 +274,7 @@ refines the mesh near the body and in regions of high gradients.
 - `sim`: The underlying Simulation
 - `config`: AMR configuration parameters
 - `refined_grid`: Current refined grid state
+- `composite_pois`: CompositePoisson solver for AMR (manages base + patches)
 - `adapter`: Flow-to-grid adapter
 - `last_regrid_step`: Step count at last regrid
 - `amr_active`: Whether AMR is currently active
@@ -269,7 +283,7 @@ refines the mesh near the body and in regions of high gradients.
 ```julia
 config = AMRConfig(max_level=3, body_distance_threshold=4.0, regrid_interval=5)
 sim = AMRSimulation((128, 128), (1.0, 0.0), 16.0;
-                    Re=200, body=AutoBody(sdf), amr_config=config)
+                    ν=0.01, body=AutoBody(sdf), amr_config=config)
 for _ in 1:1000
     sim_step!(sim; remeasure=true)  # AMR regridding happens automatically
 end
@@ -279,6 +293,7 @@ mutable struct AMRSimulation <: AbstractSimulation
     sim::Simulation
     config::AMRConfig
     refined_grid::RefinedGrid
+    composite_pois::CompositePoisson
     adapter::FlowToGridAdapter
     last_regrid_step::Int
     amr_active::Bool
@@ -306,7 +321,10 @@ function AMRSimulation(dims::NTuple{N}, uBC, L::Number;
     adapter = FlowToGridAdapter(sim.flow, L)
     refined_grid = create_refined_grid(adapter)
 
-    AMRSimulation(sim, amr_config, refined_grid, adapter, 0, true)
+    # Create composite Poisson solver wrapping the base MultiLevelPoisson
+    composite_pois = CompositePoisson(sim.pois; max_level=amr_config.max_level)
+
+    AMRSimulation(sim, amr_config, refined_grid, composite_pois, adapter, 0, true)
 end
 
 # Forward basic properties to underlying simulation
@@ -320,7 +338,7 @@ end
 
 # Access underlying fields
 Base.getproperty(amr::AMRSimulation, s::Symbol) = begin
-    if s in (:sim, :config, :refined_grid, :adapter, :last_regrid_step, :amr_active)
+    if s in (:sim, :config, :refined_grid, :composite_pois, :adapter, :last_regrid_step, :amr_active)
         getfield(amr, s)
     elseif s in (:U, :L, :ϵ, :flow, :body, :pois)
         getproperty(getfield(amr, :sim), s)
@@ -333,6 +351,7 @@ end
     sim_step!(sim::AMRSimulation; remeasure=true, λ=quick, kwargs...)
 
 Advance AMR simulation by one time step with automatic regridding.
+Uses CompositePoisson for pressure solve when AMR has refined patches.
 """
 function sim_step!(amr::AMRSimulation; remeasure=true, λ=quick, udf=nothing, kwargs...)
     step_count = length(amr.sim.flow.Δt)
@@ -343,9 +362,15 @@ function sim_step!(amr::AMRSimulation; remeasure=true, λ=quick, udf=nothing, kw
         amr.last_regrid_step = step_count
     end
 
-    # Perform standard simulation step
+    # Perform simulation step
     remeasure && measure!(amr.sim)
-    mom_step!(amr.sim.flow, amr.sim.pois; λ, udf, kwargs...)
+
+    # Use AMR solver if patches exist, otherwise fall back to base solver
+    if amr.amr_active && has_patches(amr.composite_pois)
+        amr_mom_step!(amr.sim.flow, amr.composite_pois; body=amr.sim.body, λ)
+    else
+        mom_step!(amr.sim.flow, amr.sim.pois; λ, udf, kwargs...)
+    end
 end
 
 """
