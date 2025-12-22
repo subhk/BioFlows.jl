@@ -50,7 +50,7 @@ function run_donut(; steps::Int=200, kwargs...)
     sim, history
 end
 
-if Base.program_file() == @__FILE__
+if abspath(PROGRAM_FILE) == @__FILE__
     sim, history = run_donut()
     final = history[end]
     @info "BioFlows 3D donut example complete" steps=final.step time=final.time drag=final.drag side=final.side spanwise=final.spanwise

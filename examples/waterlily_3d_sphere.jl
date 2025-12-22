@@ -46,7 +46,7 @@ function run_sphere(; steps::Int=150, kwargs...)
     sim, history
 end
 
-if Base.program_file() == @__FILE__
+if abspath(PROGRAM_FILE) == @__FILE__
     sim, history = run_sphere()
     final = history[end]
     @info "BioFlows 3D sphere example complete" steps=final.step time=final.time drag=final.drag side=final.side spanwise=final.spanwise

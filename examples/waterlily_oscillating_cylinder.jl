@@ -50,7 +50,7 @@ function run_oscillating_cylinder(; steps::Int=400, St::Real=0.2, amplitude::Rea
     sim, history
 end
 
-if Base.program_file() == @__FILE__
+if abspath(PROGRAM_FILE) == @__FILE__
     sim, history = run_oscillating_cylinder()
     final = history[end]
     @info "BioFlows oscillating-cylinder example complete" steps=final.step time=final.time displacement=final.y_disp drag=final.drag lift=final.lift
