@@ -6,7 +6,7 @@ struct ImmersedBoundaryData
     forcing_points::Vector{Tuple{Vector{Int}, Float64}}  # Eulerian forcing points and weights
 end
 
-# WaterLily-style BDIM data structure
+# BDIM data structure
 struct BDIMData
     μ₀::Array{Float64, 3}      # Zeroth moment (μ₀) [nx+2, nz+2, 2]
     μ₁::Array{Float64, 4}      # First moment tensor (μ₁) [nx+2, nz+2, 2, 2]
@@ -220,54 +220,67 @@ BDIM-style boundary condition enforcement.
 Sets velocities inside and on body boundaries to enforce no-slip conditions.
 """
 function apply_bdim_boundary_conditions!(u::Matrix{Float64}, w::Matrix{Float64}, 
+                                       grid::StaggeredGrid, body_mask::AbstractMatrix{Bool}, bodies)
+    return apply_bdim_boundary_conditions!(u, w, grid, BitMatrix(body_mask), bodies)
+end
+
+function apply_bdim_boundary_conditions!(u::Matrix{Float64}, w::Matrix{Float64}, 
                                        grid::StaggeredGrid, body_mask::BitMatrix, bodies)
     # u-velocity enforcement
-    @inbounds for j = 1:grid.nz, i = 1:grid.nx+1
-        if i <= size(u, 1) && j <= size(u, 2)
-            x = grid.xu[i]
-            z = grid.z[j]
-            
-            # Check if this velocity point is inside any body
-            for body in bodies.bodies
-                distance = sqrt((x - body.center[1])^2 + (z - body.center[2])^2)
-                if distance <= body.shape.radius
-                    u[i, j] = 0.0  # No-slip condition
-                    break
-                end
+    nu_x = min(grid.nx + 1, size(u, 1))
+    nu_z = min(grid.nz, size(u, 2))
+    @inbounds for j = 1:nu_z, i = 1:nu_x
+        x = grid.xu[i]
+        z = grid.z[j]
+        inside = false
+        for body in bodies.bodies
+            if is_inside_xz(body, x, z)
+                inside = true
+                break
             end
+        end
+        if inside
+            u[i, j] = 0.0  # No-slip condition
         end
     end
     
     # w-velocity enforcement
-    @inbounds for j = 1:grid.nz+1, i = 1:grid.nx
-        if i <= size(w, 1) && j <= size(w, 2)
-            x = grid.x[i]
-            z = grid.zw[j]
-            
-            for body in bodies.bodies
-                distance = sqrt((x - body.center[1])^2 + (z - body.center[2])^2)
-                if distance <= body.shape.radius
-                    w[i, j] = 0.0  # No-slip condition
-                    break
-                end
+    nw_x = min(grid.nx, size(w, 1))
+    nw_z = min(grid.nz + 1, size(w, 2))
+    @inbounds for j = 1:nw_z, i = 1:nw_x
+        x = grid.x[i]
+        z = grid.zw[j]
+        inside = false
+        for body in bodies.bodies
+            if is_inside_xz(body, x, z)
+                inside = true
+                break
             end
+        end
+        if inside
+            w[i, j] = 0.0  # No-slip condition
         end
     end
 end
 
 function ImmersedBoundaryData2D(bodies::RigidBodyCollection, grid::StaggeredGrid)
-    nx, nz = grid.nx, grid.nz  # Use XZ plane for 2D
-    
-    # Simplified immersed boundary data for stationary cylinders
-    # Just create basic structures without complex calculations
-    body_mask = falses(nx, nz)  # Simple empty mask
-    distance_function = zeros(nx, nz)  # Simple zero distance
-    normal_vectors = fill([1.0, 0.0], nx, nz)  # Simple unit normals
-    boundary_points = Vector{Float64}[]  # Empty boundary points
-    forcing_points = Tuple{Vector{Int}, Float64}[]  # Empty forcing points
-    
-    ImmersedBoundaryData(body_mask, distance_function, normal_vectors, 
-                        boundary_points, forcing_points)
+    if bodies.n_bodies == 0
+        nx, nz = grid.nx, grid.nz
+        body_mask = falses(nx, nz)
+        distance_function = fill(Inf, nx, nz)
+        normal_vectors = [zeros(2) for _ in 1:nx, _ in 1:nz]
+        return ImmersedBoundaryData(body_mask, distance_function, normal_vectors,
+                                    Vector{Vector{Float64}}(), Tuple{Vector{Int}, Float64}[])
+    end
+
+    body_mask = bodies_mask_2d(bodies, grid)
+    distance_function = compute_distance_function_2d(bodies, grid)
+    normal_vectors = compute_normal_vectors_2d(bodies, grid, distance_function)
+    boundary_points = generate_boundary_points_2d(bodies, grid)
+    forcing_points = compute_forcing_points_2d(boundary_points, grid)
+
+    ImmersedBoundaryData(body_mask, distance_function, normal_vectors,
+                         boundary_points, forcing_points)
 end
 
 function ImmersedBoundaryData3D(bodies::RigidBodyCollection, grid::StaggeredGrid)
@@ -650,12 +663,12 @@ function compute_forcing_points_3d(boundary_points::Vector{Vector{Float64}},
 end
 
 # ============================================================================
-# WaterLily.jl-style BDIM Implementation
+# Reference BDIM Implementation
 # ============================================================================
 
 using StaticArrays
 
-# Convolution kernel functions (from WaterLily.jl)
+# Convolution kernel functions (legacy reference implementation)
 @fastmath kern_wl(d) = 0.5 + 0.5*cos(π*d)
 @fastmath kern₀_wl(d) = 0.5 + 0.5*d + 0.5*sin(π*d)/π
 @fastmath kern₁_wl(d) = 0.25*(1-d^2) - 0.5*(d*sin(π*d) + (1+cos(π*d))/π)/π
@@ -665,10 +678,11 @@ using StaticArrays
 
 # SDF for circle (compatible with existing RigidBody structure)
 function circle_sdf_wl(x::SVector{2,Float64}, center::Vector{Float64}, radius::Float64)
-    return sqrt((x[1] - center[1])^2 + (x[2] - center[2])^2) - radius
+    zc = length(center) > 2 ? center[3] : center[2]
+    return sqrt((x[1] - center[1])^2 + (x[2] - zc)^2) - radius
 end
 
-# Measure body geometry (WaterLily style)
+# Measure body geometry (reference style)
 function measure_body_wl(body::RigidBody, x::SVector{2,Float64}, t=0.0)
     if body.shape isa Circle
         d = circle_sdf_wl(x, body.center, body.shape.radius)
@@ -677,7 +691,10 @@ function measure_body_wl(body::RigidBody, x::SVector{2,Float64}, t=0.0)
     end
     
     # Skip expensive calculations if far from boundary
-    d^2 > 9 && return (d, SVector(0.0, 0.0), SVector(body.velocity[1], body.velocity[2]))
+    if d^2 > 9
+        V_far = get_body_velocity_at_point_xz(body, x[1], x[2])
+        return (d, SVector(0.0, 0.0), SVector(V_far[1], V_far[2]))
+    end
     
     # Compute gradient for normal vector using finite differences
     h = 1e-6
@@ -702,14 +719,15 @@ function measure_body_wl(body::RigidBody, x::SVector{2,Float64}, t=0.0)
         n = SVector(0.0, 0.0)
     end
     
-    # Body velocity
-    V = SVector(body.velocity[1], body.velocity[2])
+    # Body velocity (translation + rotation)
+    V_cart = get_body_velocity_at_point_xz(body, x[1], x[2])
+    V = SVector(V_cart[1], V_cart[2])
     
     return (d, n, V)
 end
 
-# Fill BDIM arrays (core WaterLily functionality)
-function measure_bdim_2d!(bdim_data::BDIMData, bodies::RigidBodyCollection, grid::StaggeredGrid, t=0.0, ϵ=1.0)
+# Fill BDIM arrays (core BDIM functionality)
+function measure_bdim_2d!(bdim_data::BDIMData, bodies::RigidBodyCollection, grid::StaggeredGrid, t=0.0, ϵ::Float64=1.0)
     nx, nz = grid.nx, grid.nz
     dx, dz = grid.dx, grid.dz
     
@@ -718,16 +736,22 @@ function measure_bdim_2d!(bdim_data::BDIMData, bodies::RigidBodyCollection, grid
     fill!(bdim_data.μ₀, 1.0)
     fill!(bdim_data.μ₁, 0.0)
     
-    d²_thresh = (2 + ϵ)^2
+    # Helper coordinate lookups with one ghost layer on each side
+    cell_x(i) = i == 1 ? grid.x[1] - dx : (i == nx + 2 ? grid.x[end] + dx : grid.x[i-1])
+    cell_z(j) = j == 1 ? grid.z[1] - dz : (j == nz + 2 ? grid.z[end] + dz : grid.z[j-1])
+    u_face_x(i) = i == 1 ? grid.xu[1] - dx : (i == nx + 2 ? grid.xu[end] + dx : grid.xu[i-1])
+    u_face_z(j) = cell_z(j)
+    w_face_x(i) = cell_x(i)
+    w_face_z(j) = j == 1 ? grid.zw[1] - dz : (j == nz + 2 ? grid.zw[end] + dz : grid.zw[j-1])
+    
+    max_distance = 2.5 * ϵ
+    max_distance_sq = max_distance^2
     
     # Loop over all bodies
     for body in bodies.bodies
         # Loop over all grid points (including ghost cells for BDIM)
         for j = 1:nz+2, i = 1:nx+2
-            # Cell center location
-            x_center = (i - 1.5) * dx
-            z_center = (j - 1.5) * dz
-            x_vec = SVector(x_center, z_center)
+            x_vec = SVector(cell_x(i), cell_z(j))
             
             # Get distance to body at cell center (quick check)
             if body.shape isa Circle
@@ -737,7 +761,7 @@ function measure_bdim_2d!(bdim_data::BDIMData, bodies::RigidBodyCollection, grid
             end
             
             # Skip if too far from boundary
-            if d_center^2 >= d²_thresh
+            if d_center^2 >= max_distance_sq
                 if d_center < 0  # Inside solid
                     bdim_data.μ₀[i, j, 1] = 0.0
                     bdim_data.μ₀[i, j, 2] = 0.0
@@ -746,73 +770,119 @@ function measure_bdim_2d!(bdim_data::BDIMData, bodies::RigidBodyCollection, grid
             end
             
             # Process u-velocity point (staggered in x)
-            x_u = SVector((i - 1.0) * dx, (j - 1.5) * dz)
+            x_u = SVector(u_face_x(i), u_face_z(j))
             d_u, n_u, V_u = measure_body_wl(body, x_u, t)
             
-            if abs(d_u) < 2*ϵ  # Near boundary
+            if abs(d_u) < 2 * ϵ  # Near boundary
                 bdim_data.V[i, j, 1] = V_u[1]
-                μ₀_val = μ₀_wl(d_u, ϵ)
+                μ₀_val = clamp(μ₀_wl(d_u, ϵ), 0.0, 1.0)
                 μ₁_val = μ₁_wl(d_u, ϵ)
                 bdim_data.μ₀[i, j, 1] = min(bdim_data.μ₀[i, j, 1], μ₀_val)  # Take minimum for multiple bodies
-                bdim_data.μ₁[i, j, 1, 1] = μ₁_val * n_u[1]  # ∂μ₁/∂x
-                bdim_data.μ₁[i, j, 1, 2] = μ₁_val * n_u[2]  # ∂μ₁/∂z
+                bdim_data.μ₁[i, j, 1, 1] = μ₁_val * n_u[1]
+                bdim_data.μ₁[i, j, 1, 2] = μ₁_val * n_u[2]
             elseif d_u < 0  # Inside solid
                 bdim_data.μ₀[i, j, 1] = 0.0
+                bdim_data.V[i, j, 1] = V_u[1]
             end
             
             # Process w-velocity point (staggered in z)
-            x_w = SVector((i - 1.5) * dx, (j - 1.0) * dz)
+            x_w = SVector(w_face_x(i), w_face_z(j))
             d_w, n_w, V_w = measure_body_wl(body, x_w, t)
             
-            if abs(d_w) < 2*ϵ  # Near boundary
+            if abs(d_w) < 2 * ϵ  # Near boundary
                 bdim_data.V[i, j, 2] = V_w[2]
-                μ₀_val = μ₀_wl(d_w, ϵ)
+                μ₀_val = clamp(μ₀_wl(d_w, ϵ), 0.0, 1.0)
                 μ₁_val = μ₁_wl(d_w, ϵ)
-                bdim_data.μ₀[i, j, 2] = min(bdim_data.μ₀[i, j, 2], μ₀_val)  # Take minimum for multiple bodies
-                bdim_data.μ₁[i, j, 2, 1] = μ₁_val * n_w[1]  # ∂μ₁/∂x
-                bdim_data.μ₁[i, j, 2, 2] = μ₁_val * n_w[2]  # ∂μ₁/∂z
+                bdim_data.μ₀[i, j, 2] = min(bdim_data.μ₀[i, j, 2], μ₀_val)
+                bdim_data.μ₁[i, j, 2, 1] = μ₁_val * n_w[1]
+                bdim_data.μ₁[i, j, 2, 2] = μ₁_val * n_w[2]
             elseif d_w < 0  # Inside solid
                 bdim_data.μ₀[i, j, 2] = 0.0
+                bdim_data.V[i, j, 2] = V_w[2]
             end
         end
     end
 end
 
-# BDIM velocity correction (WaterLily approach, simplified for stability)
+# BDIM velocity correction (reference approach, simplified for stability)
 function apply_bdim_correction_2d!(state::SolutionState, bdim_data::BDIMData, grid::StaggeredGrid, dt::Float64)
     nx, nz = grid.nx, grid.nz
+    dx, dz = grid.dx, grid.dz
     
-    # Apply BDIM correction to u-velocity
-    for j = 1:nz, i = 1:nx+1
-        if i <= size(state.u, 1) && j <= size(state.u, 2)
-            # Map to BDIM grid indices (with offset)
-            bi, bj = min(i+1, nx+2), min(j+1, nz+2)
-            if bi <= size(bdim_data.μ₀, 1) && bj <= size(bdim_data.μ₀, 2)
-                # WaterLily-style correction: u = μ₀*u + V + small_correction
-                μ₀ = bdim_data.μ₀[bi, bj, 1]
-                V = bdim_data.V[bi, bj, 1]
-                
-                # Apply correction (reduced for stability)
-                correction_factor = 0.1 * dt  # Small correction to avoid instability
-                state.u[i, j] = μ₀ * state.u[i, j] + correction_factor * V
-            end
+    nu_x = min(nx + 1, size(state.u, 1))
+    nu_z = min(nz, size(state.u, 2))
+    nw_x = min(nx, size(state.w, 1))
+    nw_z = min(nz + 1, size(state.w, 2))
+    
+    # Apply BDIM correction to u-velocity faces
+    @inbounds for j = 1:nu_z, i = 1:nu_x
+        bi = min(i + 1, nx + 2)
+        bj = min(j + 1, nz + 2)
+        μ0 = bdim_data.μ₀[bi, bj, 1]
+        μ1x = bdim_data.μ₁[bi, bj, 1, 1]
+        μ1z = bdim_data.μ₁[bi, bj, 1, 2]
+        Vb = bdim_data.V[bi, bj, 1]
+        
+        if μ0 <= 1e-6
+            state.u[i, j] = Vb
+            continue
+        elseif μ0 >= 1 - 1e-8 && abs(μ1x) < 1e-10 && abs(μ1z) < 1e-10
+            continue
         end
+        
+        i_minus = i == 1 ? 1 : i - 1
+        i_plus = i == nu_x ? nu_x : i + 1
+        j_minus = j == 1 ? 1 : j - 1
+        j_plus = j == nu_z ? nu_z : j + 1
+        
+        dudx = (state.u[i_plus, j] - state.u[i_minus, j]) / ((i_plus - i_minus) * dx)
+        dudz = (state.u[i, j_plus] - state.u[i, j_minus]) / ((j_plus - j_minus) * dz)
+        
+        fluid_part = μ0 * state.u[i, j]
+        solid_part = (1 - μ0) * Vb
+        correction = -(μ1x * dudx + μ1z * dudz)
+        state.u[i, j] = fluid_part + solid_part + correction
     end
     
-    # Apply BDIM correction to w-velocity
-    for j = 1:nz+1, i = 1:nx
-        if i <= size(state.w, 1) && j <= size(state.w, 2)
-            # Map to BDIM grid indices (with offset)
-            bi, bj = min(i+1, nx+2), min(j+1, nz+2)
-            if bi <= size(bdim_data.μ₀, 1) && bj <= size(bdim_data.μ₀, 2)
-                # WaterLily-style correction: w = μ₀*w + V + small_correction
-                μ₀ = bdim_data.μ₀[bi, bj, 2]
-                V = bdim_data.V[bi, bj, 2]
-                
-                # Apply correction (reduced for stability)
-                correction_factor = 0.1 * dt  # Small correction to avoid instability
-                state.w[i, j] = μ₀ * state.w[i, j] + correction_factor * V
-            end
+    # Apply BDIM correction to w-velocity faces
+    @inbounds for j = 1:nw_z, i = 1:nw_x
+        bi = min(i + 1, nx + 2)
+        bj = min(j + 1, nz + 2)
+        μ0 = bdim_data.μ₀[bi, bj, 2]
+        μ1x = bdim_data.μ₁[bi, bj, 2, 1]
+        μ1z = bdim_data.μ₁[bi, bj, 2, 2]
+        Vb = bdim_data.V[bi, bj, 2]
+        
+        if μ0 <= 1e-6
+            state.w[i, j] = Vb
+            continue
+        elseif μ0 >= 1 - 1e-8 && abs(μ1x) < 1e-10 && abs(μ1z) < 1e-10
+            continue
+        end
+        
+        i_minus = i == 1 ? 1 : i - 1
+        i_plus = i == nw_x ? nw_x : i + 1
+        j_minus = j == 1 ? 1 : j - 1
+        j_plus = j == nw_z ? nw_z : j + 1
+        
+        dwdx = (state.w[i_plus, j] - state.w[i_minus, j]) / ((i_plus - i_minus) * dx)
+        dwdz = (state.w[i, j_plus] - state.w[i, j_minus]) / ((j_plus - j_minus) * dz)
+        
+        fluid_part = μ0 * state.w[i, j]
+        solid_part = (1 - μ0) * Vb
+        correction = -(μ1x * dwdx + μ1z * dwdz)
+        state.w[i, j] = fluid_part + solid_part + correction
+    end
+    @inbounds for idx in eachindex(state.u)
+        v = state.u[idx]
+        if !isfinite(v)
+            state.u[idx] = 0.0
+        end
+    end
+    @inbounds for idx in eachindex(state.w)
+        v = state.w[idx]
+        if !isfinite(v)
+            state.w[idx] = 0.0
         end
     end
 end
@@ -821,7 +891,7 @@ end
 function apply_bdim_forcing_2d!(state::SolutionState, bodies::RigidBodyCollection, 
                                grid::StaggeredGrid, dt::Float64; bdim_data::Union{BDIMData,Nothing}=nothing)
     """
-    Apply WaterLily-style BDIM forcing for rigid bodies in 2D.
+    Apply reference-style BDIM forcing for rigid bodies in 2D.
     """
     nx, nz = grid.nx, grid.nz
     
@@ -830,8 +900,8 @@ function apply_bdim_forcing_2d!(state::SolutionState, bodies::RigidBodyCollectio
         bdim_data = BDIMData(nx, nz)
     end
     
-    # Measure body geometry and update BDIM fields
-    measure_bdim_2d!(bdim_data, bodies, grid, 0.0, 1.0)
+    smoothing = max(grid.dx, grid.dz)
+    measure_bdim_2d!(bdim_data, bodies, grid, 0.0, smoothing)
     
     # Apply BDIM velocity correction
     apply_bdim_correction_2d!(state, bdim_data, grid, dt)
@@ -850,7 +920,7 @@ function apply_immersed_boundary_forcing!(state::SolutionState,
     
     Methods:
     - VolumePenalty: Original volume penalty method (default)
-    - BDIM: WaterLily-style Boundary Data Immersion Method
+    - BDIM: reference-style Boundary Data Immersion Method
     """
     if method == BDIM
         if grid.grid_type == TwoDimensional
@@ -1421,7 +1491,7 @@ function solve_bdim_projection!(solver, state::SolutionState, dt::Float64, bodie
     grid = solver.grid
     fluid = solver.fluid
     
-    # Build smooth face masks for fluid region (WaterLily-style)
+    # Build smooth face masks for fluid region (reference-style)
     chi_u, chi_w = build_solid_mask_faces_2d(bodies, grid; eps_mul=2.0)
     
     # Create RHS for Poisson using masked divergence of face velocities
