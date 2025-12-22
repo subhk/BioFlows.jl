@@ -72,11 +72,15 @@ L₂(a) = sum(abs2,@inbounds(a[I]) for I ∈ inside(a))
 
 Simple macro to automate efficient loops over cells excluding ghosts. For example,
 
-    @inside p[I] = sum(loc(0,I))
+```julia
+@inside p[I] = sum(loc(0,I))
+```
 
 becomes
 
-    @loop p[I] = sum(loc(0,I)) over I ∈ inside(p)
+```julia
+@loop p[I] = sum(loc(0,I)) over I ∈ inside(p)
+```
 
 See [`@loop`](@ref).
 """
