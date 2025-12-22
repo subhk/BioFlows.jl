@@ -391,6 +391,7 @@ end
     amr_regrid!(amr::AMRSimulation)
 
 Perform AMR regridding based on current flow state and body position.
+Updates both the RefinedGrid cell tracking and creates PatchPoisson solvers.
 """
 function amr_regrid!(amr::AMRSimulation)
     flow = amr.sim.flow
@@ -417,8 +418,16 @@ function amr_regrid!(amr::AMRSimulation)
     # Mark cells for refinement
     cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5)
 
-    # Update refined grid
+    # Update refined grid tracking
     update_refined_cells!(amr.refined_grid, cells_to_refine, config.max_level)
+
+    # Create PatchPoisson solvers from marked cells
+    create_patches!(amr.composite_pois, amr.refined_grid, flow.μ₀)
+
+    # Synchronize solution data between base and patches
+    if has_patches(amr.composite_pois)
+        synchronize_base_and_patches!(flow, amr.composite_pois)
+    end
 
     return amr
 end
@@ -477,9 +486,41 @@ function get_refinement_indicator(amr::AMRSimulation)
 end
 
 perturb!(amr::AMRSimulation; noise=0.1) = perturb!(amr.sim; noise)
-measure!(amr::AMRSimulation, t=sum(amr.sim.flow.Δt)) = measure!(amr.sim, t)
+
+function measure!(amr::AMRSimulation, t=sum(amr.sim.flow.Δt))
+    measure!(amr.sim, t)
+    # Update composite Poisson after remeasure (coefficients may change)
+    update!(amr.composite_pois)
+end
+
+"""
+    amr_info(amr::AMRSimulation)
+
+Print detailed AMR status information.
+"""
+function amr_info(amr::AMRSimulation)
+    println("AMR Status:")
+    println("  Active: ", amr.amr_active)
+    println("  Refined cells: ", num_refined_cells(amr.refined_grid))
+    println("  Number of patches: ", num_patches(amr.composite_pois))
+    if has_patches(amr.composite_pois)
+        for (anchor, patch) in amr.composite_pois.patches
+            println("    Patch at ", anchor, ": level=", patch.level,
+                    ", fine dims=", patch.fine_dims)
+        end
+    end
+end
+
+"""
+    check_divergence(amr::AMRSimulation; verbose=false)
+
+Check divergence at all refinement levels.
+"""
+check_divergence(amr::AMRSimulation; verbose::Bool=false) =
+    check_amr_divergence(amr.sim.flow, amr.composite_pois; verbose)
 
 export AMRConfig, AMRSimulation, amr_regrid!, set_amr_active!, get_refinement_indicator
+export amr_info, check_divergence
 
 # defaults JLD2 and VTK I/O functions
 function load!(sim::AbstractSimulation; kwargs...)
