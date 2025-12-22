@@ -14,7 +14,7 @@ export masked_ib_step!
 Perform one step using the existing projection path and apply the
 masked immersed-boundary (BDIM) forcing. This is a thin adapter that
 selects the BDIM method via the public IB API without exposing any
-WaterLily naming.
+legacy naming.
 """
 function masked_ib_step!(solver, state_new::SolutionState, state_old::SolutionState,
                          dt::Float64, bodies::RigidBodyCollection)
@@ -29,8 +29,8 @@ end
     masked_ib_step!(solver::NavierStokesSolver3D, state_new, state_old, dt, bodies)
 
 3D masked IB step: run standard 3D projection step, then perform a masked
-pressure projection/correction using smooth 3D face masks to mimic WaterLily's
-masked projection behavior in 3D.
+pressure projection/correction using smooth 3D face masks to mimic the
+reference masked projection behavior in 3D.
 """
 function masked_ib_step!(solver::NavierStokesSolver3D, state_new::SolutionState,
                          state_old::SolutionState, dt::Float64, bodies::RigidBodyCollection)
