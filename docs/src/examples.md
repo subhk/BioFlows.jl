@@ -160,28 +160,23 @@ sim_step!(sim, 1.0; remeasure=false)
 julia --project examples/sphere_3d.jl
 ```
 
-## Flexible Body with PID Control
-
-**File:** `examples/flexible_body_pid_control.jl`
-
-Demonstrates coupling with a feedback controller:
-
-```bash
-julia --project examples/flexible_body_pid_control.jl
-```
-
 ## Visualization Examples
 
 ### Plot Vorticity
-
-**File:** `examples/plot_vorticity_cylinder.jl`
 
 ```julia
 using BioFlows
 using Plots
 
+# Setup simulation
+radius = 8
+sdf(x, t) = sqrt((x[1] - 32)^2 + (x[2] - 32)^2) - radius
+sim = Simulation((128, 64), (1, 0), 2radius;
+                 ν = 2radius / 100,
+                 body = AutoBody(sdf))
+
 # Run simulation
-sim = # ... setup ...
+sim_step!(sim, 5.0; remeasure=false)
 
 # Get vorticity
 ω = vorticity_component(sim, 3)
@@ -196,11 +191,15 @@ savefig("vorticity.png")
 
 ### Animate Vorticity
 
-**File:** `examples/animate_vorticity_cylinder.jl`
-
 ```julia
 using BioFlows
 using Plots
+
+# Setup
+sdf(x, t) = sqrt((x[1] - 32)^2 + (x[2] - 32)^2) - 8
+sim = Simulation((128, 64), (1, 0), 16.0;
+                 ν = 16.0 / 100,
+                 body = AutoBody(sdf))
 
 anim = @animate for step in 1:500
     sim_step!(sim)

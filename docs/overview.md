@@ -193,18 +193,19 @@ vtkWriter(sim, "output")
 
 | Script | Description |
 |--------|-------------|
-| `flow_past_cylinder_2d.jl` | 2D cylinder wake with configurable grid, Re, boundary conditions, and snapshot output |
-| `circle_benchmark.jl` | Simple 2D cylinder benchmark |
-| `oscillating_cylinder.jl` | Cylinder with sinusoidal motion |
+| `flow_past_cylinder_2d.jl` | Full 2D cylinder simulation with configurable grid, Re, boundary conditions, and JLD2 snapshot output |
+| `circle_benchmark.jl` | Simple 2D cylinder benchmark with force logging |
+| `oscillating_cylinder.jl` | Cylinder with sinusoidal cross-flow motion |
 | `torus_3d.jl` | 3D torus in periodic inflow |
-| `sphere_3d.jl` | 3D sphere wake |
-| `flexible_body_pid_control.jl` | Flexible body with PID controller |
-| `plot_vorticity_cylinder.jl` | Vorticity visualization |
-| `animate_vorticity_cylinder.jl` | Vorticity animation |
+| `sphere_3d.jl` | 3D sphere wake simulation |
 
 Run examples:
 ```bash
 julia --project examples/flow_past_cylinder_2d.jl
+julia --project examples/circle_benchmark.jl
+julia --project examples/oscillating_cylinder.jl
+julia --project examples/torus_3d.jl
+julia --project examples/sphere_3d.jl
 ```
 
 ## Testing
