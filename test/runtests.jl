@@ -10,7 +10,7 @@ using JLD2
     @test sim_time(circle) > 0
 
     include(joinpath(@__DIR__, "..", "examples", "flow_past_cylinder_2d.jl"))
-    cyl, _ = flow_past_cylinder_2d_sim(; nx=3*2^4, nz=2^5, Re=120)
+    cyl, _ = flow_past_cylinder_2d_sim(; nx=48, nz=48, Re=120)
     sim_step!(cyl; remeasure=false)
     history = NamedTuple[]
     record_force!(history, cyl)
