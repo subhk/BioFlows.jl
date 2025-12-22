@@ -58,3 +58,6 @@ include("test_amr.jl")
 
 # Include pressure solver tests
 include("test_pressure_solver.jl")
+
+# Include composite Poisson solver tests
+include("test_composite_poisson.jl")
