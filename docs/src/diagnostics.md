@@ -118,9 +118,7 @@ vort = cell_center_vorticity(sim)
 
 ## Simulation Diagnostics
 
-```@docs
-compute_diagnostics
-```
+The `compute_diagnostics` function returns summary statistics for the current simulation state.
 
 ### Usage
 
