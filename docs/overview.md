@@ -1,82 +1,252 @@
-# BioFlows + WaterLily Overview
+# BioFlows.jl Documentation
 
-BioFlows vendors the WaterLily solver so that existing BioFlows projects can
-migrate to WaterLily APIs without leaving this repository. This document mirrors
-the structure of the WaterLily quickstart and highlights places where the
-BioFlows wrapper adds context.
+BioFlows.jl is a Julia package for computational fluid dynamics (CFD) simulations
+with immersed boundary methods. It provides a complete solver for incompressible
+viscous flow on Cartesian grids using the Boundary Data Immersion Method (BDIM).
 
 ## Quickstart
 
 ```julia
 using BioFlows
-const WL = BioFlows.WaterLily
 
-radius = 24 # pick a radius compatible with powers of two
-center = 4radius - 1
+# Define cylinder geometry via signed distance function
+radius = 8
+center = 32
 sdf(x, t) = √((x[1] - center)^2 + (x[2] - center)^2) - radius
 
-sim = WL.Simulation((6radius, 8radius), (1, 0), 2radius;
-                    ν = 2radius / 120,
-                    body = WL.AutoBody(sdf))
-WL.sim_step!(sim, 1.0; remeasure = false)
+# Create simulation: domain (nx, nz), boundary velocity, length scale
+sim = Simulation((128, 64), (1, 0), 2radius;
+                 ν = 2radius / 100,    # Re = 100
+                 body = AutoBody(sdf))
+
+# Advance to t*U/L = 1.0 (convective time units)
+sim_step!(sim, 1.0; remeasure=false)
+
+# Query simulation state
+println("Current time: ", sim_time(sim))
 ```
 
-Key takeaways:
-- The constructor is identical to WaterLily’s – you are calling the vendored
-  module directly.
-- `WL.sim_step!` advances the simulation either a single step or to a target
-  convective time depending on the arguments.
-- Additional helpers (`measure!`, `perturb!`, `flood`, plotting utilities) live
-  on `BioFlows.WaterLily` too.
+Key concepts:
+- `Simulation` wraps `Flow` (velocity/pressure fields) + `AbstractPoisson` (pressure solver) + `AbstractBody` (geometry)
+- `sim_step!(sim, t_end)` integrates until dimensionless time `t*U/L = t_end`
+- `sim_step!(sim)` advances a single time step
+- `AutoBody(sdf)` defines geometry implicitly via a signed distance function
+
+## Core Types
+
+### Simulation
+
+```julia
+Simulation(dims::NTuple, uBC, L::Number;
+           U=norm(uBC), Δt=0.25, ν=0., ϵ=1, g=nothing,
+           perdir=(), exitBC=false,
+           body::AbstractBody=NoBody(),
+           T=Float32, mem=Array)
+```
+
+- `dims`: Grid dimensions `(nx, nz)` for 2D or `(nx, ny, nz)` for 3D
+- `uBC`: Boundary velocity — `Tuple` for constant, `Function(i,x,t)` for varying
+- `L`: Length scale for non-dimensionalization
+- `U`: Velocity scale (auto-computed from `uBC` if constant)
+- `ν`: Kinematic viscosity (`Re = U*L/ν`)
+- `ϵ`: BDIM kernel width
+- `perdir`: Periodic directions, e.g. `(2,)` for z-periodic
+- `exitBC`: Enable convective exit boundary in x-direction
+- `body`: Immersed geometry (`AutoBody`, `NoBody`, etc.)
+- `T`: Float type (`Float32` or `Float64`)
+- `mem`: Array backend (`Array` for CPU, `CuArray` for GPU)
+
+### Flow
+
+The `Flow` struct holds all fluid fields:
+- `u`: Velocity vector field
+- `p`: Pressure scalar field
+- `σ`: Divergence field
+- `V`, `μ₀`, `μ₁`: BDIM moment fields for immersed boundaries
+
+### AutoBody
+
+```julia
+AutoBody(sdf, map=(x,t)->x; compose=true)
+```
+
+Define geometry implicitly:
+- `sdf(x,t)`: Signed distance function (negative inside body)
+- `map(x,t)`: Coordinate mapping for moving/deforming bodies
+- `compose`: Auto-compose `sdf∘map` when true
+
+Example — oscillating cylinder:
+```julia
+sdf(x, t) = √(x[1]^2 + x[2]^2) - radius
+map(x, t) = x .- [0, A*sin(ω*t)]  # vertical oscillation
+body = AutoBody(sdf, map)
+```
+
+## Adaptive Mesh Refinement (AMR)
+
+BioFlows includes AMR support for efficient resolution near bodies and flow features.
+
+### AMRSimulation
+
+```julia
+config = AMRConfig(
+    max_level = 2,                    # Max refinement (2x, 4x, ...)
+    body_distance_threshold = 3.0,    # Refine within 3 cells of body
+    velocity_gradient_threshold = 1.0,
+    vorticity_threshold = 1.0,
+    regrid_interval = 10,             # Steps between regrid checks
+    buffer_size = 1,                  # Buffer cells around refined regions
+    body_weight = 0.5,                # Weight for body proximity indicator
+    gradient_weight = 0.3,
+    vorticity_weight = 0.2
+)
+
+sim = AMRSimulation((128, 128), (1.0, 0.0), 16.0;
+                    Re=200, body=AutoBody(sdf), amr_config=config)
+
+# AMR regridding happens automatically during sim_step!
+for _ in 1:1000
+    sim_step!(sim; remeasure=true)
+end
+
+# Check refinement status
+println("Refined cells: ", num_refined_cells(sim.refined_grid))
+```
+
+### AMR Types
+
+- `StaggeredGrid`: MAC grid with face-centered velocities, cell-centered pressure
+- `SolutionState`: Container for `u`, `v`, `w`, `p` on staggered grid
+- `RefinedGrid`: Tracks refined cells and local sub-grids
+
+## Diagnostics
+
+### Force Computation
+
+```julia
+# Get force components
+components = force_components(sim; ρ=1.0, reference_area=sim.L)
+# Returns: (pressure, viscous, total, coefficients)
+
+# Get dimensionless force coefficients
+coeffs = force_coefficients(sim)  # [Cd, Cl] or [Cd, Cl, Cside]
+
+# Record force history
+history = NamedTuple[]
+for step in 1:1000
+    sim_step!(sim)
+    record_force!(history, sim)
+end
+```
+
+### Vorticity
+
+```julia
+# Single component (use 3 for out-of-plane in 2D)
+ω3 = vorticity_component(sim, 3)
+
+# Magnitude
+ω_mag = vorticity_magnitude(sim)
+
+# Cell-centered fields for visualization
+vel = cell_center_velocity(sim)
+vort = cell_center_vorticity(sim)
+```
+
+### Diagnostic Summary
+
+```julia
+diag = compute_diagnostics(sim)
+# Returns: (max_u, max_w, max_v, CFL, Δt, length_scale, grid)
+```
+
+## Output
+
+### CenterFieldWriter (JLD2)
+
+Save cell-centered velocity and vorticity snapshots at regular intervals:
+
+```julia
+writer = CenterFieldWriter("fields.jld2"; interval=0.1)
+
+for step in 1:1000
+    sim_step!(sim)
+    maybe_save!(writer, sim)  # Saves when interval elapses
+end
+
+println("Saved $(writer.samples) snapshots")
+```
+
+### VTK Output (Extension)
+
+Load `WriteVTK` to enable VTK output:
+
+```julia
+using WriteVTK
+using BioFlows
+
+# VTK writer becomes available
+vtkWriter(sim, "output")
+```
 
 ## Example Gallery
 
-The `examples/` directory mirrors WaterLily’s showcase scripts:
+| Script | Description |
+|--------|-------------|
+| `flow_past_cylinder_2d.jl` | 2D cylinder wake with configurable grid, Re, boundary conditions, and snapshot output |
+| `waterlily_circle.jl` | Simple 2D cylinder benchmark |
+| `waterlily_oscillating_cylinder.jl` | Cylinder with sinusoidal motion |
+| `waterlily_donut.jl` | 3D torus in periodic inflow |
+| `waterlily_3d_sphere.jl` | 3D sphere wake |
+| `flexible_body_pid_control.jl` | Flexible body with PID controller |
+| `plot_vorticity_cylinder.jl` | Vorticity visualization |
+| `animate_vorticity_cylinder.jl` | Vorticity animation |
 
-| Script                               | Description |
-|-------------------------------------|-------------|
-| `waterlily_circle.jl`               | 2D cylinder wake with drag/lift logging. |
-| `flow_past_cylinder_2d.jl`          | Wrapper with configurable `(nx,nz)`/`(Lx,Lz)`, fixed `dt`/`final_time`, boundary controls, and centre-field snapshots. |
-| `waterlily_oscillating_cylinder.jl` | Cylinder with sinusoidal cross-flow motion. |
-| `waterlily_donut.jl`                | 3D torus immersed in periodic inflow. |
-| `waterlily_3d_sphere.jl`            | 3D sphere wake; supports alternative element types. |
-
-Run them with `julia --project FILE.jl`. Each script exposes a `*_sim` and
-`run_*` function so you can reuse the setup programmatically.
-
-## Diagnostics & Output
-
-- `record_force!`, `force_components`, and `force_coefficients` provide the
-  WaterLily drag/lift workflow at the BioFlows level.
-- Use `vorticity_component` or `vorticity_magnitude` together with `flood` to
-  mirror the WaterLily plotting notebooks.
-- WaterLily’s own `save!`, `load!`, and `vtkWriter` functions remain available
-  via extensions; legacy BioFlows writers have been removed.
-- `CenterFieldWriter` captures cell-centred velocity and vorticity snapshots at
-  fixed time intervals in JLD2 format.
+Run examples:
+```bash
+julia --project examples/flow_past_cylinder_2d.jl
+```
 
 ## Testing
-
-BioFlows integrates WaterLily’s upstream `test/runtests.jl`. From the project
-root execute:
 
 ```bash
 julia --project -e 'using Pkg; Pkg.test()'
 ```
 
-Missing direct dependencies in the manifest (for example `EllipsisNotation`)
-can be fixed with `Pkg.resolve()` before re-running the tests.
+## API Reference
 
-## Compatibility Notes
+### Simulation Control
+- `sim_step!(sim, t_end)` — Integrate to dimensionless time
+- `sim_step!(sim)` — Single time step
+- `sim_time(sim)` — Current dimensionless time `t*U/L`
+- `time(sim.flow)` — Current simulation time `t`
+- `measure!(sim)` — Update body coefficients
+- `perturb!(sim; noise=0.1)` — Add velocity perturbations
+- `sim_info(sim)` — Print simulation status
 
-- Legacy BioFlows APIs (`create_2d_simulation_config`, flexible bodies, AMR,
-  etc.) are no longer shipped. They will reappear as WaterLily-friendly wrappers
-  when ported.
-- The `BioFlows` module re-exports common WaterLily identifiers (e.g.
-  `Simulation`, `sim_step!`) for convenience.
-- WaterLily’s plotting extensions (`Plots`, `Makie`, `WriteVTK`) remain optional.
-  Load the corresponding packages to enable them exactly as described in the
-  upstream documentation.
+### AMR Control
+- `amr_regrid!(sim)` — Force regridding
+- `set_amr_active!(sim, bool)` — Enable/disable AMR
+- `get_refinement_indicator(sim)` — Current indicator field
+- `num_refined_cells(grid)` — Count refined cells
+- `refinement_level(grid, i, j)` — Query cell refinement
 
-For more background, consult `docs/archive/waterlily_migration_map.md` or refer
-to the official WaterLily documentation.
+### Diagnostics
+- `pressure_force(sim)` — Pressure force vector
+- `viscous_force(sim)` — Viscous force vector
+- `total_force(sim)` — Total force vector
+- `force_components(sim)` — All forces + coefficients
+- `force_coefficients(sim)` — Dimensionless coefficients
+- `record_force!(history, sim)` — Append to history
+- `vorticity_component(sim, i)` — i-th vorticity component
+- `vorticity_magnitude(sim)` — Vorticity magnitude field
+- `cell_center_velocity(sim)` — Interpolated velocity
+- `cell_center_vorticity(sim)` — Interpolated vorticity
+- `compute_diagnostics(sim)` — Summary statistics
+
+### Output
+- `CenterFieldWriter(filename; interval)` — Create writer
+- `maybe_save!(writer, sim)` — Conditional snapshot
+- `save!(sim, fname)` — Save simulation state (requires JLD2)
+- `load!(sim; fname)` — Load simulation state
+- `vtkWriter(sim, path)` — VTK output (requires WriteVTK)
