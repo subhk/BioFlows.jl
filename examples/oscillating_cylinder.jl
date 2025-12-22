@@ -7,9 +7,9 @@ using LinearAlgebra: norm
 """
     oscillating_cylinder_sim(; n=3*2^5, m=2^6, Re=200, U=1, St=0.2, amplitude=0.25)
 
-Reproduce the official WaterLily oscillating-cylinder benchmark. The cylinder
-translates sinusoidally in the cross-flow direction with Strouhal number `St`
-and peak-to-peak amplitude `2*amplitude*radius`.
+Oscillating cylinder benchmark. The cylinder translates sinusoidally in the
+cross-flow direction with Strouhal number `St` and peak-to-peak amplitude
+`2*amplitude*radius`.
 """
 function oscillating_cylinder_sim(; n::Int=3*2^5, m::Int=2^6,
                                      Re::Real=200, U::Real=1,

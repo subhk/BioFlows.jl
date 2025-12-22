@@ -7,9 +7,8 @@ using LinearAlgebra: norm
 """
     circle_sim(; n=3*2^5, m=2^6, Re=100, U=1)
 
-Construct the classic circle simulation using BioFlows.
-The setup matches the official WaterLily example with a
-uniform inflow, stationary cylinder, and Re based on the diameter.
+Construct the classic 2D cylinder benchmark using BioFlows.
+Uses uniform inflow past a stationary cylinder with Re based on the diameter.
 """
 function circle_sim(; n::Int=3*2^5, m::Int=2^6, Re::Real=100, U::Real=1)
     radius = m / 8
