@@ -179,8 +179,8 @@ function correct_velocity!(flow::Flow{D,T}, p::AbstractArray{T},
                            L::AbstractArray{T}, scale::T) where {D,T}
     for I in inside(p)
         for d in 1:D
-            δ = δi(d, I)
-            flow.u[I, d] -= scale * L[I, d] * (p[I] - p[I-δ])
+            δd = δ(d, I)  # Unit offset in direction d
+            flow.u[I, d] -= scale * L[I, d] * (p[I] - p[I-δd])
         end
     end
 end
