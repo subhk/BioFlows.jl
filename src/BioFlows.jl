@@ -72,7 +72,7 @@ export AbstractBody,measure_sdf!
 
 # Auto body (implicit geometry)
 _silent_include("AutoBody.jl")
-export AutoBody,Bodies,measure,sdf,+,-
+export AutoBody,measure,sdf,+,-
 
 # Metrics and diagnostics
 _silent_include("Metrics.jl")
