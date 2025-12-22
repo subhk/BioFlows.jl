@@ -71,8 +71,10 @@ function patch_defect_correction!(cp::CompositePoisson{T}) where T
             # 2. Compute patch residual (defect)
             patch_residual!(patch)
 
-            # 3. Local smoothing on patch
-            patch_smooth!(patch; it=4)
+            # 3. Local smoothing on patch (use PCG for good convergence)
+            for _ in 1:4
+                patch_pcg!(patch; it=2)
+            end
 
             # 4. Compute and apply flux correction
             fluxes = compute_all_interface_fluxes(patch, p_parent, L_parent, anchor)
@@ -87,17 +89,8 @@ function patch_defect_correction!(cp::CompositePoisson{T}) where T
     residual!(base_level)
 end
 
-"""
-    patch_smooth!(patch::PatchPoisson; it=4)
-
-Apply smoothing iterations to patch.
-Uses PCG by default for good convergence.
-"""
-function patch_smooth!(patch::PatchPoisson; it::Int=4)
-    for _ in 1:it
-        patch_pcg!(patch; it=2)
-    end
-end
+# Note: patch_smooth! is defined in patch_poisson.jl
+# This function provides the default smoothing for defect correction
 
 """
     project!(flow::Flow, cp::CompositePoisson, refined_grid::RefinedGrid, w=1)
