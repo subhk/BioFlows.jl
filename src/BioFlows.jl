@@ -195,6 +195,265 @@ perturb!(sim::AbstractSimulation; noise=0.1) = sim.flow.u .+= randn(size(sim.flo
 
 export AbstractSimulation,Simulation,sim_step!,sim_time,measure!,sim_info,perturb!
 
+# ============================================================================
+# AMR-enabled Simulation
+# ============================================================================
+
+"""
+    AMRConfig
+
+Configuration for adaptive mesh refinement.
+
+# Fields
+- `max_level`: Maximum refinement level (1 = 2x finer, 2 = 4x finer, etc.)
+- `body_distance_threshold`: Refine within this distance (in grid cells) from body
+- `velocity_gradient_threshold`: Threshold for velocity gradient refinement
+- `vorticity_threshold`: Threshold for vorticity-based refinement
+- `regrid_interval`: Number of time steps between regridding checks
+- `buffer_size`: Number of buffer cells around refined regions
+- `body_weight`: Weight for body proximity in combined indicator
+- `gradient_weight`: Weight for velocity gradient in combined indicator
+- `vorticity_weight`: Weight for vorticity in combined indicator
+"""
+struct AMRConfig
+    max_level::Int
+    body_distance_threshold::Float64
+    velocity_gradient_threshold::Float64
+    vorticity_threshold::Float64
+    regrid_interval::Int
+    buffer_size::Int
+    body_weight::Float64
+    gradient_weight::Float64
+    vorticity_weight::Float64
+end
+
+"""
+    AMRConfig(; max_level=2, body_distance_threshold=3.0, ...)
+
+Create an AMR configuration with keyword arguments.
+"""
+function AMRConfig(; max_level::Int=2,
+                    body_distance_threshold::Real=3.0,
+                    velocity_gradient_threshold::Real=1.0,
+                    vorticity_threshold::Real=1.0,
+                    regrid_interval::Int=10,
+                    buffer_size::Int=1,
+                    body_weight::Real=0.5,
+                    gradient_weight::Real=0.3,
+                    vorticity_weight::Real=0.2)
+    AMRConfig(max_level, Float64(body_distance_threshold),
+              Float64(velocity_gradient_threshold), Float64(vorticity_threshold),
+              regrid_interval, buffer_size,
+              Float64(body_weight), Float64(gradient_weight), Float64(vorticity_weight))
+end
+
+"""
+    AMRSimulation
+
+Simulation with adaptive mesh refinement near immersed bodies.
+
+Wraps a standard `Simulation` and adds AMR capability that automatically
+refines the mesh near the body and in regions of high gradients.
+
+# Fields
+- `sim`: The underlying Simulation
+- `config`: AMR configuration parameters
+- `refined_grid`: Current refined grid state
+- `adapter`: Flow-to-grid adapter
+- `last_regrid_step`: Step count at last regrid
+- `amr_active`: Whether AMR is currently active
+
+# Example
+```julia
+config = AMRConfig(max_level=3, body_distance_threshold=4.0, regrid_interval=5)
+sim = AMRSimulation((128, 128), (1.0, 0.0), 16.0;
+                    Re=200, body=AutoBody(sdf), amr_config=config)
+for _ in 1:1000
+    sim_step!(sim; remeasure=true)  # AMR regridding happens automatically
+end
+```
+"""
+mutable struct AMRSimulation <: AbstractSimulation
+    sim::Simulation
+    config::AMRConfig
+    refined_grid::RefinedGrid
+    adapter::FlowToGridAdapter
+    last_regrid_step::Int
+    amr_active::Bool
+end
+
+"""
+    AMRSimulation(dims, uBC, L; amr_config=AMRConfig(), kwargs...)
+
+Create an AMR-enabled simulation.
+
+# Arguments
+- `dims`: Grid dimensions
+- `uBC`: Boundary conditions
+- `L`: Length scale
+- `amr_config`: AMR configuration (default: AMRConfig())
+- `kwargs...`: Additional arguments passed to Simulation constructor
+"""
+function AMRSimulation(dims::NTuple{N}, uBC, L::Number;
+                       amr_config::AMRConfig=AMRConfig(),
+                       kwargs...) where N
+    # Create base simulation
+    sim = Simulation(dims, uBC, L; kwargs...)
+
+    # Create adapter and refined grid
+    adapter = FlowToGridAdapter(sim.flow, L)
+    refined_grid = create_refined_grid(adapter)
+
+    AMRSimulation(sim, amr_config, refined_grid, adapter, 0, true)
+end
+
+# Forward basic properties to underlying simulation
+time(amr::AMRSimulation) = time(amr.sim)
+sim_time(amr::AMRSimulation) = sim_time(amr.sim)
+sim_info(amr::AMRSimulation) = begin
+    base_info = "tU/L=$(round(sim_time(amr),digits=4)), Δt=$(round(amr.sim.flow.Δt[end],digits=3))"
+    amr_info = ", AMR: $(num_refined_cells(amr.refined_grid)) refined cells"
+    println(base_info * amr_info)
+end
+
+# Access underlying fields
+Base.getproperty(amr::AMRSimulation, s::Symbol) = begin
+    if s in (:sim, :config, :refined_grid, :adapter, :last_regrid_step, :amr_active)
+        getfield(amr, s)
+    elseif s in (:U, :L, :ϵ, :flow, :body, :pois)
+        getproperty(getfield(amr, :sim), s)
+    else
+        getfield(amr, s)
+    end
+end
+
+"""
+    sim_step!(sim::AMRSimulation; remeasure=true, λ=quick, kwargs...)
+
+Advance AMR simulation by one time step with automatic regridding.
+"""
+function sim_step!(amr::AMRSimulation; remeasure=true, λ=quick, udf=nothing, kwargs...)
+    step_count = length(amr.sim.flow.Δt)
+
+    # Check if regridding is needed
+    if amr.amr_active && (step_count - amr.last_regrid_step) >= amr.config.regrid_interval
+        amr_regrid!(amr)
+        amr.last_regrid_step = step_count
+    end
+
+    # Perform standard simulation step
+    remeasure && measure!(amr.sim)
+    mom_step!(amr.sim.flow, amr.sim.pois; λ, udf, kwargs...)
+end
+
+"""
+    sim_step!(sim::AMRSimulation, t_end; kwargs...)
+
+Advance AMR simulation up to dimensionless time `t_end`.
+"""
+function sim_step!(amr::AMRSimulation, t_end; remeasure=true, λ=quick, max_steps=typemax(Int),
+                   verbose=false, udf=nothing, kwargs...)
+    steps₀ = length(amr.sim.flow.Δt)
+    while sim_time(amr) < t_end && length(amr.sim.flow.Δt) - steps₀ < max_steps
+        sim_step!(amr; remeasure, λ, udf, kwargs...)
+        verbose && sim_info(amr)
+    end
+end
+
+"""
+    amr_regrid!(amr::AMRSimulation)
+
+Perform AMR regridding based on current flow state and body position.
+"""
+function amr_regrid!(amr::AMRSimulation)
+    flow = amr.sim.flow
+    body = amr.sim.body
+    config = amr.config
+    t = time(amr.sim)
+
+    # Compute combined refinement indicator
+    indicator = compute_combined_indicator(flow, body;
+        body_threshold=config.body_distance_threshold,
+        gradient_threshold=config.velocity_gradient_threshold,
+        vorticity_threshold=config.vorticity_threshold,
+        t=t,
+        body_weight=config.body_weight,
+        gradient_weight=config.gradient_weight,
+        vorticity_weight=config.vorticity_weight
+    )
+
+    # Apply buffer zone
+    if config.buffer_size > 0
+        apply_buffer_zone!(indicator; buffer_size=config.buffer_size)
+    end
+
+    # Mark cells for refinement
+    cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5)
+
+    # Update refined grid
+    update_refined_cells!(amr.refined_grid, cells_to_refine, config.max_level)
+
+    return amr
+end
+
+"""
+    update_refined_cells!(rg::RefinedGrid, cells::Vector{CartesianIndex}, max_level::Int)
+
+Update the refined grid with new cells to refine.
+"""
+function update_refined_cells!(rg::RefinedGrid, cells::Vector{CartesianIndex{N}},
+                                max_level::Int) where N
+    # Clear existing refinement
+    if N == 2
+        empty!(rg.refined_cells_2d)
+        for I in cells
+            i, j = I[1], I[2]
+            if 1 <= i <= rg.base_grid.nx && 1 <= j <= rg.base_grid.nz
+                rg.refined_cells_2d[(i, j)] = min(max_level, 1)
+            end
+        end
+    else
+        empty!(rg.refined_cells_3d)
+        for I in cells
+            i, j, k = I[1], I[2], I[3]
+            if 1 <= i <= rg.base_grid.nx && 1 <= j <= rg.base_grid.ny && 1 <= k <= rg.base_grid.nz
+                rg.refined_cells_3d[(i, j, k)] = min(max_level, 1)
+            end
+        end
+    end
+    return rg
+end
+
+"""
+    set_amr_active!(amr::AMRSimulation, active::Bool)
+
+Enable or disable AMR regridding.
+"""
+set_amr_active!(amr::AMRSimulation, active::Bool) = (amr.amr_active = active; amr)
+
+"""
+    get_refinement_indicator(amr::AMRSimulation)
+
+Compute and return the current refinement indicator without applying regridding.
+Useful for visualization and debugging.
+"""
+function get_refinement_indicator(amr::AMRSimulation)
+    compute_combined_indicator(amr.sim.flow, amr.sim.body;
+        body_threshold=amr.config.body_distance_threshold,
+        gradient_threshold=amr.config.velocity_gradient_threshold,
+        vorticity_threshold=amr.config.vorticity_threshold,
+        t=time(amr.sim),
+        body_weight=amr.config.body_weight,
+        gradient_weight=amr.config.gradient_weight,
+        vorticity_weight=amr.config.vorticity_weight
+    )
+end
+
+perturb!(amr::AMRSimulation; noise=0.1) = perturb!(amr.sim; noise)
+measure!(amr::AMRSimulation, t=sum(amr.sim.flow.Δt)) = measure!(amr.sim, t)
+
+export AMRConfig, AMRSimulation, amr_regrid!, set_amr_active!, get_refinement_indicator
+
 # defaults JLD2 and VTK I/O functions
 function load!(sim::AbstractSimulation; kwargs...)
     fname = get(Dict(kwargs), :fname, "BioFlows.jld2")
