@@ -1,5 +1,9 @@
 # BioFlows.jl
 
+[![CI](https://github.com/subhk/BioFlows.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/subhk/BioFlows.jl/actions/workflows/CI.yml)
+[![Documentation](https://github.com/subhk/BioFlows.jl/actions/workflows/documentation.yml/badge.svg)](https://subhk.github.io/BioFlows.jl/dev/)
+[![codecov](https://codecov.io/gh/subhk/BioFlows.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/subhk/BioFlows.jl)
+
 A Julia package for computational fluid dynamics (CFD) simulations with immersed
 boundary methods. BioFlows provides a complete solver for incompressible viscous
 flow on Cartesian grids using the Boundary Data Immersion Method (BDIM).
