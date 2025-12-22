@@ -55,3 +55,6 @@ end
 
 # Include AMR tests
 include("test_amr.jl")
+
+# Include pressure solver tests
+include("test_pressure_solver.jl")
