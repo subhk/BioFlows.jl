@@ -83,9 +83,11 @@ _silent_include("amr/amr_types.jl")
 _silent_include("amr/bioflows_amr_adapter.jl")
 _silent_include("amr/body_refinement_indicator.jl")
 export StaggeredGrid, SolutionState, RefinedGrid, GridType, TwoDimensional, ThreeDimensional
-export FlowToGridAdapter, flow_to_staggered_grid, flow_to_solution_state
+export is_2d, is_3d, num_refined_cells, refinement_level, domain_size, cell_volume
+export FlowToGridAdapter, flow_to_staggered_grid, flow_to_solution_state, create_refined_grid
 export compute_body_refinement_indicator, compute_velocity_gradient_indicator
 export compute_vorticity_indicator, compute_combined_indicator
+export mark_cells_for_refinement, apply_buffer_zone!
 
 # Simulation container
 abstract type AbstractSimulation end
