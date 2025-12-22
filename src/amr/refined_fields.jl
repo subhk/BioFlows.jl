@@ -363,6 +363,7 @@ end
 
 Fill patch ghost cells by interpolation from coarse grid.
 Used for boundary conditions at patch edges.
+Includes bounds checking to handle patches near domain boundaries.
 """
 function fill_ghost_cells!(patch::RefinedVelocityPatch{T,2},
                             u_coarse::AbstractArray{T},
@@ -371,59 +372,94 @@ function fill_ghost_cells!(patch::RefinedVelocityPatch{T,2},
     ai, aj = anchor
     nx, nz = patch.fine_dims
 
-    # Left ghost (i=1)
-    for fj in 1:nz+2
-        zf = (fj - 1.5) / ratio
-        jc = floor(Int, zf) + aj
-        wz = zf - floor(zf)
-        ic = ai - 1  # One cell to the left
+    # Coarse grid bounds
+    nc_i, nc_j = size(u_coarse, 1), size(u_coarse, 2)
 
-        for d in 1:2
-            v0 = u_coarse[ic, jc, d]
-            v1 = u_coarse[ic, jc+1, d]
-            patch.u[1, fj, d] = (1-wz)*v0 + wz*v1
+    # Left ghost (i=1)
+    ic = ai - 1  # One cell to the left
+    if ic >= 1  # Only fill if coarse neighbor exists
+        for fj in 1:nz+2
+            zf = (fj - 1.5) / ratio
+            jc = floor(Int, zf) + aj
+            jc = clamp(jc, 1, nc_j - 1)  # Clamp to valid range
+            wz = clamp(zf - floor(zf), zero(T), one(T))
+
+            for d in 1:2
+                v0 = u_coarse[ic, jc, d]
+                v1 = u_coarse[ic, jc+1, d]
+                patch.u[1, fj, d] = (1-wz)*v0 + wz*v1
+            end
+        end
+    else
+        # At domain left boundary - use zero gradient (Neumann)
+        for fj in 1:nz+2, d in 1:2
+            patch.u[1, fj, d] = patch.u[2, fj, d]
         end
     end
 
     # Right ghost (i=nx+2)
-    for fj in 1:nz+2
-        zf = (fj - 1.5) / ratio
-        jc = floor(Int, zf) + aj
-        wz = zf - floor(zf)
-        ic = ai + patch.coarse_extent[1]
+    ic = ai + patch.coarse_extent[1]
+    if ic <= nc_i  # Only fill if coarse neighbor exists
+        for fj in 1:nz+2
+            zf = (fj - 1.5) / ratio
+            jc = floor(Int, zf) + aj
+            jc = clamp(jc, 1, nc_j - 1)
+            wz = clamp(zf - floor(zf), zero(T), one(T))
 
-        for d in 1:2
-            v0 = u_coarse[ic, jc, d]
-            v1 = u_coarse[ic, jc+1, d]
-            patch.u[nx+2, fj, d] = (1-wz)*v0 + wz*v1
+            for d in 1:2
+                v0 = u_coarse[ic, jc, d]
+                v1 = u_coarse[ic, jc+1, d]
+                patch.u[nx+2, fj, d] = (1-wz)*v0 + wz*v1
+            end
+        end
+    else
+        # At domain right boundary - use zero gradient (Neumann)
+        for fj in 1:nz+2, d in 1:2
+            patch.u[nx+2, fj, d] = patch.u[nx+1, fj, d]
         end
     end
 
     # Bottom ghost (j=1)
-    for fi in 1:nx+2
-        xf = (fi - 1.5) / ratio
-        ic = floor(Int, xf) + ai
-        wx = xf - floor(xf)
-        jc = aj - 1
+    jc = aj - 1
+    if jc >= 1  # Only fill if coarse neighbor exists
+        for fi in 1:nx+2
+            xf = (fi - 1.5) / ratio
+            ic = floor(Int, xf) + ai
+            ic = clamp(ic, 1, nc_i - 1)
+            wx = clamp(xf - floor(xf), zero(T), one(T))
 
-        for d in 1:2
-            v0 = u_coarse[ic, jc, d]
-            v1 = u_coarse[ic+1, jc, d]
-            patch.u[fi, 1, d] = (1-wx)*v0 + wx*v1
+            for d in 1:2
+                v0 = u_coarse[ic, jc, d]
+                v1 = u_coarse[ic+1, jc, d]
+                patch.u[fi, 1, d] = (1-wx)*v0 + wx*v1
+            end
+        end
+    else
+        # At domain bottom boundary - use zero gradient (Neumann)
+        for fi in 1:nx+2, d in 1:2
+            patch.u[fi, 1, d] = patch.u[fi, 2, d]
         end
     end
 
     # Top ghost (j=nz+2)
-    for fi in 1:nx+2
-        xf = (fi - 1.5) / ratio
-        ic = floor(Int, xf) + ai
-        wx = xf - floor(xf)
-        jc = aj + patch.coarse_extent[2]
+    jc = aj + patch.coarse_extent[2]
+    if jc <= nc_j  # Only fill if coarse neighbor exists
+        for fi in 1:nx+2
+            xf = (fi - 1.5) / ratio
+            ic = floor(Int, xf) + ai
+            ic = clamp(ic, 1, nc_i - 1)
+            wx = clamp(xf - floor(xf), zero(T), one(T))
 
-        for d in 1:2
-            v0 = u_coarse[ic, jc, d]
-            v1 = u_coarse[ic+1, jc, d]
-            patch.u[fi, nz+2, d] = (1-wx)*v0 + wx*v1
+            for d in 1:2
+                v0 = u_coarse[ic, jc, d]
+                v1 = u_coarse[ic+1, jc, d]
+                patch.u[fi, nz+2, d] = (1-wx)*v0 + wx*v1
+            end
+        end
+    else
+        # At domain top boundary - use zero gradient (Neumann)
+        for fi in 1:nx+2, d in 1:2
+            patch.u[fi, nz+2, d] = patch.u[fi, nz+1, d]
         end
     end
 end
