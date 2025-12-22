@@ -1,5 +1,4 @@
 using BioFlows
-const WL = BioFlows.WaterLily
 using Statistics
 using Random
 
@@ -17,7 +16,7 @@ Construct the classic 2D cylinder benchmark with explicit control over grid
 resolution `(nx,nz)` and physical domain `(Lx,Lz)`. The cylinder radius defaults
 to `Lz/8`, but can be overridden with the `radius` keyword (specified in
 physical units). Provide a fixed time step via `dt` (set to `nothing` to keep
-WaterLily's adaptive CFL stepping) and customise boundary conditions with `uBC`,
+adaptive CFL stepping) and customise boundary conditions with `uBC`,
 `perdir`, and `exitBC` (e.g. `perdir=(2,)` makes the z-direction periodic).
 
 Returns `(sim, meta)` where `meta` records the domain, grid, cell size, radius,
@@ -54,11 +53,11 @@ function flow_past_cylinder_2d_sim(; nx::Int=240,
     base_kwargs = (; ν = U * (2radius_phys) / Re,
                     perdir = perdir,
                     exitBC = exitBC,
-                    body = WL.AutoBody(sdf))
+                    body = AutoBody(sdf))
 
     sim = dt === nothing ?
-        WL.Simulation((nx, nz), boundary, 2radius_phys; base_kwargs...) :
-        WL.Simulation((nx, nz), boundary, 2radius_phys; Δt = dt, base_kwargs...)
+        Simulation((nx, nz), boundary, 2radius_phys; base_kwargs...) :
+        Simulation((nx, nz), boundary, 2radius_phys; Δt = dt, base_kwargs...)
 
     meta = (
         domain = (Lx, Lz),
@@ -110,7 +109,7 @@ run_flow_past_cylinder(
     center_filename="cylinder_center_fields.jld2")
 ```
 """
-function run_flow_past_cylinder(; steps::Union{Nothing,Int}=nothing, 
+function run_flow_past_cylinder(; steps::Union{Nothing,Int}=nothing,
                                 discard::Int=200,
                                 final_time = 500.0,
                                 save_center_fields::Bool=true,
@@ -120,9 +119,9 @@ function run_flow_past_cylinder(; steps::Union{Nothing,Int}=nothing,
                                 kwargs...)
 
     sim, meta_tuple = flow_past_cylinder_2d_sim(; kwargs...)
-    
+
     Random.seed!(42)                 # optional, only if you want repeatability
-    BioFlows.perturb!(sim; noise=3e-2)
+    perturb!(sim; noise=3e-2)
 
     meta = NamedTuple(meta_tuple)
 
@@ -153,38 +152,38 @@ function run_flow_past_cylinder(; steps::Union{Nothing,Int}=nothing,
     total_steps = 0
 
     while true
-        if target_time !== nothing && WL.sim_time(sim) >= target_time
+        if target_time !== nothing && sim_time(sim) >= target_time
             break
         end
         total_steps >= step_limit && break
 
         total_steps += 1
-        WL.sim_step!(sim; remeasure=false)
+        sim_step!(sim; remeasure=false)
         record_force!(history, sim)
         writer !== nothing && maybe_save!(writer, sim)
         fixed_dt !== nothing && (sim.flow.Δt[end] = fixed_dt)
 
         if total_steps % diag_interval == 0
             stats_line = summarize_force_history(history; discard=min(discard, length(history)))
-            diag_line = BioFlows.compute_diagnostics(sim)
+            diag_line = compute_diagnostics(sim)
 
-            t        = round(WL.sim_time(sim); digits=3)
+            t        = round(sim_time(sim); digits=3)
             drag_val = round(stats_line.drag_mean; digits=3)
             lift_val = round(stats_line.lift_rms; digits=3)
             max_u    = round(diag_line.max_u; digits=3)
             max_w    = round(diag_line.max_w; digits=3)
             cfl_val  = round(diag_line.CFL; digits=3)
             dt_val   = round(diag_line.Δt; digits=3)
-            
+
             println("[iter $(total_steps)] t=$(t) drag=$(drag_val), lift_rms=$(lift_val), max_u=$(max_u), max_w=$(max_w), CFL=$(cfl_val), Δt=$(dt_val)")
         end
     end
 
     stats = summarize_force_history(history; discard)
-    diagnostics = merge(BioFlows.compute_diagnostics(sim),
+    diagnostics = merge(compute_diagnostics(sim),
                         meta,
                         (steps=total_steps,
-                         final_time=WL.sim_time(sim),
+                         final_time=sim_time(sim),
                          target_time=target_time,
                          center_interval_conv=conv_interval,
                          center_interval_time=sim_time_interval))
@@ -215,7 +214,7 @@ function summarize_force_history(history; discard::Int=200)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    sim, history, stats, writer, diagnostics = run_flow_past_cylinder(; 
+    sim, history, stats, writer, diagnostics = run_flow_past_cylinder(;
                                                 save_center_fields=true,
                                                 center_filename="cylinder_center_fields.jld2")
 

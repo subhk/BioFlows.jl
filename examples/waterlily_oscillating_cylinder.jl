@@ -1,7 +1,6 @@
 #!/usr/bin/env julia
 
 using BioFlows
-const WL = BioFlows.WaterLily
 using StaticArrays: SVector
 using LinearAlgebra: norm
 
@@ -20,9 +19,9 @@ function oscillating_cylinder_sim(; n::Int=3*2^5, m::Int=2^6,
     sdf(x, t) = norm(x .- center) - radius
     displacement(t) = amplitude * radius * sin(2π * St * t)
     move(x, t) = x - SVector(zero(t), displacement(t))
-    WL.Simulation((n, m), (U, 0), 2radius;
-                  ν=U * 2radius / Re,
-                  body=WL.AutoBody(sdf, move))
+    Simulation((n, m), (U, 0), 2radius;
+               ν=U * 2radius / Re,
+               body=AutoBody(sdf, move))
 end
 
 """
@@ -38,12 +37,12 @@ function run_oscillating_cylinder(; steps::Int=400, St::Real=0.2, amplitude::Rea
     history = Vector{NamedTuple}(undef, steps)
     radius = sim.L / 2
     for k in 1:steps
-        WL.sim_step!(sim; remeasure=true)
-        t = WL.time(sim) # physical time used by the body motion
+        sim_step!(sim; remeasure=true)
+        t = BioFlows.time(sim) # physical time used by the body motion
         disp = amplitude * radius * sin(2π * St * t)
-        coeff = WL.total_force(sim) ./ (0.5 * sim.L * sim.U^2)
+        coeff = total_force(sim) ./ (0.5 * sim.L * sim.U^2)
         history[k] = (step=k,
-                      time=WL.sim_time(sim),
+                      time=sim_time(sim),
                       y_disp=disp,
                       drag=coeff[1],
                       lift=coeff[2])
@@ -54,5 +53,5 @@ end
 if Base.program_file() == @__FILE__
     sim, history = run_oscillating_cylinder()
     final = history[end]
-    @info "WaterLily oscillating-cylinder example complete" steps=final.step time=final.time displacement=final.y_disp drag=final.drag lift=final.lift
+    @info "BioFlows oscillating-cylinder example complete" steps=final.step time=final.time displacement=final.y_disp drag=final.drag lift=final.lift
 end
