@@ -71,7 +71,7 @@ end
 
 Collect pressure, viscous, and total force vectors for `sim`. When
 `with_coefficients=true`, dimensionless coefficients are returned using the
-reference area `½ρU²A`, matching WaterLily's examples.
+reference area `½ρU²A`.
 """
 function force_components(sim::AbstractSimulation; ρ::Real=1.0,
                           reference_area::Real=sim.L, with_coefficients::Bool=true)

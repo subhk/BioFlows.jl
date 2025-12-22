@@ -194,10 +194,10 @@ vtkWriter(sim, "output")
 | Script | Description |
 |--------|-------------|
 | `flow_past_cylinder_2d.jl` | 2D cylinder wake with configurable grid, Re, boundary conditions, and snapshot output |
-| `waterlily_circle.jl` | Simple 2D cylinder benchmark |
-| `waterlily_oscillating_cylinder.jl` | Cylinder with sinusoidal motion |
-| `waterlily_donut.jl` | 3D torus in periodic inflow |
-| `waterlily_3d_sphere.jl` | 3D sphere wake |
+| `circle_benchmark.jl` | Simple 2D cylinder benchmark |
+| `oscillating_cylinder.jl` | Cylinder with sinusoidal motion |
+| `torus_3d.jl` | 3D torus in periodic inflow |
+| `sphere_3d.jl` | 3D sphere wake |
 | `flexible_body_pid_control.jl` | Flexible body with PID controller |
 | `plot_vorticity_cylinder.jl` | Vorticity visualization |
 | `animate_vorticity_cylinder.jl` | Vorticity animation |

@@ -127,8 +127,8 @@ The `examples/` directory contains ready-to-run scripts:
 
 ```bash
 julia --project examples/flow_past_cylinder_2d.jl
-julia --project examples/waterlily_circle.jl
-julia --project examples/waterlily_oscillating_cylinder.jl
+julia --project examples/circle_benchmark.jl
+julia --project examples/oscillating_cylinder.jl
 ```
 
 See [Examples](@ref) for detailed descriptions.

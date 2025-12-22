@@ -44,7 +44,7 @@ julia --project examples/flow_past_cylinder_2d.jl
 
 ## Circle Benchmark
 
-**File:** `examples/waterlily_circle.jl`
+**File:** `examples/circle_benchmark.jl`
 
 Simple 2D cylinder for benchmarking:
 
@@ -65,12 +65,12 @@ sim_step!(sim, 1.0; remeasure=false)
 ### Command Line
 
 ```bash
-julia --project examples/waterlily_circle.jl
+julia --project examples/circle_benchmark.jl
 ```
 
 ## Oscillating Cylinder
 
-**File:** `examples/waterlily_oscillating_cylinder.jl`
+**File:** `examples/oscillating_cylinder.jl`
 
 Cylinder with sinusoidal cross-flow motion:
 
@@ -98,12 +98,12 @@ sim_step!(sim, 5.0; remeasure=true)
 ### Command Line
 
 ```bash
-julia --project examples/waterlily_oscillating_cylinder.jl
+julia --project examples/oscillating_cylinder.jl
 ```
 
-## 3D Torus (Donut)
+## 3D Torus
 
-**File:** `examples/waterlily_donut.jl`
+**File:** `examples/torus_3d.jl`
 
 3D torus in periodic inflow:
 
@@ -130,12 +130,12 @@ sim_step!(sim, 2.0; remeasure=false)
 ### Command Line
 
 ```bash
-julia --project examples/waterlily_donut.jl
+julia --project examples/torus_3d.jl
 ```
 
 ## 3D Sphere
 
-**File:** `examples/waterlily_3d_sphere.jl`
+**File:** `examples/sphere_3d.jl`
 
 3D sphere wake simulation:
 
@@ -157,7 +157,7 @@ sim_step!(sim, 1.0; remeasure=false)
 ### Command Line
 
 ```bash
-julia --project examples/waterlily_3d_sphere.jl
+julia --project examples/sphere_3d.jl
 ```
 
 ## Flexible Body with PID Control

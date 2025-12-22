@@ -1,6 +1,6 @@
 """
 BioFlows.jl - A Julia package for computational fluid dynamics simulations
-with immersed boundary methods based on the WaterLily.jl methodology.
+with immersed boundary methods using the Boundary Data Immersion Method (BDIM).
 """
 module BioFlows
 
