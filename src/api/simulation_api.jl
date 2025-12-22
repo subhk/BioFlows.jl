@@ -37,7 +37,7 @@ struct SimulationConfig
     use_mpi::Bool
     adaptive_refinement::Bool
     refinement_criteria::Union{AdaptiveRefinementCriteria, Nothing}
-    use_waterlily::Bool  # Keep for backward compatibility
+    use_reference_bdim::Bool  # Legacy toggle retained for compatibility
     immersed_boundary_method::ImmersedBoundaryMethod
     
     # Output options
@@ -303,7 +303,14 @@ function add_flexible_bodies_with_controller!(config::SimulationConfig,
         config.use_mpi,
         config.adaptive_refinement,
         config.refinement_criteria,
+        config.use_reference_bdim,
+        config.immersed_boundary_method,
         config.output_config,
+        config.mg_levels,
+        config.mg_max_iterations,
+        config.mg_tolerance,
+        config.mg_smoother,
+        config.mg_cycle,
     )
 end
 
@@ -498,7 +505,7 @@ function add_rigid_circle!(config::SimulationConfig, center::Vector{Float64}, ra
         config.Lx, config.Ly, config.Lz, config.origin,
         config.fluid, config.bc, config.time_scheme, config.dt, config.final_time,
         rb, config.flexible_bodies, config.flexible_body_controller,
-        config.use_mpi, config.adaptive_refinement, config.refinement_criteria, config.use_waterlily, config.immersed_boundary_method,
+        config.use_mpi, config.adaptive_refinement, config.refinement_criteria, config.use_reference_bdim, config.immersed_boundary_method,
         config.output_config,
         config.mg_levels,
         config.mg_max_iterations,
@@ -528,7 +535,7 @@ function add_rigid_square!(config::SimulationConfig, center::Vector{Float64}, si
         config.Lx, config.Ly, config.Lz, config.origin,
         config.fluid, config.bc, config.time_scheme, config.dt, config.final_time,
         rb, config.flexible_bodies, config.flexible_body_controller,
-        config.use_mpi, config.adaptive_refinement, config.refinement_criteria, config.use_waterlily, config.immersed_boundary_method,
+        config.use_mpi, config.adaptive_refinement, config.refinement_criteria, config.use_reference_bdim, config.immersed_boundary_method,
         config.output_config,
         config.mg_levels,
         config.mg_max_iterations,
