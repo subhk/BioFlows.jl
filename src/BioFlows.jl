@@ -279,9 +279,12 @@ end
     measure!(sim::Simulation,t=timeNext(sim))
 
 Measure a dynamic `body` to update the `flow` and `pois` coefficients.
+For anisotropic grids, the L coefficients are rescaled from μ₀.
 """
 function measure!(sim::AbstractSimulation,t=sum(sim.flow.Δt))
     measure!(sim.flow,sim.body;t,ϵ=sim.ϵ)
+    # Rescale L coefficients from updated μ₀ for anisotropic grid support
+    scale_poisson_coeffs!(sim.pois.L, sim.flow.μ₀, sim.flow.Δx)
     update!(sim.pois)
 end
 

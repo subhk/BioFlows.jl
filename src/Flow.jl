@@ -273,16 +273,22 @@ Project velocity onto divergence-free space using pressure Poisson equation.
 
 Note: The Poisson solver uses unit spacing internally (Δx=1 in computational coordinates).
 For isotropic grids (Δx = Δy = Δz), this works correctly because all operators use
-the same implicit scaling. For anisotropic grids, uniform grid spacing is required
-in each direction (Δx can differ from Δy, but must be uniform within each direction).
+the same implicit scaling. For anisotropic grids, the L coefficients are pre-scaled
+by 1/Δx[d]² for each direction d, and this function uses the physical divergence
+and gradient operators.
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
-    @inside b.z[I] = div(I,a.u)
+    Δx = a.Δx
+    # Physical divergence: Σ ∂uᵢ/∂xᵢ (scaled by 1/Δx for each direction)
+    @inside b.z[I] = div_aniso(I,a.u,Δx)
     b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
+    # Physical gradient correction: u[i] -= L[I,i] * Δx[i] * Δp[i]
+    # Since L is scaled by 1/Δx², this gives: u[i] -= (μ₀/Δx²) * Δx * Δp = μ₀ * Δp/Δx
     for i ∈ 1:n
-        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
+        Δxi = Δx[i]
+        @loop a.u[I,i] -= Δxi*b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
     end
     b.x ./= dt  # Unscale to recover actual pressure
 end
