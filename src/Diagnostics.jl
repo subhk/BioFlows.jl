@@ -138,14 +138,15 @@ function force_coefficients(sim::AbstractSimulation; reference_area::Real=sim.L)
 end
 
 """
-    record_force!(history, sim; ρ=1000.0, reference_area=sim.L)
+    record_force!(history, sim; reference_area=sim.L)
 
 Append a force sample to `history`, which should be a `Vector` of `NamedTuple`s.
-Stores time, raw forces, and coefficients. Uses water density (1000 kg/m³) by default.
+Stores time, raw forces (in Newtons), and dimensionless coefficients.
+Uses the density from the simulation (sim.flow.ρ).
 """
 function record_force!(history::Vector, sim::AbstractSimulation;
-                       ρ::Real=1000.0, reference_area::Real=sim.L)
-    components = force_components(sim; ρ, reference_area)
+                       reference_area::Real=sim.L)
+    components = force_components(sim; reference_area)
     push!(history, (
         time = sim_time(sim),
         pressure = components.pressure,
