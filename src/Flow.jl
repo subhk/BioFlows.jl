@@ -190,8 +190,9 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     g :: Union{Function,Nothing} # acceleration field (m/s²)
     outletBC :: Bool # convective outlet BC flag
     perdir :: NTuple # periodic directions tuple
+    fixed_Δt :: Union{T,Nothing} # fixed time step (nothing = adaptive CFL)
     """
-        Flow(N; L, inletBC=nothing, ν=0, Δt=0.25, ...)
+        Flow(N; L, inletBC=nothing, ν=0, Δt=0.25, fixed_Δt=nothing, ...)
 
     Construct a Flow on grid of size `N` with domain size `L`.
 
@@ -205,7 +206,8 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     - `inletBC`: Inlet boundary velocity (m/s). Tuple or `Function(i,x,t)`.
       Default: unit velocity in x-direction `(1, 0, ...)`.
     - `ν=0.`: Kinematic viscosity (m²/s). Water ≈ 1e-6, air ≈ 1.5e-5
-    - `Δt=0.25`: Initial time step (s)
+    - `Δt=0.25`: Initial time step (s). Used as first step, then adaptive CFL unless `fixed_Δt` is set.
+    - `fixed_Δt=nothing`: Fixed time step (s). If specified, disables adaptive CFL time stepping.
     - `g=nothing`: Body acceleration function `g(i,x,t)` returning m/s²
     - `uλ=nothing`: Initial velocity. Tuple or `Function(i,x)`
     - `perdir=()`: Periodic directions, e.g., `(2,)` for y-periodic
@@ -215,15 +217,15 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
 
     # Example
     ```julia
-    # 2m × 1m domain, 200×100 cells → Δx = 0.01m, Δz = 0.01m (uniform)
+    # Adaptive time stepping (default)
     flow = Flow((200, 100); L=(2.0, 1.0), inletBC=(1.0, 0.0), ν=1e-6)
 
-    # Anisotropic: 4m × 1m domain, 200×100 cells → Δx = 0.02m, Δz = 0.01m
-    flow = Flow((200, 100); L=(4.0, 1.0), inletBC=(1.0, 0.0), ν=1e-6)
+    # Fixed time step of 0.01s
+    flow = Flow((200, 100); L=(2.0, 1.0), inletBC=(1.0, 0.0), ν=1e-6, fixed_Δt=0.01)
     ```
     """
     function Flow(N::NTuple{D}; L::NTuple{D}, inletBC=nothing, f=Array, Δt=0.25, ν=0., g=nothing,
-            uλ=nothing, perdir=(), outletBC=false, T=Float32) where D
+            uλ=nothing, perdir=(), outletBC=false, T=Float32, fixed_Δt=nothing) where D
         # Default inletBC: unit velocity in x-direction
         if isnothing(inletBC)
             inletBC = ntuple(i -> i==1 ? one(T) : zero(T), D)
@@ -240,7 +242,9 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
         fv, p, σ = zeros(T, Nd) |> f, zeros(T, Ng) |> f, zeros(T, Ng) |> f
         V, μ₀, μ₁ = zeros(T, Nd) |> f, ones(T, Nd) |> f, zeros(T, Ng..., D, D) |> f
         BC!(μ₀,ntuple(zero, D),false,perdir)
-        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,inletBC,T[Δt],T(ν),Δx,g,outletBC,perdir)
+        # Convert fixed_Δt to correct type if specified
+        fixed_dt = isnothing(fixed_Δt) ? nothing : T(fixed_Δt)
+        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,inletBC,T[Δt],T(ν),Δx,g,outletBC,perdir,fixed_dt)
     end
 end
 
@@ -327,7 +331,9 @@ Uses predictor-corrector time integration with proper Δx scaling.
     accelerate!(a.f,t₁,a.g,a.inletBC)
     BDIM!(a); scale_u!(a,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
     project!(a,b,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
-    push!(a.Δt,CFL(a))
+    # Use fixed time step if specified, otherwise adaptive CFL
+    next_dt = isnothing(a.fixed_Δt) ? CFL(a) : a.fixed_Δt
+    push!(a.Δt, next_dt)
 end
 scale_u!(a,scale) = @loop a.u[Ii] *= scale over Ii ∈ inside_u(size(a.p))
 
