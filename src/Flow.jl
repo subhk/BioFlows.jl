@@ -180,14 +180,9 @@ function compute_face_flux!(F_conv,F_diff,u,λ::F;ν=0.1,Δx=(1,1),perdir=()) wh
         inv_Δxj = T(1/Δx[j])
         ν_over_Δxj² = T(ν/Δx[j]^2)
         tagper = (j in perdir)
-        # Compute interior fluxes
-        @loop begin
-            u_face = ϕ(i,CI(I,j),u)
-            # Convective flux: F_c = u_face * u_upwind / Δx
-            F_conv[I,j,i] = inv_Δxj * ϕu(j,CI(I,i),u,u_face,λ)
-            # Diffusive flux: F_d = -ν * (u[I] - u[I-δ]) / Δx²
-            F_diff[I,j,i] = -ν_over_Δxj² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])
-        end over I ∈ inside_u(N,j)
+        # Compute interior fluxes: convective + diffusive
+        @loop (F_conv[I,j,i] = inv_Δxj * ϕu(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ);
+               F_diff[I,j,i] = -ν_over_Δxj² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])) over I ∈ inside_u(N,j)
         # Compute boundary fluxes
         compute_boundary_flux!(F_conv,F_diff,u,inv_Δxj,ν_over_Δxj²,i,j,N,λ,Val{tagper}())
     end
