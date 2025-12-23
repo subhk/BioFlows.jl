@@ -412,8 +412,10 @@ function set_patch_boundary!(patch::PatchPoisson{T},
         z_coarse = (fj - T(1.5)) / ratio + aj
 
         # Get lower-left coarse cell for interpolation
-        ic = floor(Int, x_coarse - T(0.5)) + 1  # Convert to 1-based index
-        jc = floor(Int, z_coarse - T(0.5)) + 1
+        # Cell ic has center at position ic, so floor(x_coarse) gives the cell
+        # whose center is at or below x_coarse
+        ic = floor(Int, x_coarse)
+        jc = floor(Int, z_coarse)
 
         # Clamp to valid range (leaving room for +1 access)
         ic = clamp(ic, 1, nc_i - 1)
