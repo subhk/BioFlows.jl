@@ -8,8 +8,8 @@
 # The pressure Poisson equation is:
 #     ∇·(β∇p) = σ    where β = L (variable coefficient from BDIM)
 #
-# Discretized on a staggered grid, this becomes a symmetric, sparse linear system:
-#     Ax = z    where A = L + D + L' (tridiagonal blocks)
+# Discretized on a staggered grid (with anisotropic support), this becomes:
+#     Ax = z    where A includes 1/Δx[d]² scaling per direction
 # =============================================================================
 
 """
@@ -24,16 +24,15 @@ The resulting linear system is
     Ax = [L+D+L']x = z
 
 where A is symmetric, block-tridiagonal and extremely sparse. Moreover,
-`D[I]=-∑ᵢ(L[I,i]+L'[I,i])`. This means matrix storage, multiplication,
+`D[I]=-∑ᵢ(L[I,i]+L'[I,i])/Δx[i]²`. This means matrix storage, multiplication,
 ect can be easily implemented and optimized without external libraries.
 
-To help iteratively solve the system above, the Poisson structure holds
-helper arrays for `inv(D)`, the error `ϵ`, and residual `r=z-Ax`. An iterative
-solution method then estimates the error `ϵ=̃A⁻¹r` and increments `x+=ϵ`, `r-=Aϵ`.
+Supports anisotropic grids where Δx[1] ≠ Δx[2] ≠ Δx[3].
 
 # Matrix Structure
 - L: Lower diagonal coefficients (off-diagonal coupling)
-- D: Diagonal coefficients (negative sum of L entries, ensures row sum = 0)
+- D: Diagonal coefficients (scaled by 1/Δx²)
+- Δx: Grid spacing tuple for anisotropic grids
 - The matrix is symmetric positive semi-definite (null space = constant)
 
 # Solver Components
@@ -44,9 +43,9 @@ solution method then estimates the error `ϵ=̃A⁻¹r` and increments `x+=ϵ`, 
 - iD: Inverse diagonal for Jacobi preconditioning
 """
 abstract type AbstractPoisson{T,S,V} end
-struct Poisson{T,S<:AbstractArray{T},V<:AbstractArray{T}} <: AbstractPoisson{T,S,V}
+struct Poisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: AbstractPoisson{T,S,V}
     L :: V   # Lower diagonal: coupling coefficients L[I,d] = β at face (I,d)
-    D :: S   # Diagonal: D[I] = -Σ(L[I,d] + L[I+δd,d]) for all directions d
+    D :: S   # Diagonal: D[I] = -Σ(L[I,d] + L[I+δd,d])/Δx[d]² for all directions d
     iD :: S  # Inverse diagonal: 1/D for Jacobi preconditioning
     x :: S   # Solution vector (pressure field)
     ϵ :: S   # Error/increment for iterative updates
@@ -54,14 +53,18 @@ struct Poisson{T,S<:AbstractArray{T},V<:AbstractArray{T}} <: AbstractPoisson{T,S
     z :: S   # Right-hand side (divergence source term)
     n :: Vector{Int16}  # Iteration count history
     perdir :: NTuple    # Periodic boundary directions
-    function Poisson(x::AbstractArray{T},L::AbstractArray{T},z::AbstractArray{T};perdir=()) where T
+    inv_Δx² :: NTuple{N,T}  # Precomputed 1/Δx[d]² for each direction
+    function Poisson(x::AbstractArray{T,N},L::AbstractArray{T},z::AbstractArray{T};
+                     Δx::NTuple{N}=ntuple(_->one(T),N), perdir=()) where {T,N}
         # Validate array dimensions match
         @assert axes(x) == axes(z) && axes(x) == Base.front(axes(L)) && last(axes(L)) == eachindex(axes(x))
         r = similar(x); fill!(r,0)
         ϵ,D,iD = copy(r),copy(r),copy(r)
-        # Compute diagonal from L coefficients
-        set_diag!(D,iD,L)
-        new{T,typeof(x),typeof(L)}(L,D,iD,x,ϵ,r,z,[],perdir)
+        # Precompute inverse squared grid spacing for each direction
+        inv_Δx² = ntuple(d -> T(1/Δx[d]^2), N)
+        # Compute diagonal from L coefficients with anisotropic scaling
+        set_diag!(D,iD,L,inv_Δx²)
+        new{T,typeof(x),typeof(L),N}(L,D,iD,x,ϵ,r,z,[],perdir,inv_Δx²)
     end
 end
 
@@ -71,23 +74,25 @@ Base.eps(::Type{D}) where D<:Dual{Tag{G,T}} where {G,T} = eps(T)
 
 # Compute diagonal and inverse diagonal from L coefficients
 # The diagonal ensures row sum = 0 (conservation property)
-function set_diag!(D,iD,L)
-    @inside D[I] = diag(I,L)
+# For anisotropic grids: D[I] = -Σ_d (L[I,d] + L[I+δd,d]) / Δx[d]²
+function set_diag!(D,iD,L,inv_Δx²)
+    @inside D[I] = diag(I,L,inv_Δx²)
     # Safe inverse: return 0 if D is nearly zero (solid cells)
     @inside iD[I] = abs2(D[I])<2eps(eltype(D)) ? zero(eltype(D)) : inv(D[I])
 end
 
 # Recompute diagonal after L changes (e.g., body movement)
-update!(p::Poisson) = set_diag!(p.D,p.iD,p.L)
+update!(p::Poisson) = set_diag!(p.D,p.iD,p.L,p.inv_Δx²)
 
-# Compute diagonal entry at cell I: D[I] = -Σ(L[I,d] + L[I+1,d])
-# This is the negative sum of all coupling coefficients touching cell I
-@fastmath @inline function diag(I::CartesianIndex{d},L) where {d}
+# Compute diagonal entry at cell I: D[I] = -Σ(L[I,d] + L[I+1,d])/Δx[d]²
+# For anisotropic grids, each direction has its own scaling
+@fastmath @inline function diag(I::CartesianIndex{d},L,inv_Δx²) where {d}
     s = zero(eltype(L))
     for i in 1:d
         # L[I,i]: coefficient at left/bottom face
         # L[I+δ,i]: coefficient at right/top face
-        s -= @inbounds(L[I,i]+L[I+δ(i,I),i])
+        # Scale by 1/Δx[i]² for this direction
+        s -= @inbounds((L[I,i]+L[I+δ(i,I),i]) * inv_Δx²[i])
     end
     return s
 end
