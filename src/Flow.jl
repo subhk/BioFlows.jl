@@ -50,12 +50,22 @@
 # DIVERGENCE AND BDIM OPERATORS
 # =============================================================================
 
-# Velocity divergence: ∇·u = Σ ∂u_i/∂x_i
+# Velocity divergence: ∇·u = Σ ∂u_i/∂x_i (unit spacing, Δx=1)
 # Used to compute pressure source term in projection step
 @fastmath @inline function div(I::CartesianIndex{m},u) where {m}
     init=zero(eltype(u))
     for i in 1:m
      init += @inbounds ∂(i,I,u)
+    end
+    return init
+end
+
+# Anisotropic divergence: ∇·u = Σ (∂u_i/∂x_i) with proper Δx scaling
+# For anisotropic grids where Δx ≠ Δy ≠ Δz
+@fastmath @inline function div_aniso(I::CartesianIndex{m},u,Δx) where {m}
+    init=zero(eltype(u))
+    for i in 1:m
+     init += @inbounds ∂(i,I,u) / Δx[i]
     end
     return init
 end
