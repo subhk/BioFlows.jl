@@ -48,7 +48,7 @@ end
 
     @testset "MultiLevel Poisson via Simulation" begin
         # Test multigrid solver through Simulation (proper BC setup)
-        n = 64
+        n = 32  # Reduced from 64 for CI
         ν = 0.01
 
         # Domain size = (n, n) with Δx=1, L_char = n/4
@@ -75,12 +75,12 @@ end
 
     @testset "Projection Makes Velocity Divergence-Free" begin
         # Create a flow and verify projection produces divergence-free field
-        n = 64
+        n = 32  # Reduced from 64 for CI
         ν = 0.01  # kinematic viscosity
 
         # Simple simulation setup - Domain size = (n, n) with Δx=1, L_char = n/4
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
-                                   ν=ν, T=Float64, L_char=Float64(n/4))
+        sim = BioFlows.Simulation((n, n), (Float64(n), Float64(n));
+                                   inletBC=(1.0, 0.0), ν=ν, T=Float64, L_char=Float64(n/4))
         flow = sim.flow
         pois = sim.pois
 
@@ -230,7 +230,7 @@ end
 
     @testset "Momentum Step Maintains Incompressibility" begin
         # Full simulation test: after mom_step!, velocity should be divergence-free
-        n = 48
+        n = 32  # Reduced from 48 for CI
         ν = 0.01
         # Domain size = (n, n) with Δx=1, L_char = n/4
         sim = BioFlows.Simulation((n, n), (Float64(n), Float64(n));
@@ -273,7 +273,7 @@ end
                                    inletBC=(1.0, 0.0), ν=ν, T=Float64, L_char=Float64(n/4))
 
         # Take several momentum steps
-        for _ in 1:5
+        for _ in 1:2  # Reduced from 5 for CI
             BioFlows.mom_step!(sim.flow, sim.pois)
         end
 

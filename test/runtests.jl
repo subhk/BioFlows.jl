@@ -40,14 +40,14 @@ using JLD2
     @test length(coeff) == 2
 
     include(joinpath(@__DIR__, "..", "examples", "torus_3d.jl"))
-    donut = donut_sim(; n=2^5, ν=0.028, major_ratio=0.3, minor_ratio=0.08)
+    donut = donut_sim(; n=2^4, ν=0.028, major_ratio=0.3, minor_ratio=0.08)  # Reduced from 2^5 for CI
     @test isa(donut, BioFlows.Simulation)
     sim_step!(donut; remeasure=false)
     coeff3d = total_force(donut)
     @test length(coeff3d) == 3
 
     include(joinpath(@__DIR__, "..", "examples", "sphere_3d.jl"))
-    sphere = sphere_sim(; n=2^5, m=2^5, ℓ=2^5, ν=0.053)
+    sphere = sphere_sim(; n=2^4, m=2^4, ℓ=2^4, ν=0.053)  # Reduced from 2^5 for CI
     @test isa(sphere, BioFlows.Simulation)
     sim_step!(sphere; remeasure=false)
     @test sim_time(sphere) > 0

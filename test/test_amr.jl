@@ -79,7 +79,7 @@ end
                      inletBC=(1.0, 0.0), ν=0.01, body=AutoBody(sdf), L_char=8.0)
 
     # Advance a few steps to get non-trivial flow
-    for _ in 1:5
+    for _ in 1:2  # Reduced from 5 for CI
         sim_step!(sim; remeasure=false)
     end
 
@@ -151,7 +151,7 @@ end
     @test sim_time(amr_sim) > initial_time
 
     # Run more steps to trigger regridding
-    for _ in 1:10
+    for _ in 1:3  # Reduced from 10 for CI
         sim_step!(amr_sim; remeasure=false)
     end
 

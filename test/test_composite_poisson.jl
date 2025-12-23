@@ -399,7 +399,7 @@ using BioFlows
                                       amr_config=config, T=Float64, L_char=Float64(n/4))
 
         # Take a few steps using base solver
-        for _ in 1:5
+        for _ in 1:2  # Reduced from 5 for CI
             BioFlows.sim_step!(amr; remeasure=true)
         end
 

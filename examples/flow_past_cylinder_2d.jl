@@ -1,77 +1,65 @@
-# =============================================================================
-# Flow Past Cylinder 2D Example
-# =============================================================================
-# Classic benchmark: uniform flow past a stationary cylinder.
-# Demonstrates force coefficient and field snapshot output.
-# =============================================================================
-
 using BioFlows
+using Statistics
+using Random
 
-# --- Simulation Parameters ---
-nx, nz = 240, 240          # Grid resolution
-Lx, Lz = 4.0, 4.0          # Domain size (meters)
-U = 1.0                    # Inlet velocity (m/s)
-ν = 0.001                  # Kinematic viscosity (m²/s)
-radius = 0.2               # Cylinder radius (meters)
-diameter = 2 * radius      # Characteristic length
-inletBC = (U, 0.0)         # Uniform inlet velocity
+"""
+    flow_past_cylinder_2d_sim(; nx=240, nz=240, Lx=4.0, Lz=4.0, ν=0.001, ...)
 
-# --- Grid Setup ---
-dx = Lx / nx
-center_x = nx / 12 - 1     # Cylinder center (grid units)
-center_z = nz / 2 - 1
-radius_cells = radius / dx
+Construct the classic 2D cylinder benchmark.
+Returns `(sim, meta)`.
+"""
+function flow_past_cylinder_2d_sim(; nx::Int=240, nz::Int=240,
+                                      Lx::Real=4.0, Lz::Real=4.0,
+                                      ν::Real=0.001, U::Real=1.0,
+                                      radius::Union{Nothing,Real}=nothing,
+                                      dt=nothing, inletBC=nothing,
+                                      perdir=(2,), outletBC::Bool=true)
+    dx = Lx / nx
+    dz = Lz / nz
+    @assert isapprox(dx, dz; atol=1e-8, rtol=1e-6) "Non-uniform cell spacing (Δx ≠ Δz) is not supported"
 
-# --- Define Cylinder Geometry ---
-sdf(x, t) = sqrt((x[1] - center_x)^2 + (x[2] - center_z)^2) - radius_cells
-body = AutoBody(sdf)
+    radius_phys = isnothing(radius) ? 0.2 : radius
+    center_x_cells = nx / 12 - 1
+    center_z_cells = nz / 2 - 1
+    radius_cells = radius_phys / dx
 
-# --- Create Simulation ---
-# Time stepping: adaptive CFL (default) or fixed
-# For fixed time step, add: fixed_Δt = 0.001
-sim = Simulation((nx, nz), (Lx, Lz);
-                 ν = ν,
-                 body = body,
-                 L_char = diameter,
-                 perdir = (2,),       # Periodic in z
-                 inletBC = inletBC,
-                 outletBC = true,     # Convective outlet
-                 fixed_Δt=0.001)     
+    sdf(x, t) = √((x[1] - center_x_cells)^2 + (x[2] - center_z_cells)^2) - radius_cells
+    boundary = isnothing(inletBC) ? (U, 0) : inletBC
 
-# --- Output Writers ---
-force_writer = ForceWriter("force_coefficients.jld2";
-                           interval = 0.1,
-                           reference_area = diameter)
+    diameter = 2radius_phys
+    base_kwargs = (; ν = ν, perdir = perdir, outletBC = outletBC,
+                    body = AutoBody(sdf), L_char = diameter)
 
-field_writer = CenterFieldWriter("flow_fields.jld2";
-                                 interval = 1.0)
+    sim = dt === nothing ?
+        Simulation((nx, nz), (Lx, Lz); inletBC=boundary, base_kwargs...) :
+        Simulation((nx, nz), (Lx, Lz); inletBC=boundary, Δt = dt, base_kwargs...)
 
-# --- Time Stepping ---
-final_time = 50.0
-print_interval = 100
-
-iter = 0
-while sim_time(sim) < final_time
-    global iter += 1
-    sim_step!(sim)
-
-    # Save outputs
-    file_save!(force_writer, sim)
-    file_save!(field_writer, sim)
-
-    # Print progress
-    if iter % print_interval == 0
-        t = round(sim_time(sim), digits=2)
-        Cd, Cl = force_coefficients(sim)
-        println("Step $iter: t = $t, Cd = $(round(Cd, digits=4)), Cl = $(round(Cl, digits=4))")
-    end
+    meta = (domain = (Lx, Lz), grid = (nx, nz), cell_size = (dx, dz),
+            radius = radius_phys, Δt = sim.flow.Δt[end], fixed_dt = dt,
+            inletBC = boundary, perdir = perdir, outletBC = outletBC, ν = ν, U = U)
+    return sim, meta
 end
 
-# --- Summary ---
-println("\nSimulation complete!")
-println("  Final time: $(round(sim_time(sim), digits=2))")
-println("  Force samples: $(force_writer.samples)")
-println("  Field snapshots: $(field_writer.samples)")
-println("\nOutput files:")
-println("  $(force_writer.filename)")
-println("  $(field_writer.filename)")
+"""
+    summarize_force_history(history; discard=200)
+
+Compute drag/lift statistics from recorded force history.
+"""
+function summarize_force_history(history; discard::Int=200)
+    length(history) ≤ discard && return (drag_mean=NaN, drag_std=NaN, lift_rms=NaN, samples=0)
+    trimmed = view(history, discard+1:length(history))
+    drag_coeffs = [sample.total_coeff[1] for sample in trimmed]
+    lift_coeffs = [sample.total_coeff[2] for sample in trimmed]
+    return (drag_mean = mean(drag_coeffs), drag_std = std(drag_coeffs; corrected=false),
+            lift_rms = sqrt(mean(abs2, lift_coeffs)), samples = length(trimmed))
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    println("Running flow past cylinder 2D example...")
+    sim, meta = flow_past_cylinder_2d_sim(; nx=64, nz=64)
+    for _ in 1:100
+        sim_step!(sim; remeasure=false)
+    end
+    drag, lift = force_coefficients(sim)
+    println("After 100 steps: Cd = $drag, Cl = $lift")
+end

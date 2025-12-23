@@ -204,12 +204,12 @@ mutable struct Simulation <: AbstractSimulation
         # Use L_char for dimensionless time/forces, default to L[1]
         char_length = isnothing(L_char) ? L[1] : L_char
 
-        # Check for anisotropic grids - warn if not supported
+        # Check for anisotropic grids - not supported
         Δx = flow.Δx
         if !all(isapprox.(Δx, Δx[1], rtol=1e-6))
-            @warn "Anisotropic grids (Δx ≠ Δy) are not fully supported. " *
-                  "The pressure solver uses unit spacing internally, which may reduce accuracy. " *
-                  "For best results, use isotropic grids (Δx = Δy = Δz)." Δx=Δx
+            error("Anisotropic grids (Δx ≠ Δy) are not supported. " *
+                  "The pressure solver requires uniform grid spacing in all directions. " *
+                  "Got Δx = $Δx. Adjust grid resolution or domain size to ensure Δx = Δy = Δz.")
         end
 
         new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
