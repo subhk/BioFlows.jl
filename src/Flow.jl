@@ -144,6 +144,124 @@ lowerBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{true}) = @loop (
     Φ[I] = inv_Δx*ϕuP(j,CIj(j,CI(I,i),N[j]-2),CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν_Δx*∂(j,CI(I,i),u); r[I,i] += Φ[I]) over I ∈ slice(N,2,j,2)
 upperBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{true}) = @loop r[I-δ(j,I),i] -= Φ[CIj(j,I,2)] over I ∈ slice(N,N[j],j,2)
 
+# =============================================================================
+# FINITE VOLUME METHOD (FVM) FLUX COMPUTATION
+# =============================================================================
+# These functions compute and store fluxes explicitly at cell faces for
+# conservative finite volume discretization. Each flux is computed once
+# and applied to both adjacent cells with opposite signs.
+# =============================================================================
+
+"""
+    compute_face_flux!(F_conv, F_diff, u, λ; ν, Δx, perdir)
+
+Compute and store convective and diffusive fluxes at all cell faces.
+
+For finite volume formulation, fluxes are stored at each face and applied
+conservatively: the same flux value is added to one cell and subtracted
+from its neighbor, ensuring exact conservation.
+
+# Arguments
+- `F_conv`: Convective flux storage [I,j,i] = flux of u_i through face j at index I
+- `F_diff`: Diffusive flux storage [I,j,i]
+- `u`: Velocity field
+- `λ`: Convection scheme (quick, vanLeer, cds)
+- `ν`: Kinematic viscosity (m²/s)
+- `Δx`: Grid spacing tuple (m)
+- `perdir`: Tuple of periodic directions
+"""
+function compute_face_flux!(F_conv,F_diff,u,λ::F;ν=0.1,Δx=(1,1),perdir=()) where {F}
+    N,n = size_u(u)
+    T = eltype(u)
+    # Clear flux arrays
+    F_conv .= zero(T)
+    F_diff .= zero(T)
+    for i ∈ 1:n, j ∈ 1:n
+        inv_Δxj = T(1/Δx[j])
+        ν_over_Δxj² = T(ν/Δx[j]^2)
+        tagper = (j in perdir)
+        # Compute interior fluxes
+        @loop begin
+            u_face = ϕ(i,CI(I,j),u)
+            # Convective flux: F_c = u_face * u_upwind / Δx
+            F_conv[I,j,i] = inv_Δxj * ϕu(j,CI(I,i),u,u_face,λ)
+            # Diffusive flux: F_d = -ν * (u[I] - u[I-δ]) / Δx²
+            F_diff[I,j,i] = -ν_over_Δxj² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])
+        end over I ∈ inside_u(N,j)
+        # Compute boundary fluxes
+        compute_boundary_flux!(F_conv,F_diff,u,inv_Δxj,ν_over_Δxj²,i,j,N,λ,Val{tagper}())
+    end
+end
+
+# Neumann boundary flux (non-periodic)
+function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx²,i,j,N,λ,::Val{false})
+    # Lower boundary: use ϕuL stencil
+    @loop begin
+        u_face = ϕ(i,CI(I,j),u)
+        F_conv[I,j,i] = inv_Δx * ϕuL(j,CI(I,i),u,u_face,λ)
+        F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])
+    end over I ∈ slice(N,2,j,2)
+    # Upper boundary: use ϕuR stencil
+    @loop begin
+        u_face = ϕ(i,CI(I,j),u)
+        F_conv[I,j,i] = inv_Δx * ϕuR(j,CI(I,i),u,u_face,λ)
+        F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])
+    end over I ∈ slice(N,N[j],j,2)
+end
+
+# Periodic boundary flux
+function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx²,i,j,N,λ,::Val{true})
+    # Lower boundary: use ϕuP stencil with wrapped index
+    @loop begin
+        Ip = CIj(j,CI(I,i),N[j]-2)
+        u_face = ϕ(i,CI(I,j),u)
+        F_conv[I,j,i] = inv_Δx * ϕuP(j,Ip,CI(I,i),u,u_face,λ)
+        F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])
+    end over I ∈ slice(N,2,j,2)
+    # Upper boundary: copy lower boundary flux (periodic wrap)
+    @loop begin
+        F_conv[I,j,i] = F_conv[CIj(j,I,2),j,i]
+        F_diff[I,j,i] = F_diff[CIj(j,I,2),j,i]
+    end over I ∈ slice(N,N[j],j,2)
+end
+
+"""
+    apply_fluxes!(r, F_conv, F_diff)
+
+Apply stored fluxes to RHS using conservative finite volume formulation.
+
+Each flux contributes to exactly two cells with opposite signs:
+    r[I,i] += F[I,j,i]       (flux enters cell I)
+    r[I-δ,i] -= F[I,j,i]     (flux leaves cell I-δ)
+
+This ensures global conservation: sum of all fluxes = 0.
+"""
+function apply_fluxes!(r,F_conv,F_diff)
+    N,n = size_u(F_conv)
+    T = eltype(r)
+    r .= zero(T)
+    for i ∈ 1:n, j ∈ 1:n
+        @loop begin
+            F_total = F_conv[I,j,i] + F_diff[I,j,i]
+            r[I,i] += F_total
+        end over I ∈ inside_u(N,j)
+        @loop r[I-δ(j,I),i] -= F_conv[I,j,i] + F_diff[I,j,i] over I ∈ inside_u(N,j)
+    end
+end
+
+"""
+    conv_diff_fvm!(r, u, F_conv, F_diff, λ; ν, Δx, perdir)
+
+Finite Volume Method for convection-diffusion with explicit flux storage.
+
+Computes fluxes, stores them in F_conv/F_diff, and applies them conservatively.
+This is the FVM alternative to conv_diff! for use when store_fluxes=true.
+"""
+function conv_diff_fvm!(r,u,F_conv,F_diff,λ::F;ν=0.1,Δx=(1,1),perdir=()) where {F}
+    compute_face_flux!(F_conv,F_diff,u,λ;ν,Δx,perdir)
+    apply_fluxes!(r,F_conv,F_diff)
+end
+
 """
     accelerate!(r,t,g,U)
 
@@ -182,6 +300,10 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     V :: Vf # body velocity vector (m/s)
     μ₀:: Vf # zeroth-moment vector (dimensionless)
     μ₁:: Tf # first-moment tensor field (dimensionless)
+    # FVM flux storage (optional)
+    F_conv :: Union{Tf, Nothing} # convective flux tensor F[I,j,i] = flux of u_i through face j
+    F_diff :: Union{Tf, Nothing} # diffusive flux tensor
+    store_fluxes :: Bool # flag to enable FVM flux storage
     # Non-fields
     inletBC :: Union{NTuple{D,Number},Function} # inlet boundary velocity (m/s)
     Δt:: Vector{T} # time step history (s)
@@ -212,6 +334,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     - `uλ=nothing`: Initial velocity. Tuple or `Function(i,x)`
     - `perdir=()`: Periodic directions, e.g., `(2,)` for y-periodic
     - `outletBC=false`: Convective outlet BC in direction 1
+    - `store_fluxes=false`: Enable FVM flux storage for conservation analysis
     - `T=Float32`: Numeric type
     - `f=Array`: Memory backend
 
@@ -225,7 +348,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     ```
     """
     function Flow(N::NTuple{D}; L::NTuple{D}, inletBC=nothing, f=Array, Δt=0.25, ν=0., g=nothing,
-            uλ=nothing, perdir=(), outletBC=false, T=Float32, fixed_Δt=nothing) where D
+            uλ=nothing, perdir=(), outletBC=false, store_fluxes=false, T=Float32, fixed_Δt=nothing) where D
         # Default inletBC: unit velocity in x-direction
         if isnothing(inletBC)
             inletBC = ntuple(i -> i==1 ? one(T) : zero(T), D)
@@ -242,9 +365,17 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
         fv, p, σ = zeros(T, Nd) |> f, zeros(T, Ng) |> f, zeros(T, Ng) |> f
         V, μ₀, μ₁ = zeros(T, Nd) |> f, ones(T, Nd) |> f, zeros(T, Ng..., D, D) |> f
         BC!(μ₀,ntuple(zero, D),false,perdir)
+        # Initialize FVM flux storage if requested
+        if store_fluxes
+            F_conv = zeros(T, Ng..., D, D) |> f
+            F_diff = zeros(T, Ng..., D, D) |> f
+        else
+            F_conv = nothing
+            F_diff = nothing
+        end
         # Convert fixed_Δt to correct type if specified
         fixed_dt = isnothing(fixed_Δt) ? nothing : T(fixed_Δt)
-        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,inletBC,T[Δt],T(ν),Δx,g,outletBC,perdir,fixed_dt)
+        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,F_conv,F_diff,store_fluxes,inletBC,T[Δt],T(ν),Δx,g,outletBC,perdir,fixed_dt)
     end
 end
 
@@ -312,7 +443,11 @@ Uses predictor-corrector time integration with proper Δx scaling.
     a.u⁰ .= a.u; scale_u!(a,0); t₁ = sum(a.Δt); t₀ = t₁-a.Δt[end]
     # predictor u → u'
     @log "p"
-    conv_diff!(a.f,a.u⁰,a.σ,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
+    if a.store_fluxes
+        conv_diff_fvm!(a.f,a.u⁰,a.F_conv,a.F_diff,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
+    else
+        conv_diff!(a.f,a.u⁰,a.σ,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
+    end
     udf!(a,udf,t₀; kwargs...)
     accelerate!(a.f,t₀,a.g,a.inletBC)
     BDIM!(a); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁) # BC MUST be at t₁
@@ -320,7 +455,11 @@ Uses predictor-corrector time integration with proper Δx scaling.
     project!(a,b); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
     # corrector u → u¹
     @log "c"
-    conv_diff!(a.f,a.u,a.σ,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
+    if a.store_fluxes
+        conv_diff_fvm!(a.f,a.u,a.F_conv,a.F_diff,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
+    else
+        conv_diff!(a.f,a.u,a.σ,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
+    end
     udf!(a,udf,t₁; kwargs...)
     accelerate!(a.f,t₁,a.g,a.inletBC)
     BDIM!(a); scale_u!(a,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)

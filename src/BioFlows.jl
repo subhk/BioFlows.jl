@@ -65,6 +65,7 @@ export MultiLevelPoisson
 # Flow solver
 _silent_include("Flow.jl")
 export Flow,mom_step!,quick,cds
+export compute_face_flux!,apply_fluxes!,conv_diff_fvm!
 
 # Body definitions
 _silent_include("Body.jl")
@@ -136,6 +137,7 @@ Constructor for a BioFlows simulation solving the dimensional incompressible Nav
 - `uλ=nothing`: Initial velocity condition. Tuple or `Function(i,x)`
 - `T=Float32`: Numeric type
 - `mem=Array`: Memory backend (`Array`, `CuArray`, etc.)
+- `store_fluxes=false`: Enable FVM flux storage for conservation analysis
 
 # Examples
 
@@ -190,7 +192,7 @@ mutable struct Simulation <: AbstractSimulation
     function Simulation(dims::NTuple{N}, L::NTuple{N};
                         inletBC=nothing, L_char=nothing, Δt=0.25, ν=0., g=nothing, U=nothing, ϵ=1, perdir=(),
                         uλ=nothing, outletBC=false, body::AbstractBody=NoBody(),
-                        T=Float32, mem=Array, fixed_Δt=nothing) where N
+                        T=Float32, mem=Array, fixed_Δt=nothing, store_fluxes=false) where N
         # Default inletBC: unit velocity in x-direction
         if isnothing(inletBC)
             inletBC = ntuple(i -> i==1 ? one(T) : zero(T), N)
@@ -199,7 +201,7 @@ mutable struct Simulation <: AbstractSimulation
         isnothing(U) && (U = √sum(abs2,inletBC))
         check_fn(inletBC,N,T,3); check_fn(g,N,T,3); check_fn(uλ,N,T,2)
         # Pass domain size L to Flow for dimensional Δx computation
-        flow = Flow(dims;L=L,inletBC=inletBC,uλ,Δt,ν,g,T,f=mem,perdir,outletBC,fixed_Δt=fixed_Δt)
+        flow = Flow(dims;L=L,inletBC=inletBC,uλ,Δt,ν,g,T,f=mem,perdir,outletBC,fixed_Δt=fixed_Δt,store_fluxes=store_fluxes)
         measure!(flow,body;ϵ)
         # Use L_char for dimensionless time/forces, default to L[1]
         char_length = isnothing(L_char) ? L[1] : L_char
