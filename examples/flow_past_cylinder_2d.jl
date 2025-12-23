@@ -91,21 +91,25 @@ end
                               save_center_fields=false,
                               center_interval_time=nothing,
                               center_filename="center_fields.jld2",
+                              save_force_coefficients=true,
+                              force_interval_time=nothing,
+                              force_filename="force_coefficients.jld2",
                               diagnostic_interval=100,
                               kwargs...)
 
 Advance the simulation for `steps` calls (or until `final_time`, whichever comes
 first) on a `(nx,nz)` grid and physical domain `(Lx,Lz)`, recording the force
 coefficients and, optionally, saving cell-centred velocity/vorticity snapshots.
-Returns `(sim, history, stats, writer, diagnostics)` where `writer` is the
-`CenterFieldWriter` (or `nothing`) and `diagnostics` merges runtime statistics
+Returns `(sim, history, stats, writers, diagnostics)` where `writers` is a
+NamedTuple containing `center` (CenterFieldWriter) and `force` (ForceWriter),
+either of which may be `nothing`. `diagnostics` merges runtime statistics
 with the domain metadata. By default the example integrates to
 `final_time = 5.0` convective units. Provide your own `final_time` or `steps`
 as needed. Set `diagnostic_interval` to control how frequently the one-line
 updates (drag, lift, CFL, velocity maxima) print. Pass `nx`, `nz`, `Lx`, `Lz`,
-`dt`, `uBC`, `perdir`, `exitBC`, `final_time`, and `center_interval_time`
-(simulation time units; defaults to `0.1 * L/U` if omitted) via `kwargs` to
-customise the setup.
+`dt`, `uBC`, `perdir`, `exitBC`, `final_time`, `center_interval_time`, and
+`force_interval_time` (simulation time units; defaults to `0.1 * L/U` if omitted)
+via `kwargs` to customise the setup.
 
 Example:
 ```
@@ -114,9 +118,12 @@ run_flow_past_cylinder(
     dt=0.01, final_time=5.0,
     perdir=(2,), exitBC=true,
     center_interval_time=0.2,
+    force_interval_time=0.1,
     diagnostic_interval=20,
     save_center_fields=true,
-    center_filename="cylinder_center_fields.jld2")
+    save_force_coefficients=true,
+    center_filename="cylinder_center_fields.jld2",
+    force_filename="cylinder_forces.jld2")
 ```
 """
 function run_flow_past_cylinder(; steps::Union{Nothing,Int}=nothing,
@@ -125,6 +132,9 @@ function run_flow_past_cylinder(; steps::Union{Nothing,Int}=nothing,
                                 save_center_fields::Bool=true,
                                 center_interval_time = 5.0,
                                 center_filename::AbstractString="center_fields.jld2",
+                                save_force_coefficients::Bool=true,
+                                force_interval_time = 1.0,
+                                force_filename::AbstractString="force_coefficients.jld2",
                                 diagnostic_interval::Int=100,
                                 kwargs...)
 
@@ -145,11 +155,21 @@ function run_flow_past_cylinder(; steps::Union{Nothing,Int}=nothing,
     # Determine snapshot cadence in both non-dimensional (tU/L) and simulation time units.
     conv_interval = nothing
     sim_time_interval = nothing
-    writer = nothing
+    center_writer = nothing
     if save_center_fields
         sim_time_interval = isnothing(center_interval_time) ? 0.1 * (sim.L / sim.U) : center_interval_time
         conv_interval = sim_time_interval * (sim.U / sim.L)
-        writer = CenterFieldWriter(center_filename; interval=conv_interval)
+        center_writer = CenterFieldWriter(center_filename; interval=conv_interval)
+    end
+
+    # Create ForceWriter for saving lift/drag coefficients
+    force_conv_interval = nothing
+    force_sim_time_interval = nothing
+    force_writer = nothing
+    if save_force_coefficients
+        force_sim_time_interval = isnothing(force_interval_time) ? 0.1 * (sim.L / sim.U) : force_interval_time
+        force_conv_interval = force_sim_time_interval * (sim.U / sim.L)
+        force_writer = ForceWriter(force_filename; interval=force_conv_interval, reference_area=sim.L)
     end
 
     # Ensure at least one termination criterion is provided.
@@ -170,7 +190,8 @@ function run_flow_past_cylinder(; steps::Union{Nothing,Int}=nothing,
         total_steps += 1
         sim_step!(sim; remeasure=false)
         record_force!(history, sim)
-        writer !== nothing && maybe_save!(writer, sim)
+        center_writer !== nothing && maybe_save!(center_writer, sim)
+        force_writer !== nothing && maybe_save!(force_writer, sim)
         fixed_dt !== nothing && (sim.flow.Δt[end] = fixed_dt)
 
         if total_steps % diag_interval == 0
@@ -196,9 +217,12 @@ function run_flow_past_cylinder(; steps::Union{Nothing,Int}=nothing,
                          final_time=sim_time(sim),
                          target_time=target_time,
                          center_interval_conv=conv_interval,
-                         center_interval_time=sim_time_interval))
+                         center_interval_time=sim_time_interval,
+                         force_interval_conv=force_conv_interval,
+                         force_interval_time=force_sim_time_interval))
 
-    return sim, history, stats, writer, diagnostics
+    writers = (center=center_writer, force=force_writer)
+    return sim, history, stats, writers, diagnostics
 end
 
 """
