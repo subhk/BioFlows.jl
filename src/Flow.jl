@@ -175,7 +175,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     uBC :: Union{NTuple{D,Number},Function} # boundary velocity (m/s)
     Δt:: Vector{T} # time step history (s)
     ν :: T # kinematic viscosity (m²/s)
-    Δx :: T # uniform grid spacing (m)
+    Δx :: NTuple{D,T} # grid spacing per direction (m) - can be anisotropic
     g :: Union{Function,Nothing} # acceleration field (m/s²)
     exitBC :: Bool # convection exit BC flag
     perdir :: NTuple # periodic directions tuple
@@ -188,7 +188,8 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     - `N::NTuple{D}`: Number of grid cells, e.g., `(nx, nz)` or `(nx, ny, nz)`
     - `uBC`: Boundary velocity (m/s). Tuple or `Function(i,x,t)`
     - `L::NTuple{D}`: Physical domain size (m), e.g., `(2.0, 1.0)` for 2m × 1m
-      Grid spacing: `Δx = L[1]/N[1]` (must be uniform in all directions)
+      Grid spacing: `Δx[d] = L[d]/N[d]` for each direction d
+      Supports anisotropic grids (Δx ≠ Δy ≠ Δz)
 
     # Optional Arguments
     - `ν=0.`: Kinematic viscosity (m²/s). Water ≈ 1e-6, air ≈ 1.5e-5
@@ -202,20 +203,17 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
 
     # Example
     ```julia
-    # 2m × 1m domain, 200×100 cells → Δx = 0.01m
+    # 2m × 1m domain, 200×100 cells → Δx = 0.01m, Δz = 0.01m (uniform)
     flow = Flow((200, 100), (1.0, 0.0); L=(2.0, 1.0), ν=1e-6)
+
+    # Anisotropic: 4m × 1m domain, 200×100 cells → Δx = 0.02m, Δz = 0.01m
+    flow = Flow((200, 100), (1.0, 0.0); L=(4.0, 1.0), ν=1e-6)
     ```
     """
     function Flow(N::NTuple{D}, uBC; L::NTuple{D}, f=Array, Δt=0.25, ν=0., g=nothing,
             uλ=nothing, perdir=(), exitBC=false, T=Float32) where D
-        # Compute grid spacing from domain size
-        Δx_computed = T(L[1] / N[1])
-        # Verify uniform spacing in all directions
-        for d in 2:D
-            Δx_d = T(L[d] / N[d])
-            @assert isapprox(Δx_d, Δx_computed; rtol=1e-6) "Non-uniform grid spacing not supported: Δx[$d]=$Δx_d ≠ Δx[1]=$Δx_computed"
-        end
-        Δx = Δx_computed
+        # Compute grid spacing for each direction (supports anisotropic grids)
+        Δx = ntuple(d -> T(L[d] / N[d]), D)
         Ng = N .+ 2
         Nd = (Ng..., D)
         isnothing(uλ) && (uλ = ic_function(uBC))
@@ -226,7 +224,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
         fv, p, σ = zeros(T, Nd) |> f, zeros(T, Ng) |> f, zeros(T, Ng) |> f
         V, μ₀, μ₁ = zeros(T, Nd) |> f, ones(T, Nd) |> f, zeros(T, Ng..., D, D) |> f
         BC!(μ₀,ntuple(zero, D),false,perdir)
-        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,uBC,T[Δt],T(ν),T(Δx),g,exitBC,perdir)
+        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,uBC,T[Δt],T(ν),Δx,g,exitBC,perdir)
     end
 end
 
