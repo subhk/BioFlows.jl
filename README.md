@@ -13,10 +13,6 @@ flow on Cartesian grids using the Boundary Data Immersion Method (BDIM).
 - Immersed boundary method via BDIM (Boundary Data Immersion Method)
 - Implicit geometry definition through signed distance functions
 - Adaptive Mesh Refinement (AMR) near bodies and flow features
-- CPU and GPU execution via KernelAbstractions.jl
-- MPI support for distributed computing (via PencilArrays.jl)
-- Built-in diagnostics: forces, vorticity, cell-centered fields
-- JLD2 and VTK output (via extensions)
 
 ## Installation
 
