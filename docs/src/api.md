@@ -28,6 +28,18 @@ See [Core Types](@ref) for details.
 | `perturb!(sim)` | Add velocity perturbations |
 | `sim_info(sim)` | Print simulation status |
 
+## Finite Volume Method (FVM)
+
+See [Numerical Methods](@ref) for details.
+
+| Function | Description |
+|----------|-------------|
+| `compute_face_flux!(F_conv, F_diff, u, λ; ν, Δx, perdir)` | Compute fluxes at cell faces |
+| `apply_fluxes!(r, F_conv, F_diff)` | Apply fluxes conservatively to RHS |
+| `conv_diff_fvm!(r, u, F_conv, F_diff, λ; ν, Δx, perdir)` | FVM convection-diffusion |
+
+Enable FVM mode by setting `store_fluxes=true` in Simulation or Flow constructor.
+
 ## AMR Functions
 
 See [Adaptive Mesh Refinement](@ref) for details.
@@ -90,6 +102,7 @@ AMRSimulation, AMRConfig, amr_regrid!, set_amr_active!, get_refinement_indicator
 
 # Flow
 Flow, mom_step!, quick, cds
+compute_face_flux!, apply_fluxes!, conv_diff_fvm!
 
 # Pressure
 AbstractPoisson, Poisson, MultiLevelPoisson, solver!, mult!
