@@ -127,22 +127,25 @@ function compute_interface_flux(patch::PatchPoisson{T},
         end
 
     elseif side == :right
+        # ic = ai + extent is the first cell OUTSIDE the patch (to the right)
         ic = ai + patch.coarse_extent[1]
-        # Check if at domain boundary
-        if ic >= nc_i
+        # Check if at domain boundary (need ic to exist for flux calculation)
+        if ic > nc_i || ic < 2
             return InterfaceFluxData{T}(zero(T), T[], zero(T))
         end
 
         for cj_idx in 1:patch.coarse_extent[2]
             jc = aj + cj_idx - 1
-            if jc >= 1 && jc <= nc_j && ic + 1 <= nc_i
-                # Coarse flux: L[ic+1,jc,1] * (p[ic+1,jc] - p[ic,jc])
-                c_flux = L_coarse[ic+1, jc, 1] * (p_coarse[ic+1, jc] - p_coarse[ic, jc])
+            if jc >= 1 && jc <= nc_j
+                # Coarse flux OUT of patch: L[ic,jc,1] * (p[ic,jc] - p[ic-1,jc])
+                # This is flux at face between (ic-1) = last cell in patch and (ic) = first cell outside
+                c_flux = L_coarse[ic, jc, 1] * (p_coarse[ic, jc] - p_coarse[ic-1, jc])
                 coarse_flux += c_flux
 
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fj >= 1 && fj <= nz + 2
+                        # Fine flux at right face: from last interior (nx+1) to ghost (nx+2)
                         f_flux = patch.L[nx+2, fj, 1] * (patch.x[nx+2, fj] - patch.x[nx+1, fj])
                         push!(fine_fluxes, f_flux)
                     end
@@ -175,22 +178,25 @@ function compute_interface_flux(patch::PatchPoisson{T},
         end
 
     else  # :top
+        # jc = aj + extent is the first cell OUTSIDE the patch (above)
         jc = aj + patch.coarse_extent[2]
-        # Check if at domain boundary
-        if jc >= nc_j
+        # Check if at domain boundary (need jc to exist for flux calculation)
+        if jc > nc_j || jc < 2
             return InterfaceFluxData{T}(zero(T), T[], zero(T))
         end
 
         for ci_idx in 1:patch.coarse_extent[1]
             ic = ai + ci_idx - 1
-            if ic >= 1 && ic <= nc_i && jc + 1 <= nc_j
-                # Coarse flux: L[ic,jc+1,2] * (p[ic,jc+1] - p[ic,jc])
-                c_flux = L_coarse[ic, jc+1, 2] * (p_coarse[ic, jc+1] - p_coarse[ic, jc])
+            if ic >= 1 && ic <= nc_i
+                # Coarse flux OUT of patch: L[ic,jc,2] * (p[ic,jc] - p[ic,jc-1])
+                # This is flux at face between (jc-1) = last cell in patch and (jc) = first cell outside
+                c_flux = L_coarse[ic, jc, 2] * (p_coarse[ic, jc] - p_coarse[ic, jc-1])
                 coarse_flux += c_flux
 
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     if fi >= 1 && fi <= nx + 2
+                        # Fine flux at top face: from last interior (nz+1) to ghost (nz+2)
                         f_flux = patch.L[fi, nz+2, 2] * (patch.x[fi, nz+2] - patch.x[fi, nz+1])
                         push!(fine_fluxes, f_flux)
                     end
