@@ -13,7 +13,7 @@
 #   data = load("center_fields.jld2")
 #   vel = data["snapshot_1/velocity"]
 #
-# Force coefficient files use CSV format for easy import into plotting tools:
+# Force coefficient files use JLD2 format with arrays:
 #   time, Cd, Cl, Cd_pressure, Cd_viscous, Cl_pressure, Cl_viscous
 #
 # Snapshots include:
@@ -23,7 +23,6 @@
 # =============================================================================
 
 using JLD2
-using Printf
 
 """
     CenterFieldWriter(filename::AbstractString="center_fields.jld2";
@@ -88,23 +87,24 @@ end
 # =============================================================================
 # FORCE COEFFICIENT WRITER
 # =============================================================================
-# Writes lift and drag coefficients to a CSV file at specified intervals.
-# The CSV format allows easy import into plotting tools (Python, MATLAB, Excel).
+# Writes lift and drag coefficients to a JLD2 file at specified intervals.
+# Data is stored as arrays that grow with each save, making it easy to
+# load and plot the entire time history.
 # =============================================================================
 
 """
-    ForceWriter(filename::AbstractString="force_coefficients.csv";
+    ForceWriter(filename::AbstractString="force_coefficients.jld2";
                 interval::Real=0.1,
                 overwrite::Bool=true,
                 ρ::Real=1.0,
                 reference_area::Real=1.0)
 
-Helper that saves lift and drag coefficients to a CSV file at fixed
+Helper that saves lift and drag coefficients to a JLD2 file at fixed
 convective-time intervals. Call [`maybe_save!`](@ref) after each `sim_step!`
 to trigger writes.
 
 # Arguments
-- `filename`: Output CSV file path (default: "force_coefficients.csv")
+- `filename`: Output JLD2 file path (default: "force_coefficients.jld2")
 - `interval`: Time interval between saves (default: 0.1)
 - `overwrite`: If true, overwrite existing file; if false, append (default: true)
 - `ρ`: Fluid density for coefficient calculation (default: 1.0)
@@ -112,14 +112,14 @@ to trigger writes.
   typically set to sim.L for 2D simulations)
 
 # Output Format
-CSV file with columns:
-- `time`: Simulation time
-- `Cd`: Total drag coefficient
-- `Cl`: Total lift coefficient
-- `Cd_pressure`: Pressure drag coefficient
-- `Cd_viscous`: Viscous drag coefficient
-- `Cl_pressure`: Pressure lift coefficient
-- `Cl_viscous`: Viscous lift coefficient
+JLD2 file containing:
+- `time`: Vector of simulation times
+- `Cd`: Vector of total drag coefficients
+- `Cl`: Vector of total lift coefficients
+- `Cd_pressure`: Vector of pressure drag coefficients
+- `Cd_viscous`: Vector of viscous drag coefficients
+- `Cl_pressure`: Vector of pressure lift coefficients
+- `Cl_viscous`: Vector of viscous lift coefficients
 
 # Example
 ```julia
@@ -127,7 +127,7 @@ CSV file with columns:
 sim = Simulation((128, 128), (1.0, 0.0), 1.0; ν=0.001, body=AutoBody(sdf))
 
 # Create force writer (saves every 0.1 time units)
-force_writer = ForceWriter("forces.csv"; interval=0.1, reference_area=sim.L)
+force_writer = ForceWriter("forces.jld2"; interval=0.1, reference_area=sim.L)
 
 # Time stepping loop
 for _ in 1:1000
@@ -138,9 +138,14 @@ end
 
 # Reading the Output
 ```julia
-using DelimitedFiles
-data = readdlm("forces.csv", ',', Float64; skipstart=1)
-time, Cd, Cl = data[:,1], data[:,2], data[:,3]
+using JLD2
+data = load("forces.jld2")
+time = data["time"]
+Cd = data["Cd"]
+Cl = data["Cl"]
+
+# Or load individual arrays
+time = load("forces.jld2", "time")
 ```
 """
 mutable struct ForceWriter
@@ -150,9 +155,16 @@ mutable struct ForceWriter
     samples::Int
     ρ::Float64
     reference_area::Float64
-    io::Union{IOStream, Nothing}
+    # Internal storage for accumulating data before writing
+    time_history::Vector{Float64}
+    Cd_history::Vector{Float64}
+    Cl_history::Vector{Float64}
+    Cd_pressure_history::Vector{Float64}
+    Cd_viscous_history::Vector{Float64}
+    Cl_pressure_history::Vector{Float64}
+    Cl_viscous_history::Vector{Float64}
 
-    function ForceWriter(filename::AbstractString="force_coefficients.csv";
+    function ForceWriter(filename::AbstractString="force_coefficients.jld2";
                          interval::Real=0.1,
                          overwrite::Bool=true,
                          ρ::Real=1.0,
@@ -167,7 +179,8 @@ mutable struct ForceWriter
         end
 
         return new(String(filename), float(interval), float(interval), 0,
-                   float(ρ), float(reference_area), nothing)
+                   float(ρ), float(reference_area),
+                   Float64[], Float64[], Float64[], Float64[], Float64[], Float64[], Float64[])
     end
 end
 
@@ -175,7 +188,7 @@ end
     maybe_save!(writer::ForceWriter, sim)
 
 Check the simulation time and, if the configured interval has elapsed, append
-the current lift and drag coefficients to the writer's CSV file.
+the current lift and drag coefficients to the writer's JLD2 file.
 
 Returns the writer for chaining.
 """
@@ -202,36 +215,40 @@ function _write_forces!(writer::ForceWriter, sim::AbstractSimulation)
 
     # Extract coefficients (pressure, viscous, total)
     if components.coefficients !== nothing
-        Cd_p, Cl_p = components.coefficients[1][1], length(components.coefficients[1]) >= 2 ? components.coefficients[1][2] : 0.0
-        Cd_v, Cl_v = components.coefficients[2][1], length(components.coefficients[2]) >= 2 ? components.coefficients[2][2] : 0.0
-        Cd, Cl = components.coefficients[3][1], length(components.coefficients[3]) >= 2 ? components.coefficients[3][2] : 0.0
+        Cd_p = components.coefficients[1][1]
+        Cl_p = length(components.coefficients[1]) >= 2 ? components.coefficients[1][2] : 0.0
+        Cd_v = components.coefficients[2][1]
+        Cl_v = length(components.coefficients[2]) >= 2 ? components.coefficients[2][2] : 0.0
+        Cd = components.coefficients[3][1]
+        Cl = length(components.coefficients[3]) >= 2 ? components.coefficients[3][2] : 0.0
     else
         # Fallback to raw forces if coefficients not available
-        Cd_p, Cl_p = components.pressure[1], length(components.pressure) >= 2 ? components.pressure[2] : 0.0
-        Cd_v, Cl_v = components.viscous[1], length(components.viscous) >= 2 ? components.viscous[2] : 0.0
-        Cd, Cl = components.total[1], length(components.total) >= 2 ? components.total[2] : 0.0
+        Cd_p = components.pressure[1]
+        Cl_p = length(components.pressure) >= 2 ? components.pressure[2] : 0.0
+        Cd_v = components.viscous[1]
+        Cl_v = length(components.viscous) >= 2 ? components.viscous[2] : 0.0
+        Cd = components.total[1]
+        Cl = length(components.total) >= 2 ? components.total[2] : 0.0
     end
 
-    # Open file and write header if first sample
-    open(writer.filename, writer.samples == 0 ? "w" : "a") do io
-        if writer.samples == 0
-            println(io, "time,Cd,Cl,Cd_pressure,Cd_viscous,Cl_pressure,Cl_viscous")
-        end
-        # Write data with high precision
-        @printf(io, "%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e\n",
-                t, Cd, Cl, Cd_p, Cd_v, Cl_p, Cl_v)
-    end
-end
+    # Append to internal history
+    push!(writer.time_history, t)
+    push!(writer.Cd_history, Cd)
+    push!(writer.Cl_history, Cl)
+    push!(writer.Cd_pressure_history, Cd_p)
+    push!(writer.Cd_viscous_history, Cd_v)
+    push!(writer.Cl_pressure_history, Cl_p)
+    push!(writer.Cl_viscous_history, Cl_v)
 
-"""
-    close!(writer::ForceWriter)
-
-Close the ForceWriter's file handle if open.
-"""
-function close!(writer::ForceWriter)
-    if writer.io !== nothing
-        close(writer.io)
-        writer.io = nothing
+    # Write to JLD2 file (overwrite with full history each time)
+    jldopen(writer.filename, "w") do file
+        file["time"] = writer.time_history
+        file["Cd"] = writer.Cd_history
+        file["Cl"] = writer.Cl_history
+        file["Cd_pressure"] = writer.Cd_pressure_history
+        file["Cd_viscous"] = writer.Cd_viscous_history
+        file["Cl_pressure"] = writer.Cl_pressure_history
+        file["Cl_viscous"] = writer.Cl_viscous_history
     end
 end
 
@@ -241,7 +258,13 @@ end
 Reset the writer to start fresh. Does not delete the existing file.
 """
 function reset!(writer::ForceWriter)
-    close!(writer)
     writer.samples = 0
     writer.next_time = writer.interval
+    empty!(writer.time_history)
+    empty!(writer.Cd_history)
+    empty!(writer.Cl_history)
+    empty!(writer.Cd_pressure_history)
+    empty!(writer.Cd_viscous_history)
+    empty!(writer.Cl_pressure_history)
+    empty!(writer.Cl_viscous_history)
 end
