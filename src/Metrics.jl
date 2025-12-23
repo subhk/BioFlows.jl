@@ -1,14 +1,44 @@
+# =============================================================================
+# FLOW METRICS AND DIAGNOSTICS
+# =============================================================================
+# This module provides functions to compute various flow quantities:
+# - Kinetic energy
+# - Velocity gradients (∂uᵢ/∂xⱼ)
+# - Vorticity (curl of velocity)
+# - Rate-of-strain tensor
+# - Forces on immersed bodies (pressure and viscous)
+# - Temporal statistics (mean flow, Reynolds stresses)
+#
+# All functions work on the staggered grid layout where velocities are
+# face-centered and scalar fields are cell-centered.
+# =============================================================================
+
 using StaticArrays
 
-# utilities
+# =============================================================================
+# UTILITY FUNCTIONS FOR TENSOR OPERATIONS
+# =============================================================================
+
+# Create a StaticArray from a function f evaluated for i=1:n
 Base.@propagate_inbounds @inline fSV(f,n) = SA[ntuple(f,n)...]
+
+# Sum f(i) for i=1:n
 Base.@propagate_inbounds @inline @fastmath fsum(f,n) = sum(ntuple(f,n))
+
+# 2-norm of vector
 norm2(x) = √(x'*x)
+
+# Cyclic permutation for cross product: computes f(j,k) - f(k,j)
+# where (i,j,k) is a cyclic permutation of (1,2,3)
 Base.@propagate_inbounds @fastmath function permute(f,i)
-    j,k = i%3+1,(i+1)%3+1
+    j,k = i%3+1,(i+1)%3+1  # Cyclic: 1→(2,3), 2→(3,1), 3→(1,2)
     f(j,k)-f(k,j)
 end
+
+# Cross product using permutation formula
 ×(a,b) = fSV(i->permute((j,k)->a[j]*b[k],i),3)
+
+# Dot product (inner product)
 @fastmath @inline function dot(a,b)
     init=zero(eltype(a))
     @inbounds for ij in eachindex(a)
@@ -90,27 +120,45 @@ function ω_θ(I::CartesianIndex{3},z,center,u)
     n<=eps(n) ? 0. : θ'*ω(I,u) / n
 end
 
+# =============================================================================
+# FORCE COMPUTATION ON IMMERSED BODIES
+# =============================================================================
+# Forces are computed by integrating pressure and viscous stresses over the
+# body surface. The BDIM kernel weights the contributions smoothly.
+#
+# Pressure force: F_p = -∮ p n̂ dS ≈ -Σ p(I) * n(I) * K(d)
+# Viscous force:  F_v = ∮ τ·n̂ dS ≈ Σ 2ν S·n̂ * K(d)
+#
+# where K(d) is the BDIM kernel that weights contributions near the surface.
+# =============================================================================
+
 """
     nds(body,x,t)
 
 BDIM-masked surface normal.
+Returns n̂ weighted by the kernel K(d), which is 1 at the surface and
+decays smoothly to 0 away from the body.
 """
 @inline function nds(body,x,t)
     d,n,_ = measure(body,x,t,fastd²=1)
-    n*BioFlows.kern(clamp(d,-1,1))
+    n*BioFlows.kern(clamp(d,-1,1))  # Weight normal by kernel
 end
 
 """
     pressure_force(sim::Simulation)
 
 Compute the pressure force on an immersed body.
+Integrates pressure times surface normal over the body using BDIM weighting.
+Returns a vector [Fx, Fz] in 2D or [Fx, Fy, Fz] in 3D.
 """
 pressure_force(sim) = pressure_force(sim.flow,sim.body)
 pressure_force(flow,body) = pressure_force(flow.p,flow.f,body,time(flow))
 function pressure_force(p,df,body,t=0)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
+    # Compute contribution at each cell: F = Σ p * n̂ * K(d)
     @loop df[I,:] .= p[I]*nds(body,loc(0,I,Tp),t) over I ∈ inside(p)
+    # Sum over all spatial dimensions to get total force vector
     sum(To,df,dims=ntuple(i->i,ndims(p)))[:] |> Array
 end
 
