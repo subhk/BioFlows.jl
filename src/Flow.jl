@@ -280,7 +280,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     u :: Vf # velocity vector field (m/s)
     u⁰:: Vf # previous velocity (m/s)
     f :: Vf # force/RHS vector (m/s²)
-    p :: Sf # pressure scalar field (m²/s²)
+    p :: Sf # pressure scalar field (Pa = kg/(m·s²))
     σ :: Sf # divergence scalar (work array)
     # BDIM fields
     V :: Vf # body velocity vector (m/s)
@@ -294,6 +294,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     inletBC :: Union{NTuple{D,Number},Function} # inlet boundary velocity (m/s)
     Δt:: Vector{T} # time step history (s)
     ν :: T # kinematic viscosity (m²/s)
+    ρ :: T # fluid density (kg/m³), default 1000 for water
     Δx :: NTuple{D,T} # grid spacing per direction (m) - can be anisotropic
     g :: Union{Function,Nothing} # acceleration field (m/s²)
     outletBC :: Bool # convective outlet BC flag
