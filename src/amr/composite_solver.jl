@@ -106,7 +106,7 @@ Projects velocity to divergence-free state using composite solver.
 """
 function project!(flow::Flow{D,T}, cp::CompositePoisson{T},
                   refined_grid, w::Real=1) where {D,T}
-    dt = w * flow.Δt[end]
+    dt = T(w * flow.Δt[end])
 
     # 1. Set divergence on base grid
     @inside flow.σ[I] = div(I, flow.u) / dt
