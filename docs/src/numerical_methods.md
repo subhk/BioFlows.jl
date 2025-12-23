@@ -286,8 +286,221 @@ The SDF is used to:
 3. Compute surface normals: $\mathbf{n} = \nabla\phi / |\nabla\phi|$
 4. Calculate hydrodynamic forces on immersed bodies
 
+## Boundary Conditions
+
+BioFlows.jl supports three types of boundary conditions for the domain boundaries (not to be confused with immersed body boundaries handled by BDIM).
+
+### Domain Boundary Overview
+
+```
+                    Top boundary (j = nz)
+                    ─────────────────────
+                    │                   │
+                    │                   │
+    Inlet           │                   │    Outlet
+    (i = 1)         │     Domain        │    (i = nx)
+    inletBC         │                   │    outletBC
+                    │                   │
+                    │                   │
+                    ─────────────────────
+                    Bottom boundary (j = 1)
+```
+
+### 1. Inlet Boundary Condition (`inletBC`)
+
+The inlet boundary (at $x = 0$) uses a **Dirichlet condition** where velocity is prescribed.
+
+#### Constant Inlet
+
+For uniform inflow, specify a tuple:
+
+```julia
+inletBC = (U, 0.0)  # u = U, v = 0 at inlet
+```
+
+This sets:
+```math
+u(0, y, t) = U, \quad v(0, y, t) = 0
+```
+
+#### Spatially-Varying Inlet
+
+For non-uniform profiles (e.g., parabolic channel flow), use a function:
+
+```julia
+# Parabolic profile: u(y) = U_max * (1 - (y-H)²/H²)
+H = Ly / 2  # channel half-height
+U_max = 1.5
+inletBC(i, x, t) = i == 1 ? U_max * (1 - ((x[2] - H) / H)^2) : 0.0
+```
+
+The function signature is `inletBC(i, x, t)` where:
+- `i` = velocity component (1 = x, 2 = y/z)
+- `x` = position vector
+- `t` = time
+
+#### Time-Varying Inlet
+
+For pulsatile or oscillating inflow:
+
+```julia
+# Oscillating inlet: u(t) = U₀(1 + A·sin(ωt))
+inletBC(i, x, t) = i == 1 ? U₀ * (1 + 0.1*sin(2π*t)) : 0.0
+```
+
+!!! note "Velocity Scale Required"
+    When using a function for `inletBC`, you must specify `U` (velocity scale) explicitly since it cannot be auto-computed.
+
+### 2. Convective Outlet Boundary Condition (`outletBC`)
+
+The outlet boundary (at $x = L_x$) is the most challenging because **we don't know the flow state there in advance**. Simple conditions like zero-gradient ($\partial u/\partial x = 0$) cause **spurious reflections** — pressure waves bounce back into the domain and contaminate the solution.
+
+#### The Convective BC Approach
+
+The convective (or advective) outlet condition assumes flow structures are **transported out** of the domain at a convection velocity $U_c$:
+
+```math
+\frac{\partial u}{\partial t} + U_c \frac{\partial u}{\partial x} = 0
+```
+
+This is a 1D wave equation that advects the local velocity pattern out of the domain.
+
+#### Discretization
+
+Using first-order upwind differencing:
+
+```math
+u_i^{n+1} = u_i^n - U_c \Delta t \frac{u_i^n - u_{i-1}^n}{\Delta x}
+```
+
+In BioFlows, $U_c$ is taken as the mean inlet velocity to ensure mass conservation.
+
+#### Mass Conservation Correction
+
+After applying the convective BC, a correction ensures global mass conservation:
+
+```math
+\oint u \, dA = 0 \quad \text{(for incompressible flow)}
+```
+
+The outlet velocity is adjusted so that mass flux out equals mass flux in:
+
+```julia
+# From src/util.jl - exitBC!
+U = mean(u_inlet)           # Average inlet flux
+u_outlet = u_outlet - Δt * U * ∂u/∂x  # Convective update
+correction = mean(u_outlet) - U       # Mass imbalance
+u_outlet = u_outlet - correction      # Enforce conservation
+```
+
+#### Why Convective BC Works
+
+```
+Without Convective BC:              With Convective BC:
+
+    ────────────────────┐              ────────────────────→
+    Vortex → → → ↩ ↩ ↩  │              Vortex → → → → → →
+    ────────────────────┘              ────────────────────→
+                ↑                                  ↑
+          Reflection!                      Passes through
+```
+
+The convective BC allows vortices, wakes, and other flow structures to exit smoothly without generating artificial reflections.
+
+#### Usage
+
+```julia
+sim = Simulation((nx, nz), (Lx, Lz);
+                 inletBC = (1.0, 0.0),
+                 outletBC = true)      # Enable convective outlet
+```
+
+### 3. Periodic Boundary Condition (`perdir`)
+
+Periodic boundaries make the domain wrap around — flow exiting one side re-enters from the opposite side.
+
+```math
+u(x, 0, t) = u(x, L_y, t), \quad v(x, 0, t) = v(x, L_y, t)
+```
+
+#### When to Use Periodic BC
+
+| Scenario | Direction | Example |
+|----------|-----------|---------|
+| Infinite span | z (spanwise) | Flow past cylinder |
+| Channel flow | x (streamwise) | Fully-developed pipe flow |
+| Homogeneous turbulence | All | Isotropic turbulence box |
+
+#### Usage
+
+```julia
+# Periodic in z-direction (direction 2)
+sim = Simulation((nx, nz), (Lx, Lz);
+                 inletBC = (1.0, 0.0),
+                 perdir = (2,))
+
+# Periodic in both y and z (3D)
+sim = Simulation((nx, ny, nz), (Lx, Ly, Lz);
+                 inletBC = (1.0, 0.0, 0.0),
+                 perdir = (2, 3))
+```
+
+### 4. Default (No-Flux) Boundaries
+
+Boundaries not explicitly set use a **zero normal gradient** (Neumann) condition:
+
+```math
+\frac{\partial u}{\partial n} = 0
+```
+
+This is appropriate for:
+- Slip walls (free-slip, no penetration)
+- Symmetry planes
+- Far-field boundaries (approximate)
+
+### Boundary Condition Summary
+
+| Parameter | Condition | Mathematical Form | Use Case |
+|-----------|-----------|-------------------|----------|
+| `inletBC` | Dirichlet | $u = u_{prescribed}$ | Inflow boundaries |
+| `outletBC=true` | Convective | $\partial_t u + U \partial_x u = 0$ | Outflow (prevents reflections) |
+| `perdir=(d,)` | Periodic | $u(0) = u(L)$ | Infinite/repeating domains |
+| (default) | Neumann | $\partial_n u = 0$ | Slip walls, symmetry |
+
+### Common Configurations
+
+#### External Flow (Wake Problems)
+
+```julia
+# Flow past cylinder: inlet + convective outlet + periodic spanwise
+sim = Simulation((nx, nz), (Lx, Lz);
+                 inletBC = (U, 0.0),
+                 outletBC = true,
+                 perdir = (2,),
+                 body = AutoBody(sdf))
+```
+
+#### Channel Flow
+
+```julia
+# Fully-developed channel: periodic streamwise + no-slip walls
+sim = Simulation((nx, nz), (Lx, Lz);
+                 inletBC = (U, 0.0),
+                 perdir = (1,))  # Periodic in x (streamwise)
+```
+
+#### Closed Cavity
+
+```julia
+# Lid-driven cavity: no outlet, no periodic
+sim = Simulation((nx, nz), (Lx, Lz);
+                 inletBC = (U, 0.0))  # Top wall moves at U
+```
+
 ## References
 
 1. Harlow, F.H. and Welch, J.E. (1965). "Numerical calculation of time-dependent viscous incompressible flow of fluid with free surface." *Physics of Fluids*, 8(12), 2182-2189.
 
 2. Weymouth, G.D. and Yue, D.K.P. (2011). "Boundary data immersion method for Cartesian-grid simulations of fluid-body interaction problems." *Journal of Computational Physics*, 230(16), 6233-6247.
+
+3. Orlanski, I. (1976). "A simple boundary condition for unbounded hyperbolic flows." *Journal of Computational Physics*, 21(3), 251-269.
