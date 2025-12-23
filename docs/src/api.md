@@ -106,11 +106,20 @@ compute_diagnostics, summarize_force_history
 CenterFieldWriter, maybe_save!
 
 # AMR Types
-StaggeredGrid, SolutionState, RefinedGrid
+StaggeredGrid, SolutionState, RefinedGrid, GridType, TwoDimensional, ThreeDimensional
+is_2d, is_3d, num_refined_cells, refinement_level, domain_size, cell_volume
 FlowToGridAdapter, flow_to_staggered_grid, flow_to_solution_state, create_refined_grid
 compute_body_refinement_indicator, compute_velocity_gradient_indicator
 compute_vorticity_indicator, compute_combined_indicator
 mark_cells_for_refinement, apply_buffer_zone!
+
+# AMR Composite Solver
+CompositePoisson, PatchPoisson, RefinedVelocityField, RefinedVelocityPatch
+add_patch!, remove_patch!, get_patch, clear_patches!, has_patches, num_patches
+create_patches!, update_patches!, ensure_proper_nesting!
+amr_project!, amr_mom_step!, check_amr_divergence, regrid_amr!
+amr_cfl, synchronize_base_and_patches!, interpolate_velocity_to_patches!
+amr_info, check_divergence
 
 # Utilities
 L₂, BC!, @inside, inside, δ, apply!, loc, @log, set_backend, backend

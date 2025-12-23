@@ -102,6 +102,7 @@ For visualization and output, interpolate to cell centers:
 ```@docs
 cell_center_velocity
 cell_center_vorticity
+cell_center_pressure
 ```
 
 ### Usage
@@ -114,6 +115,9 @@ vel = cell_center_velocity(sim)
 # 2D: scalar field [nx, nz]
 # 3D: vector field [nx, ny, nz, 3]
 vort = cell_center_vorticity(sim)
+
+# Cell-centered pressure [nx, nz] or [nx, ny, nz]
+pres = cell_center_pressure(sim)
 ```
 
 ## Simulation Diagnostics

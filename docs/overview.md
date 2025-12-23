@@ -151,6 +151,7 @@ end
 # Cell-centered fields for visualization
 vel = cell_center_velocity(sim)
 vort = cell_center_vorticity(sim)
+pres = cell_center_pressure(sim)
 ```
 
 ### Diagnostic Summary
@@ -231,6 +232,8 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `get_refinement_indicator(sim)` — Current indicator field
 - `num_refined_cells(grid)` — Count refined cells
 - `refinement_level(grid, i, j)` — Query cell refinement
+- `amr_info(sim)` — Print AMR status
+- `check_divergence(sim)` — Check velocity divergence
 
 ### Diagnostics
 - `pressure_force(sim)` — Pressure force vector
@@ -243,7 +246,9 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `vorticity_magnitude(sim)` — Vorticity magnitude field
 - `cell_center_velocity(sim)` — Interpolated velocity
 - `cell_center_vorticity(sim)` — Interpolated vorticity
+- `cell_center_pressure(sim)` — Cell-centered pressure
 - `compute_diagnostics(sim)` — Summary statistics
+- `summarize_force_history(history)` — Force statistics
 
 ### Output
 - `CenterFieldWriter(filename; interval)` — Create writer

@@ -187,3 +187,65 @@ config = AMRConfig(
     regrid_interval = 20
 )
 ```
+
+## Composite Solver (Advanced)
+
+For advanced users, BioFlows exposes the internal composite solver types used for
+AMR pressure projection.
+
+### CompositePoisson
+
+The composite Poisson solver combines a base multigrid solver with refined patches:
+
+```julia
+# CompositePoisson manages:
+# - Base grid: MultiLevelPoisson for coarse solution
+# - Patches: PatchPoisson solvers for refined regions
+# - Velocity: RefinedVelocityField for patch velocities
+```
+
+### Patch Types
+
+| Type | Description |
+|------|-------------|
+| `PatchPoisson` | Local Poisson solver for a refined patch |
+| `RefinedVelocityPatch` | Velocity storage at refined resolution |
+| `RefinedVelocityField` | Collection of velocity patches |
+
+### Patch Operations
+
+```julia
+# Add/remove patches
+add_patch!(field, anchor, patch)
+remove_patch!(field, anchor)
+get_patch(field, anchor)
+clear_patches!(field)
+
+# Query patches
+has_patches(cp)
+num_patches(cp)
+```
+
+### AMR Projection
+
+The `amr_project!` function performs divergence-free projection on all levels:
+
+```julia
+# Full AMR projection workflow:
+# 1. Set divergence on base grid
+# 2. Set divergence on refined patches
+# 3. Interpolate velocity to patches
+# 4. Solve composite Poisson system
+# 5. Correct velocities at all levels
+# 6. Enforce interface consistency
+
+amr_project!(flow, cp)
+```
+
+### Utility Functions
+
+| Function | Description |
+|----------|-------------|
+| `amr_cfl(flow, cp)` | CFL considering refined patches |
+| `check_amr_divergence(flow, cp)` | Divergence at all levels |
+| `synchronize_base_and_patches!(flow, cp)` | Sync after regridding |
