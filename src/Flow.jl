@@ -178,31 +178,32 @@ function compute_face_flux!(F_conv,F_diff,u,λ::F;ν=0.1,Δx=(1,1),perdir=()) wh
     F_diff .= zero(T)
     for i ∈ 1:n, j ∈ 1:n
         inv_Δxj = T(1/Δx[j])
-        ν_over_Δxj² = T(ν/Δx[j]^2)
+        ν_Δxj = T(ν/Δx[j])
         tagper = (j in perdir)
         # Compute interior fluxes: convective + diffusive
+        # Note: ∂(j,CI(I,i),u) = u[CI(I,i)] - u[CI(I,i)-δ(j,CI(I,i))] with proper dimensions
         @loop (F_conv[I,j,i] = inv_Δxj * ϕu(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ);
-               F_diff[I,j,i] = -ν_over_Δxj² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])) over I ∈ inside_u(N,j)
+               F_diff[I,j,i] = -ν_Δxj * ∂(j,CI(I,i),u)) over I ∈ inside_u(N,j)
         # Compute boundary fluxes
-        compute_boundary_flux!(F_conv,F_diff,u,inv_Δxj,ν_over_Δxj²,i,j,N,λ,Val{tagper}())
+        compute_boundary_flux!(F_conv,F_diff,u,inv_Δxj,ν_Δxj,i,j,N,λ,Val{tagper}())
     end
 end
 
 # Neumann boundary flux (non-periodic)
-function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx²,i,j,N,λ,::Val{false})
+function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx,i,j,N,λ,::Val{false})
     # Lower boundary: use ϕuL stencil
     @loop (F_conv[I,j,i] = inv_Δx * ϕuL(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ);
-           F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])) over I ∈ slice(N,2,j,2)
+           F_diff[I,j,i] = -ν_Δx * ∂(j,CI(I,i),u)) over I ∈ slice(N,2,j,2)
     # Upper boundary: use ϕuR stencil
     @loop (F_conv[I,j,i] = inv_Δx * ϕuR(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ);
-           F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])) over I ∈ slice(N,N[j],j,2)
+           F_diff[I,j,i] = -ν_Δx * ∂(j,CI(I,i),u)) over I ∈ slice(N,N[j],j,2)
 end
 
 # Periodic boundary flux
-function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx²,i,j,N,λ,::Val{true})
+function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx,i,j,N,λ,::Val{true})
     # Lower boundary: use ϕuP stencil with wrapped index
     @loop (F_conv[I,j,i] = inv_Δx * ϕuP(j,CIj(j,CI(I,i),N[j]-2),CI(I,i),u,ϕ(i,CI(I,j),u),λ);
-           F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])) over I ∈ slice(N,2,j,2)
+           F_diff[I,j,i] = -ν_Δx * ∂(j,CI(I,i),u)) over I ∈ slice(N,2,j,2)
     # Upper boundary: copy lower boundary flux (periodic wrap)
     @loop (F_conv[I,j,i] = F_conv[CIj(j,I,2),j,i];
            F_diff[I,j,i] = F_diff[CIj(j,I,2),j,i]) over I ∈ slice(N,N[j],j,2)
@@ -220,12 +221,17 @@ Each flux contributes to exactly two cells with opposite signs:
 This ensures global conservation: sum of all fluxes = 0.
 """
 function apply_fluxes!(r,F_conv,F_diff)
-    N,n = size_u(F_conv)
+    N,n = size_u(r)  # Use r (velocity RHS) not F_conv (flux tensor) for dimensions
     T = eltype(r)
     r .= zero(T)
     for i ∈ 1:n, j ∈ 1:n
+        # Lower boundary: flux enters cell at index 2 only (no neighbor outside domain)
+        @loop r[I,i] += F_conv[I,j,i] + F_diff[I,j,i] over I ∈ slice(N,2,j,2)
+        # Interior faces: flux enters cell I, leaves cell I-δ
         @loop r[I,i] += F_conv[I,j,i] + F_diff[I,j,i] over I ∈ inside_u(N,j)
         @loop r[I-δ(j,I),i] -= F_conv[I,j,i] + F_diff[I,j,i] over I ∈ inside_u(N,j)
+        # Upper boundary: flux leaves cell at index N[j]-1 only
+        @loop r[I-δ(j,I),i] -= F_conv[I,j,i] + F_diff[I,j,i] over I ∈ slice(N,N[j],j,2)
     end
 end
 
