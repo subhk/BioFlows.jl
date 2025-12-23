@@ -106,15 +106,22 @@ sdf_sphere(x, t) = sqrt(x[1]^2 + x[2]^2 + x[3]^2) - radius
 
 ### Boundary Conditions
 
-Specify boundary conditions via `inletBC`:
+Specify inlet boundary conditions via `inletBC`:
 
 ```julia
-# Constant inlet velocity
+# Constant inlet velocity (uniform flow)
 sim = Simulation(dims, (1.0, 0.0), L; ...)
 
-# Time-varying boundary (function signature: inletBC(i, x, t))
-inletBC(i, x, t) = i == 1 ? 1.0 + 0.1*sin(t) : 0.0
-sim = Simulation(dims, inletBC, L; U=1.0, ...)  # Must specify U for functions
+# Spatially-varying inlet (parabolic profile in z)
+# Function signature: inletBC(i, x, t) where i=component, x=position, t=time
+H = Lz / 2  # channel half-height
+U_max = 1.5
+inletBC(i, x, t) = i == 1 ? U_max * (1 - ((x[2] - H) / H)^2) : 0.0
+sim = Simulation(dims, inletBC, L; U=U_max, ...)  # Must specify U for functions
+
+# Time-varying inlet (oscillating)
+inletBC(i, x, t) = i == 1 ? 1.0 + 0.1*sin(2π*t) : 0.0
+sim = Simulation(dims, inletBC, L; U=1.0, ...)
 ```
 
 Additional boundary options:
