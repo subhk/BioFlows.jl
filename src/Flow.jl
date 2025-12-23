@@ -271,26 +271,18 @@ end
 
 Project velocity onto divergence-free space using pressure Poisson equation.
 
-For anisotropic grids (Δx ≠ Δy ≠ Δz), the discrete operators are scaled:
-- Divergence: ∇·u = Σᵢ (∂uᵢ/∂xᵢ) with 1/Δxᵢ scaling
-- Gradient: ∂p/∂xᵢ with 1/Δxᵢ scaling
-- Poisson L coefficients include 1/Δxᵢ² weighting
-
-The velocity correction is: u[I,i] -= μ₀[I,i] * (∂p/∂xᵢ) / Δxᵢ
-Since L[I,i] = μ₀[I,i] / Δxᵢ², we have: u[I,i] -= L[I,i] * Δxᵢ * ∂(i,I,p)
+Note: The Poisson solver uses unit spacing internally (Δx=1 in computational coordinates).
+For isotropic grids (Δx = Δy = Δz), this works correctly because all operators use
+the same implicit scaling. For anisotropic grids, uniform grid spacing is required
+in each direction (Δx can differ from Δy, but must be uniform within each direction).
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
-    Δx = a.Δx
-    # Anisotropic divergence as RHS: ∇·u = Σᵢ (u[I+δᵢ,i] - u[I,i])/Δxᵢ
-    @inside b.z[I] = div_aniso(I,a.u,Δx)
+    @inside b.z[I] = div(I,a.u)
     b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
-    # Anisotropic velocity correction: u[I,i] -= μ₀[I,i] * (p[I] - p[I-δᵢ]) / Δxᵢ
-    # Since L[I,i] = μ₀[I,i] / Δxᵢ², we multiply by Δxᵢ to get μ₀/Δxᵢ
     for i ∈ 1:n
-        Δxi = Δx[i]
-        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)*Δxi over I ∈ inside(b.x)
+        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
     end
     b.x ./= dt  # Unscale to recover actual pressure
 end
