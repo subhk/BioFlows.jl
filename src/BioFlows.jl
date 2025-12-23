@@ -101,6 +101,7 @@ export CompositePoisson, PatchPoisson, RefinedVelocityField, RefinedVelocityPatc
 export add_patch!, remove_patch!, get_patch, clear_patches!, has_patches, num_patches
 export create_patches!, update_patches!, ensure_proper_nesting!
 export amr_project!, amr_mom_step!, check_amr_divergence, regrid_amr!
+export amr_cfl, synchronize_base_and_patches!, interpolate_velocity_to_patches!
 
 # Simulation container
 abstract type AbstractSimulation end

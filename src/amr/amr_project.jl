@@ -17,7 +17,7 @@ Projects velocity to divergence-free state at all refinement levels.
 - `w`: Time step weight (1 for predictor, 0.5 for corrector)
 """
 function amr_project!(flow::Flow{D,T}, cp::CompositePoisson{T}, w::Real=1) where {D,T}
-    dt = w * flow.Δt[end]
+    dt = T(w * flow.Δt[end])
     inv_dt = inv(dt)
 
     # 1. Set divergence source on base grid
