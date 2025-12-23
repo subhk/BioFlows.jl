@@ -233,9 +233,23 @@ Current flow time.
 """
 time(a::Flow) = sum(@view(a.Δt[1:end-1]))
 
+# =============================================================================
+# BOUNDARY DATA IMMERSION METHOD (BDIM)
+# =============================================================================
+# BDIM enforces no-slip/no-penetration at immersed boundaries by smoothly
+# blending the fluid velocity with the body velocity using moment fields:
+#   μ₀: volume fraction (1 = fluid, 0 = solid)
+#   μ₁: directional moments for gradient correction
+#   V:  body velocity at each point
+#
+# The update formula interpolates between predicted velocity and body velocity:
+#   u = μ₀*(u_predicted) + (1-μ₀)*V + μ₁·∇(correction)
+# =============================================================================
 function BDIM!(a::Flow)
     dt = a.Δt[end]
+    # Compute correction field: f = u⁰ + Δt*RHS - V
     @loop a.f[Ii] = a.u⁰[Ii]+dt*a.f[Ii]-a.V[Ii] over Ii in CartesianIndices(a.f)
+    # Apply BDIM blending: u += μ₁·∇f + V + μ₀*f
     @loop a.u[Ii] += μddn(Ii,a.μ₁,a.f)+a.V[Ii]+a.μ₀[Ii]*a.f[Ii] over Ii ∈ inside_u(size(a.p))
 end
 

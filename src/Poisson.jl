@@ -1,3 +1,17 @@
+# =============================================================================
+# POISSON SOLVER FOR PRESSURE PROJECTION
+# =============================================================================
+# This module implements an iterative solver for the pressure Poisson equation
+# arising from the incompressibility constraint (∇·u = 0) in the Navier-Stokes
+# equations.
+#
+# The pressure Poisson equation is:
+#     ∇·(β∇p) = σ    where β = L (variable coefficient from BDIM)
+#
+# Discretized on a staggered grid, this becomes a symmetric, sparse linear system:
+#     Ax = z    where A = L + D + L' (tridiagonal blocks)
+# =============================================================================
+
 """
     Poisson{N,M}
 
@@ -16,38 +30,63 @@ ect can be easily implemented and optimized without external libraries.
 To help iteratively solve the system above, the Poisson structure holds
 helper arrays for `inv(D)`, the error `ϵ`, and residual `r=z-Ax`. An iterative
 solution method then estimates the error `ϵ=̃A⁻¹r` and increments `x+=ϵ`, `r-=Aϵ`.
+
+# Matrix Structure
+- L: Lower diagonal coefficients (off-diagonal coupling)
+- D: Diagonal coefficients (negative sum of L entries, ensures row sum = 0)
+- The matrix is symmetric positive semi-definite (null space = constant)
+
+# Solver Components
+- x: Solution (pressure)
+- z: RHS (divergence source)
+- r: Residual (z - Ax)
+- ϵ: Error estimate for updates
+- iD: Inverse diagonal for Jacobi preconditioning
 """
 abstract type AbstractPoisson{T,S,V} end
 struct Poisson{T,S<:AbstractArray{T},V<:AbstractArray{T}} <: AbstractPoisson{T,S,V}
-    L :: V # Lower diagonal coefficients
-    D :: S # Diagonal coefficients
-    iD :: S # 1/Diagonal
-    x :: S # approximate solution
-    ϵ :: S # increment/error
-    r :: S # residual
-    z :: S # source
-    n :: Vector{Int16} # pressure solver iterations
-    perdir :: NTuple # direction of periodic boundary condition
+    L :: V   # Lower diagonal: coupling coefficients L[I,d] = β at face (I,d)
+    D :: S   # Diagonal: D[I] = -Σ(L[I,d] + L[I+δd,d]) for all directions d
+    iD :: S  # Inverse diagonal: 1/D for Jacobi preconditioning
+    x :: S   # Solution vector (pressure field)
+    ϵ :: S   # Error/increment for iterative updates
+    r :: S   # Residual: r = z - Ax
+    z :: S   # Right-hand side (divergence source term)
+    n :: Vector{Int16}  # Iteration count history
+    perdir :: NTuple    # Periodic boundary directions
     function Poisson(x::AbstractArray{T},L::AbstractArray{T},z::AbstractArray{T};perdir=()) where T
+        # Validate array dimensions match
         @assert axes(x) == axes(z) && axes(x) == Base.front(axes(L)) && last(axes(L)) == eachindex(axes(x))
         r = similar(x); fill!(r,0)
         ϵ,D,iD = copy(r),copy(r),copy(r)
+        # Compute diagonal from L coefficients
         set_diag!(D,iD,L)
         new{T,typeof(x),typeof(L)}(L,D,iD,x,ϵ,r,z,[],perdir)
     end
 end
 
+# Support for ForwardDiff automatic differentiation
 using ForwardDiff: Dual,Tag
 Base.eps(::Type{D}) where D<:Dual{Tag{G,T}} where {G,T} = eps(T)
+
+# Compute diagonal and inverse diagonal from L coefficients
+# The diagonal ensures row sum = 0 (conservation property)
 function set_diag!(D,iD,L)
     @inside D[I] = diag(I,L)
+    # Safe inverse: return 0 if D is nearly zero (solid cells)
     @inside iD[I] = abs2(D[I])<2eps(eltype(D)) ? zero(eltype(D)) : inv(D[I])
 end
+
+# Recompute diagonal after L changes (e.g., body movement)
 update!(p::Poisson) = set_diag!(p.D,p.iD,p.L)
 
+# Compute diagonal entry at cell I: D[I] = -Σ(L[I,d] + L[I+1,d])
+# This is the negative sum of all coupling coefficients touching cell I
 @fastmath @inline function diag(I::CartesianIndex{d},L) where {d}
     s = zero(eltype(L))
     for i in 1:d
+        # L[I,i]: coefficient at left/bottom face
+        # L[I+δ,i]: coefficient at right/top face
         s -= @inbounds(L[I,i]+L[I+δ(i,I),i])
     end
     return s
