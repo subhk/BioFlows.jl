@@ -1,13 +1,49 @@
+# =============================================================================
+# FINITE DIFFERENCE OPERATORS FOR STAGGERED (MAC) GRID
+# =============================================================================
+# Grid layout:
+#   - Scalar fields (p, σ): cell-centered
+#   - Vector fields (u): face-centered (u_x at x-faces, u_z at z-faces)
+# =============================================================================
+
+# Backward difference: ∂f/∂x ≈ f[I] - f[I-1] (for scalar field)
 @inline ∂(a,I::CartesianIndex{d},f::AbstractArray{T,d}) where {T,d} = @inbounds f[I]-f[I-δ(a,I)]
+
+# Forward difference: ∂u_a/∂x_a ≈ u[I+1,a] - u[I,a] (for velocity component)
 @inline ∂(a,I::CartesianIndex{m},u::AbstractArray{T,n}) where {T,n,m} = @inbounds u[I+δ(a,I),a]-u[I,a]
+
+# Face-to-cell interpolation: average neighboring face values
 @inline ϕ(a,I,f) = @inbounds (f[I]+f[I-δ(a,I)])/2
+
+# =============================================================================
+# CONVECTION SCHEMES: Compute face values from cell values
+# Arguments: (u)pwind, (c)enter, (d)ownwind cell values
+# =============================================================================
+
+# QUICK: Quadratic Upwind - 3rd order with median limiter for stability
 @fastmath quick(u,c,d) = median((5c+2d-u)/6,c,median(10c-9u,c,d))
+
+# van Leer: 2nd order TVD scheme - prevents spurious oscillations
 @fastmath vanLeer(u,c,d) = (c≤min(u,d) || c≥max(u,d)) ? c : c+(d-c)*(c-u)/(d-u)
+
+# Central Difference Scheme: 2nd order, simple but can oscillate
 @fastmath cds(u,c,d) = (c+d)/2
 
+# =============================================================================
+# CONVECTIVE FLUX FUNCTIONS
+# Select upwind stencil based on flow direction, apply scheme λ
+# =============================================================================
+
+# Interior: full upwind stencil available on both sides
 @inline ϕu(a,I,f,u,λ) = @inbounds u>0 ? u*λ(f[I-2δ(a,I)],f[I-δ(a,I)],f[I]) : u*λ(f[I+δ(a,I)],f[I],f[I-δ(a,I)])
+
+# Periodic BC: wrap index Ip for upwind cell across boundary
 @inline ϕuP(a,Ip,I,f,u,λ) = @inbounds u>0 ? u*λ(f[Ip],f[I-δ(a,I)],f[I]) : u*λ(f[I+δ(a,I)],f[I],f[I-δ(a,I)])
+
+# Left boundary: central diff for outflow (u>0), upwind for inflow (u<0)
 @inline ϕuL(a,I,f,u,λ) = @inbounds u>0 ? u*ϕ(a,I,f) : u*λ(f[I+δ(a,I)],f[I],f[I-δ(a,I)])
+
+# Right boundary: central diff for outflow (u<0), upwind for inflow (u>0)
 @inline ϕuR(a,I,f,u,λ) = @inbounds u<0 ? u*ϕ(a,I,f) : u*λ(f[I-2δ(a,I)],f[I-δ(a,I)],f[I])
 
 @fastmath @inline function div(I::CartesianIndex{m},u) where {m}
