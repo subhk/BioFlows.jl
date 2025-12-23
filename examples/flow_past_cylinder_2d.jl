@@ -27,12 +27,14 @@ sdf(x, t) = sqrt((x[1] - center_x)^2 + (x[2] - center_z)^2) - radius_cells
 body = AutoBody(sdf)
 
 # --- Create Simulation ---
+# Time stepping: adaptive CFL (default) or fixed
+# For fixed time step, add: fixed_Δt = 0.001
 sim = Simulation((nx, nz), (Lx, Lz);
                  ν = ν,
                  body = body,
                  L_char = diameter,
                  perdir = (2,),       # Periodic in z
-                 inletBC = inletBC, 
+                 inletBC = inletBC,
                  outletBC = true)     # Convective outlet
 
 # --- Output Writers ---

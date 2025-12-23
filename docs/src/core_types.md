@@ -12,7 +12,7 @@ Simulation
 
 ```julia
 Simulation(dims::NTuple{N}, L::NTuple{N};
-           inletBC=nothing, U=nothing, Δt=0.25, ν=0., ϵ=1, g=nothing,
+           inletBC=nothing, U=nothing, Δt=0.25, fixed_Δt=nothing, ν=0., ϵ=1, g=nothing,
            perdir=(), outletBC=false, L_char=nothing,
            body::AbstractBody=NoBody(),
            T=Float32, mem=Array)
@@ -27,6 +27,7 @@ Simulation(dims::NTuple{N}, L::NTuple{N};
 | `inletBC` | `Tuple` or `Function` | Inlet boundary velocity (see below). Default: `(1, 0, ...)` |
 | `U` | `Number` | Velocity scale (auto-computed if `inletBC` is constant, **required** if function) |
 | `Δt` | `Number` | Initial time step (default: 0.25) |
+| `fixed_Δt` | `Number` or `Nothing` | Fixed time step. If set, disables adaptive CFL (default: `nothing`) |
 | `ν` | `Number` | Kinematic viscosity (`Re = U*L/ν`) |
 | `ϵ` | `Number` | BDIM kernel width (default: 1) |
 | `g` | `Function` or `Nothing` | Acceleration field `g(i,x,t)` |
