@@ -380,7 +380,8 @@ end
     set_patch_boundary!(patch, p_coarse, anchor)
 
 Set patch ghost cell values from coarse pressure solution.
-Used for Dirichlet boundary conditions at patch edges.
+Uses 2D bilinear interpolation for Dirichlet BCs at patch edges.
+Falls back to Neumann BC (zero gradient) at domain boundaries.
 """
 function set_patch_boundary!(patch::PatchPoisson{T},
                               p_coarse::AbstractArray{T},
@@ -388,52 +389,82 @@ function set_patch_boundary!(patch::PatchPoisson{T},
     ratio = refinement_ratio(patch)
     ai, aj = anchor
     nx, nz = patch.fine_dims
+    nc_i, nc_j = size(p_coarse, 1), size(p_coarse, 2)
+
+    # Helper for 2D bilinear interpolation with bounds checking
+    function bilinear_interp(fi::Int, fj::Int, i_offset::Int, j_offset::Int)
+        # Map fine cell to coarse location
+        xf = (fi - 1.5) / ratio
+        zf = (fj - 1.5) / ratio
+
+        # Coarse indices (with offset for boundary position)
+        ic = floor(Int, xf) + ai + i_offset
+        jc = floor(Int, zf) + aj + j_offset
+
+        # Bounds check
+        ic = clamp(ic, 1, nc_i - 1)
+        jc = clamp(jc, 1, nc_j - 1)
+
+        # Ensure we don't go out of bounds for +1 access
+        ic_next = min(ic + 1, nc_i)
+        jc_next = min(jc + 1, nc_j)
+
+        # Weights for bilinear interpolation
+        wx = clamp(xf - floor(xf), zero(T), one(T))
+        wz = clamp(zf - floor(zf), zero(T), one(T))
+
+        # Bilinear interpolation
+        v00 = p_coarse[ic, jc]
+        v10 = p_coarse[ic_next, jc]
+        v01 = p_coarse[ic, jc_next]
+        v11 = p_coarse[ic_next, jc_next]
+
+        return (1-wx)*(1-wz)*v00 + wx*(1-wz)*v10 + (1-wx)*wz*v01 + wx*wz*v11
+    end
 
     # Left boundary (i = 1)
-    ic = ai - 1
-    if ic >= 1
+    if ai > 1  # Interior interface - use Dirichlet from coarse
         for fj in 1:nz+2
-            zf = (fj - 1.5) / ratio
-            jc = floor(Int, zf) + aj
-            jc = clamp(jc, 1, size(p_coarse, 2) - 1)
-            wz = clamp(zf - floor(zf), zero(T), one(T))
-            patch.x[1, fj] = (1-wz) * p_coarse[ic, jc] + wz * p_coarse[ic, jc+1]
+            patch.x[1, fj] = bilinear_interp(0, fj, -1, 0)
+        end
+    else  # Domain boundary - use Neumann BC (zero gradient)
+        for fj in 1:nz+2
+            patch.x[1, fj] = patch.x[2, fj]
         end
     end
 
     # Right boundary (i = nx+2)
-    ic = ai + patch.coarse_extent[1]
-    if ic <= size(p_coarse, 1)
+    right_coarse = ai + patch.coarse_extent[1]
+    if right_coarse < nc_i  # Interior interface - use Dirichlet
         for fj in 1:nz+2
-            zf = (fj - 1.5) / ratio
-            jc = floor(Int, zf) + aj
-            jc = clamp(jc, 1, size(p_coarse, 2) - 1)
-            wz = clamp(zf - floor(zf), zero(T), one(T))
-            patch.x[nx+2, fj] = (1-wz) * p_coarse[ic, jc] + wz * p_coarse[ic, jc+1]
+            patch.x[nx+2, fj] = bilinear_interp(nx+2, fj, 0, 0)
+        end
+    else  # Domain boundary - use Neumann BC
+        for fj in 1:nz+2
+            patch.x[nx+2, fj] = patch.x[nx+1, fj]
         end
     end
 
     # Bottom boundary (j = 1)
-    jc = aj - 1
-    if jc >= 1
+    if aj > 1  # Interior interface - use Dirichlet
         for fi in 1:nx+2
-            xf = (fi - 1.5) / ratio
-            ic = floor(Int, xf) + ai
-            ic = clamp(ic, 1, size(p_coarse, 1) - 1)
-            wx = clamp(xf - floor(xf), zero(T), one(T))
-            patch.x[fi, 1] = (1-wx) * p_coarse[ic, jc] + wx * p_coarse[ic+1, jc]
+            patch.x[fi, 1] = bilinear_interp(fi, 0, 0, -1)
+        end
+    else  # Domain boundary - use Neumann BC
+        for fi in 1:nx+2
+            patch.x[fi, 1] = patch.x[fi, 2]
         end
     end
 
     # Top boundary (j = nz+2)
-    jc = aj + patch.coarse_extent[2]
-    if jc <= size(p_coarse, 2)
+    top_coarse = aj + patch.coarse_extent[2]
+    if top_coarse < nc_j  # Interior interface - use Dirichlet
         for fi in 1:nx+2
-            xf = (fi - 1.5) / ratio
-            ic = floor(Int, xf) + ai
-            ic = clamp(ic, 1, size(p_coarse, 1) - 1)
-            wx = clamp(xf - floor(xf), zero(T), one(T))
-            patch.x[fi, nz+2] = (1-wx) * p_coarse[ic, jc] + wx * p_coarse[ic+1, jc]
+            patch.x[fi, nz+2] = bilinear_interp(fi, nz+2, 0, 0)
+        end
+    else  # Domain boundary - use Neumann BC
+        for fi in 1:nx+2
+            patch.x[fi, nz+2] = patch.x[fi, nz+1]
         end
     end
 end
