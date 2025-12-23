@@ -84,16 +84,16 @@ function median(a,b,c)
 end
 
 """
-    conv_diff!(r, u, Φ, λ; ν, Δx=1, perdir=())
+    conv_diff!(r, u, Φ, λ; ν, Δx, perdir=())
 
 Compute convective and diffusive fluxes for the momentum equation.
 
 The dimensional form is:
     r = -∇·(u⊗u) + ν∇²u
 
-With proper scaling:
-- Convective flux: (u·∇)u scaled by 1/Δx
-- Diffusive flux: ν∇²u scaled by ν/Δx²
+With proper scaling for anisotropic grids:
+- Convective flux in direction j: (u·∇)u scaled by 1/Δx[j]
+- Diffusive flux in direction j: ν∂²u/∂xⱼ² scaled by ν/Δx[j]²
 
 # Arguments
 - `r`: RHS accumulator (output)
@@ -101,26 +101,27 @@ With proper scaling:
 - `Φ`: Flux work array
 - `λ`: Convection scheme (quick, vanLeer, cds)
 - `ν`: Kinematic viscosity (m²/s)
-- `Δx`: Grid spacing (m), default 1 for non-dimensional
+- `Δx`: Grid spacing tuple (m), e.g., `(Δx, Δy)` or `(Δx, Δy, Δz)`
 - `perdir`: Tuple of periodic directions
 """
-function conv_diff!(r,u,Φ,λ::F;ν=0.1,Δx=1,perdir=()) where {F}
+function conv_diff!(r,u,Φ,λ::F;ν=0.1,Δx=(1,1),perdir=()) where {F}
     r .= zero(eltype(r))
     N,n = size_u(u)
     T = eltype(r)
-    inv_Δx = T(1/Δx)        # For convective term: (u·∇)u ~ Δu/Δx
-    ν_over_Δx = T(ν/Δx)     # For diffusive term: ν∇²u ~ ν*Δu/Δx²
     for i ∈ 1:n, j ∈ 1:n
+        # Direction-specific scaling for anisotropic grids
+        inv_Δxj = T(1/Δx[j])        # For convective term in direction j
+        ν_over_Δxj = T(ν/Δx[j])     # For diffusive term in direction j
         # if it is periodic direction
         tagper = (j in perdir)
         # treatment for bottom boundary with BCs
-        lowerBoundary!(r,u,Φ,ν_over_Δx,inv_Δx,i,j,N,λ,Val{tagper}())
-        # inner cells: Φ = convective_flux/Δx - ν*diffusive_flux/Δx²
-        @loop (Φ[I] = inv_Δx*ϕu(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν_over_Δx*∂(j,CI(I,i),u);
+        lowerBoundary!(r,u,Φ,ν_over_Δxj,inv_Δxj,i,j,N,λ,Val{tagper}())
+        # inner cells: Φ = convective_flux/Δx[j] - ν*diffusive_flux/Δx[j]²
+        @loop (Φ[I] = inv_Δxj*ϕu(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν_over_Δxj*∂(j,CI(I,i),u);
                r[I,i] += Φ[I]) over I ∈ inside_u(N,j)
         @loop r[I-δ(j,I),i] -= Φ[I] over I ∈ inside_u(N,j)
         # treatment for upper boundary with BCs
-        upperBoundary!(r,u,Φ,ν_over_Δx,inv_Δx,i,j,N,λ,Val{tagper}())
+        upperBoundary!(r,u,Φ,ν_over_Δxj,inv_Δxj,i,j,N,λ,Val{tagper}())
     end
 end
 
