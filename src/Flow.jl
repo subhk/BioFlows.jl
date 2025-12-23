@@ -157,61 +157,65 @@ The equations solved are the dimensional incompressible Navier-Stokes:
     ∂u/∂t + (u·∇)u = -∇p/ρ + ν∇²u + g
     ∇·u = 0
 
-where `Δx` is the uniform grid spacing, `ν` is kinematic viscosity (m²/s),
+where `Δx` is the uniform grid spacing (m), `ν` is kinematic viscosity (m²/s),
 and all spatial derivatives are properly scaled by `Δx`.
 """
 struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{T}}
     # Fluid fields
-    u :: Vf # velocity vector field
-    u⁰:: Vf # previous velocity
-    f :: Vf # force vector
-    p :: Sf # pressure scalar field
-    σ :: Sf # divergence scalar
+    u :: Vf # velocity vector field (m/s)
+    u⁰:: Vf # previous velocity (m/s)
+    f :: Vf # force/RHS vector (m/s²)
+    p :: Sf # pressure scalar field (m²/s²)
+    σ :: Sf # divergence scalar (work array)
     # BDIM fields
-    V :: Vf # body velocity vector
-    μ₀:: Vf # zeroth-moment vector
-    μ₁:: Tf # first-moment tensor field
+    V :: Vf # body velocity vector (m/s)
+    μ₀:: Vf # zeroth-moment vector (dimensionless)
+    μ₁:: Tf # first-moment tensor field (dimensionless)
     # Non-fields
-    uBC :: Union{NTuple{D,Number},Function} # domain boundary values/function
-    Δt:: Vector{T} # time step (stored in CPU memory)
+    uBC :: Union{NTuple{D,Number},Function} # boundary velocity (m/s)
+    Δt:: Vector{T} # time step history (s)
     ν :: T # kinematic viscosity (m²/s)
     Δx :: T # uniform grid spacing (m)
-    g :: Union{Function,Nothing} # acceleration field function
-    exitBC :: Bool # Convection exit
-    perdir :: NTuple # tuple of periodic direction
+    g :: Union{Function,Nothing} # acceleration field (m/s²)
+    exitBC :: Bool # convection exit BC flag
+    perdir :: NTuple # periodic directions tuple
     """
-        Flow(N, uBC; L=nothing, Δx=1, ...)
+        Flow(N, uBC; L, ν=0, Δt=0.25, ...)
 
-    Construct a Flow on grid of size `N` (number of cells in each direction).
+    Construct a Flow on grid of size `N` with domain size `L`.
 
-    # Grid spacing
-    - If `L` (domain size tuple) is provided: `Δx = L[1]/N[1]` (must be uniform)
-    - Otherwise uses `Δx` directly (default: 1 for non-dimensional)
+    # Required Arguments
+    - `N::NTuple{D}`: Number of grid cells, e.g., `(nx, nz)` or `(nx, ny, nz)`
+    - `uBC`: Boundary velocity (m/s). Tuple or `Function(i,x,t)`
+    - `L::NTuple{D}`: Physical domain size (m), e.g., `(2.0, 1.0)` for 2m × 1m
+      Grid spacing: `Δx = L[1]/N[1]` (must be uniform in all directions)
 
-    # Arguments
-    - `N::NTuple{D}`: Number of grid cells in each direction
-    - `uBC`: Boundary velocity (tuple or function)
-    - `L::NTuple{D}`: Physical domain size (e.g., `(1.0, 0.5)` for 1m × 0.5m)
-    - `Δx::Real`: Grid spacing (used if `L` not provided)
-    - `ν::Real`: Kinematic viscosity (m²/s)
-    - `Δt::Real`: Initial time step (s)
-    - Other kwargs: `g`, `uλ`, `perdir`, `exitBC`, `T`, `f`
+    # Optional Arguments
+    - `ν=0.`: Kinematic viscosity (m²/s). Water ≈ 1e-6, air ≈ 1.5e-5
+    - `Δt=0.25`: Initial time step (s)
+    - `g=nothing`: Body acceleration function `g(i,x,t)` returning m/s²
+    - `uλ=nothing`: Initial velocity. Tuple or `Function(i,x)`
+    - `perdir=()`: Periodic directions, e.g., `(2,)` for y-periodic
+    - `exitBC=false`: Convective exit BC in direction 1
+    - `T=Float32`: Numeric type
+    - `f=Array`: Memory backend
+
+    # Example
+    ```julia
+    # 2m × 1m domain, 200×100 cells → Δx = 0.01m
+    flow = Flow((200, 100), (1.0, 0.0); L=(2.0, 1.0), ν=1e-6)
+    ```
     """
-    function Flow(N::NTuple{D}, uBC; f=Array, Δt=0.25, ν=0., L=nothing, Δx=1, g=nothing,
+    function Flow(N::NTuple{D}, uBC; L::NTuple{D}, f=Array, Δt=0.25, ν=0., g=nothing,
             uλ=nothing, perdir=(), exitBC=false, T=Float32) where D
-        # Compute grid spacing from domain size if provided
-        if !isnothing(L)
-            @assert length(L) == D "Domain size L must have $D components"
-            Δx_computed = T(L[1] / N[1])
-            # Verify uniform spacing
-            for d in 2:D
-                Δx_d = T(L[d] / N[d])
-                @assert isapprox(Δx_d, Δx_computed; rtol=1e-6) "Non-uniform grid spacing not supported: Δx[$d]=$Δx_d ≠ Δx[1]=$Δx_computed"
-            end
-            Δx = Δx_computed
-        else
-            Δx = T(Δx)
+        # Compute grid spacing from domain size
+        Δx_computed = T(L[1] / N[1])
+        # Verify uniform spacing in all directions
+        for d in 2:D
+            Δx_d = T(L[d] / N[d])
+            @assert isapprox(Δx_d, Δx_computed; rtol=1e-6) "Non-uniform grid spacing not supported: Δx[$d]=$Δx_d ≠ Δx[1]=$Δx_computed"
         end
+        Δx = Δx_computed
         Ng = N .+ 2
         Nd = (Ng..., D)
         isnothing(uλ) && (uλ = ic_function(uBC))
