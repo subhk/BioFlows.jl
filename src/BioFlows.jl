@@ -137,17 +137,44 @@ Constructor for a BioFlows simulation solving the dimensional incompressible Nav
 - `T=Float32`: Numeric type
 - `mem=Array`: Memory backend (`Array`, `CuArray`, etc.)
 
-# Example
+# Examples
+
+## Constant inlet velocity
 ```julia
 # 2D channel: 2m × 1m domain with 256 × 128 cells
-# Δx = 2.0/256 = 0.0078125 m
-# Inlet velocity 1 m/s, water viscosity
+# Uniform inlet velocity (U=1 m/s in x-direction)
 sim = Simulation((256, 128), (1.0, 0.0), (2.0, 1.0); ν=1e-6)
 
 # With immersed cylinder of diameter 0.2m
 diameter = 0.2
 cylinder = AutoBody((x,t) -> √(x[1]^2 + x[2]^2) - diameter/2)
 sim = Simulation((256, 128), (1.0, 0.0), (2.0, 1.0); ν=1e-6, body=cylinder, L_char=diameter)
+```
+
+## Spatially-varying inlet (parabolic profile)
+```julia
+# Parabolic inlet profile: u(z) = U_max * (1 - (z - H)²/H²)
+# where H is the channel half-height
+Lx, Lz = 2.0, 1.0
+H = Lz / 2  # half-height
+U_max = 1.5
+
+# inletBC(i, x, t): i=component, x=position, t=time
+inletBC(i, x, t) = i == 1 ? U_max * (1 - ((x[2] - H) / H)^2) : 0.0
+
+sim = Simulation((256, 128), inletBC, (Lx, Lz);
+                 U = U_max,      # Required when inletBC is a Function
+                 ν = 1e-6,
+                 outletBC = true)
+```
+
+## Time-varying inlet
+```julia
+# Oscillating inlet velocity
+U₀, ω = 1.0, 2π
+inletBC(i, x, t) = i == 1 ? U₀ * (1 + 0.1*sin(ω*t)) : 0.0
+
+sim = Simulation((256, 128), inletBC, (2.0, 1.0); U=U₀, ν=1e-6)
 ```
 
 See files in `examples` folder for more examples.
