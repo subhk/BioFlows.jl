@@ -171,22 +171,79 @@ The discrete Laplacian for the Poisson equation:
 
 ## Time Integration
 
-BioFlows.jl uses a fractional-step (projection) method:
+BioFlows.jl uses a **2nd-order predictor-corrector** (Heun's method) combined with pressure projection to ensure incompressibility. This provides 2nd-order temporal accuracy.
 
-1. **Predictor Step**: Advance momentum without pressure
-   ```math
-   \mathbf{u}^* = \mathbf{u}^n + \Delta t \left[ -(\mathbf{u}^n \cdot \nabla)\mathbf{u}^n + \nu \nabla^2 \mathbf{u}^n \right]
-   ```
+### Predictor Step
 
-2. **Pressure Poisson Equation**: Solve for pressure correction
-   ```math
-   \nabla^2 p = \frac{\rho}{\Delta t} \nabla \cdot \mathbf{u}^*
-   ```
+First, compute a forward Euler prediction:
 
-3. **Correction Step**: Project onto divergence-free space
-   ```math
-   \mathbf{u}^{n+1} = \mathbf{u}^* - \frac{\Delta t}{\rho} \nabla p
-   ```
+```math
+\mathbf{u}^* = \mathbf{u}^n + \Delta t \left[ -(\mathbf{u}^n \cdot \nabla)\mathbf{u}^n + \nu \nabla^2 \mathbf{u}^n + \mathbf{g} \right]
+```
+
+Then project onto divergence-free space:
+
+```math
+\nabla^2 \phi = \nabla \cdot \mathbf{u}^*
+```
+```math
+\mathbf{u}' = \mathbf{u}^* - \nabla \phi
+```
+
+### Corrector Step
+
+Re-evaluate the right-hand side at the predicted velocity:
+
+```math
+\mathbf{f}' = -(\mathbf{u}' \cdot \nabla)\mathbf{u}' + \nu \nabla^2 \mathbf{u}' + \mathbf{g}
+```
+
+Average the predictor and corrector contributions (Heun's method):
+
+```math
+\mathbf{u}^{**} = \frac{1}{2}\left( \mathbf{u}' + \mathbf{u}^n + \Delta t \, \mathbf{f}' \right)
+```
+
+This is equivalent to the trapezoidal rule:
+
+```math
+\mathbf{u}^{**} = \mathbf{u}^n + \frac{\Delta t}{2} \left( \mathbf{f}^n + \mathbf{f}' \right)
+```
+
+Finally, project onto divergence-free space:
+
+```math
+\nabla^2 \psi = \frac{2}{\Delta t} \nabla \cdot \mathbf{u}^{**}
+```
+```math
+\mathbf{u}^{n+1} = \mathbf{u}^{**} - \frac{\Delta t}{2} \nabla \psi
+```
+
+### Summary of the Algorithm
+
+```
+Algorithm: 2nd-order Predictor-Corrector with Pressure Projection
+─────────────────────────────────────────────────────────────────
+Input: uⁿ (divergence-free velocity at time tⁿ)
+Output: uⁿ⁺¹ (divergence-free velocity at time tⁿ⁺¹)
+
+1. Save: u⁰ ← uⁿ
+
+2. PREDICTOR:
+   a. f ← RHS(u⁰)                    // Convection + diffusion
+   b. u* ← u⁰ + Δt·f                 // Forward Euler
+   c. Solve ∇²φ = ∇·u*               // Pressure Poisson
+   d. u' ← u* - ∇φ                   // Project to div-free
+
+3. CORRECTOR:
+   a. f' ← RHS(u')                   // Re-evaluate at predicted
+   b. u** ← u' + u⁰ + Δt·f'          // Accumulate
+   c. u** ← 0.5·u**                  // Average (Heun)
+   d. Solve ∇²ψ = (2/Δt)·∇·u**       // Pressure Poisson
+   e. uⁿ⁺¹ ← u** - (Δt/2)·∇ψ        // Final projection
+
+4. Compute Δt from CFL condition
+```
 
 ### CFL Condition
 
