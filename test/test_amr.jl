@@ -46,8 +46,8 @@ end
     # Create a simple simulation
     sdf(x, t) = norm(x .- SVector(16.0, 16.0)) - 4.0
     # Domain size = (32, 32) with Δx=1, characteristic length L_char=8.0
-    sim = Simulation((32, 32), (1.0, 0.0), (32.0, 32.0);
-                     ν=0.01, body=AutoBody(sdf), L_char=8.0)
+    sim = Simulation((32, 32), (32.0, 32.0);
+                     inletBC=(1.0, 0.0), ν=0.01, body=AutoBody(sdf), L_char=8.0)
 
     # Test adapter creation
     adapter = FlowToGridAdapter(sim.flow, 8.0)
@@ -75,8 +75,8 @@ end
     # Create simulation with cylinder body
     sdf(x, t) = norm(x .- SVector(16.0, 16.0)) - 4.0
     # Domain size = (32, 32) with Δx=1, characteristic length L_char=8.0
-    sim = Simulation((32, 32), (1.0, 0.0), (32.0, 32.0);
-                     ν=0.01, body=AutoBody(sdf), L_char=8.0)
+    sim = Simulation((32, 32), (32.0, 32.0);
+                     inletBC=(1.0, 0.0), ν=0.01, body=AutoBody(sdf), L_char=8.0)
 
     # Advance a few steps to get non-trivial flow
     for _ in 1:5
@@ -131,8 +131,9 @@ end
     config = AMRConfig(max_level=2, body_distance_threshold=4.0, regrid_interval=5)
 
     # Domain size = (32, 32) with Δx=1, characteristic length L_char=8.0
-    amr_sim = AMRSimulation((32, 32), (1.0, 0.0), (32.0, 32.0);
-                            ν=0.01, body=AutoBody(sdf), amr_config=config, L_char=8.0)
+    amr_sim = AMRSimulation((32, 32), (32.0, 32.0);
+                            inletBC=(1.0, 0.0), ν=0.01, body=AutoBody(sdf),
+                            amr_config=config, L_char=8.0)
 
     @test isa(amr_sim, AMRSimulation)
     @test isa(amr_sim, AbstractSimulation)
