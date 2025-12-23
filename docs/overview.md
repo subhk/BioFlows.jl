@@ -45,9 +45,11 @@ Simulation(dims::NTuple, inletBC, L::Number;
 ```
 
 - `dims`: Grid dimensions `(nx, nz)` for 2D or `(nx, ny, nz)` for 3D
-- `inletBC`: Inlet boundary velocity — `Tuple` for constant, `Function(i,x,t)` for varying
+- `inletBC`: Inlet boundary velocity:
+  - `Tuple`: Constant velocity, e.g., `(1.0, 0.0)` for uniform flow
+  - `Function(i,x,t)`: Spatially/temporally varying, where `i`=component, `x`=position, `t`=time
 - `L`: Length scale for non-dimensionalization
-- `U`: Velocity scale (auto-computed from `inletBC` if constant)
+- `U`: Velocity scale (auto-computed from `inletBC` if constant, **required** if function)
 - `ν`: Kinematic viscosity (`Re = U*L/ν`)
 - `ϵ`: BDIM kernel width
 - `perdir`: Periodic directions, e.g. `(2,)` for z-periodic
@@ -55,6 +57,17 @@ Simulation(dims::NTuple, inletBC, L::Number;
 - `body`: Immersed geometry (`AutoBody`, `NoBody`, etc.)
 - `T`: Float type (`Float32` or `Float64`)
 - `mem`: Array backend (`Array` for CPU, `CuArray` for GPU)
+
+**Inlet BC Examples:**
+```julia
+# Uniform inlet
+sim = Simulation(dims, (1.0, 0.0), L; ν=0.01)
+
+# Parabolic profile (varies with z in 2D)
+H = Lz / 2
+inletBC(i, x, t) = i == 1 ? 1.5 * (1 - ((x[2] - H) / H)^2) : 0.0
+sim = Simulation(dims, inletBC, L; U=1.5, ν=0.01)
+```
 
 ### Flow
 

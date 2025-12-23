@@ -23,9 +23,9 @@ Simulation(dims::NTuple, inletBC, L::Number;
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `dims` | `NTuple{N,Int}` | Grid dimensions `(nx, nz)` or `(nx, ny, nz)` |
-| `inletBC` | `Tuple` or `Function` | Inlet boundary velocity |
+| `inletBC` | `Tuple` or `Function` | Inlet boundary velocity (see below) |
 | `L` | `Number` | Length scale for non-dimensionalization |
-| `U` | `Number` | Velocity scale (auto-computed if `inletBC` is constant) |
+| `U` | `Number` | Velocity scale (auto-computed if `inletBC` is constant, **required** if function) |
 | `Δt` | `Number` | Initial time step (default: 0.25) |
 | `ν` | `Number` | Kinematic viscosity (`Re = U*L/ν`) |
 | `ϵ` | `Number` | BDIM kernel width (default: 1) |
@@ -35,6 +35,33 @@ Simulation(dims::NTuple, inletBC, L::Number;
 | `body` | `AbstractBody` | Immersed geometry |
 | `T` | `Type` | Float type (`Float32` or `Float64`) |
 | `mem` | `Type` | Array backend (`Array` for CPU) |
+
+### Inlet Boundary Conditions
+
+The `inletBC` parameter specifies the inlet velocity and can be:
+
+1. **Constant (Tuple):** Uniform velocity across the inlet
+   ```julia
+   inletBC = (1.0, 0.0)  # U=1 in x, 0 in z
+   ```
+
+2. **Spatially-varying (Function):** Velocity varies with position
+   ```julia
+   # Parabolic profile: u(z) = U_max * (1 - (z-H)²/H²)
+   H = Lz / 2
+   inletBC(i, x, t) = i == 1 ? 1.5 * (1 - ((x[2] - H) / H)^2) : 0.0
+   ```
+
+3. **Time-varying (Function):** Velocity varies with time
+   ```julia
+   # Oscillating inlet
+   inletBC(i, x, t) = i == 1 ? 1.0 + 0.1*sin(2π*t) : 0.0
+   ```
+
+Function signature: `inletBC(i, x, t)` where:
+- `i`: Velocity component (1=x, 2=z in 2D; 1=x, 2=y, 3=z in 3D)
+- `x`: Position vector `[x, z]` or `[x, y, z]`
+- `t`: Time
 
 ### Fields
 
