@@ -242,6 +242,16 @@ function slice(dims::NTuple{N},i,j,low=1) where N
     CartesianIndices(ntuple( k-> k==j ? (i:i) : (low:dims[k]), N))
 end
 
+# =============================================================================
+# BOUNDARY CONDITIONS
+# =============================================================================
+# These functions apply boundary conditions to the ghost cells of arrays.
+# The staggered grid requires different treatment for:
+#   - Normal velocity components: Dirichlet (specified value)
+#   - Tangential velocity components: Neumann (zero gradient)
+#   - Periodic directions: Copy from opposite boundary
+# =============================================================================
+
 """
     BC!(a,A)
 
@@ -253,17 +263,20 @@ is applied to the tangential components.
 BC!(a,U,saveexit=false,perdir=(),t=0) = BC!(a,(i,x,t)->U[i],saveexit,perdir,t)
 function BC!(a,uBC::Function,saveexit=false,perdir=(),t=0)
     N,n = size_u(a)
-    for i ∈ 1:n, j ∈ 1:n
+    for i ∈ 1:n, j ∈ 1:n  # i = velocity component, j = boundary direction
         if j in perdir
+            # PERIODIC: Copy from opposite boundary
             @loop a[I,i] = a[CIj(j,I,N[j]-1),i] over I ∈ slice(N,1,j)
             @loop a[I,i] = a[CIj(j,I,2),i] over I ∈ slice(N,N[j],j)
         else
-            if i==j # Normal direction, Dirichlet
-                for s ∈ (1,2)
+            if i==j  # NORMAL component: Dirichlet BC
+                for s ∈ (1,2)  # Both ghost layers at inlet
                     @loop a[I,i] = uBC(i,loc(i,I),t) over I ∈ slice(N,s,j)
                 end
-                (!saveexit || i>1) && (@loop a[I,i] = uBC(i,loc(i,I),t) over I ∈ slice(N,N[j],j)) # overwrite exit
-            else    # Tangential directions, Neumann
+                # Outlet: apply BC unless saveexit and x-direction
+                (!saveexit || i>1) && (@loop a[I,i] = uBC(i,loc(i,I),t) over I ∈ slice(N,N[j],j))
+            else  # TANGENTIAL component: Neumann BC (zero gradient)
+                # u_ghost = u_BC + (u_interior - u_BC) = u_interior
                 @loop a[I,i] = uBC(i,loc(i,I),t)+a[I+δ(j,I),i]-uBC(i,loc(i,I+δ(j,I)),t) over I ∈ slice(N,1,j)
                 @loop a[I,i] = uBC(i,loc(i,I),t)+a[I-δ(j,I),i]-uBC(i,loc(i,I-δ(j,I)),t) over I ∈ slice(N,N[j],j)
             end
