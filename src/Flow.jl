@@ -258,28 +258,31 @@ end
 
 Project velocity onto divergence-free space using pressure Poisson equation.
 
-Solves the pressure Poisson equation:
-    ∇²p = (1/Δt) ∇·u*
+For dimensional Navier-Stokes with grid spacing Δx:
 
-Then corrects velocity:
-    u^{n+1} = u* - Δt ∇p
+1. Discrete Poisson equation:
+   L·Δ²p = (Δx/Δt)·div(u)   [RHS scaled by Δx/Δt]
 
-With proper Δx scaling for dimensional equations:
-- Divergence: ∇·u = (1/Δx) Σ Δu
-- Pressure gradient: ∇p = (1/Δx) Δp
+2. Velocity correction:
+   u = u* - (Δt/Δx)·L·∂p    [gradient scaled by Δt/Δx]
+
+The solver uses dt-scaled pressure for numerical stability:
+- Solve: L·Δ²(Δt·p̃) = Δx·div(u)
+- Correct: u -= (1/Δx)·L·∂(Δt·p̃) = (Δt/Δx)·L·∂p̃
+- Unscale: p = p̃
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
     Δx = a.Δx
-    inv_Δx = inv(Δx)
-    # Set source term: z = div(u)/Δx (dimensional divergence)
-    @inside b.z[I] = inv_Δx*div(I,a.u)
-    b.x .*= dt  # Scale initial guess
+    # Set source term: z = Δx * div(u) for discrete Poisson with dt-scaling
+    # The solver will find x such that L·Δ²x = z, where x = dt*p
+    @inside b.z[I] = Δx*div(I,a.u)
+    b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
-    # Apply pressure gradient correction: u -= (dt/Δx) * L * ∂p
-    scale = dt * inv_Δx
+    # Apply correction: u -= (1/Δx) * L * ∂(dt*p) = (dt/Δx) * L * ∂p
+    inv_Δx = inv(Δx)
     for i ∈ 1:n
-        @loop a.u[I,i] -= scale*b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
+        @loop a.u[I,i] -= inv_Δx*b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
     end
     b.x ./= dt  # Unscale to recover actual pressure
 end
