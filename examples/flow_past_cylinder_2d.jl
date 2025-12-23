@@ -14,6 +14,7 @@ U = 1.0                    # Inlet velocity (m/s)
 ν = 0.001                  # Kinematic viscosity (m²/s)
 radius = 0.2               # Cylinder radius (meters)
 diameter = 2 * radius      # Characteristic length
+inletBC = (U, 0.0)         # Uniform inlet velocity
 
 # --- Grid Setup ---
 dx = Lx / nx
@@ -26,7 +27,7 @@ sdf(x, t) = sqrt((x[1] - center_x)^2 + (x[2] - center_z)^2) - radius_cells
 body = AutoBody(sdf)
 
 # --- Create Simulation ---
-sim = Simulation((nx, nz), (U, 0.0), (Lx, Lz);
+sim = Simulation((nx, nz), inletBC, (Lx, Lz);
                  ν = ν,
                  body = body,
                  L_char = diameter,
