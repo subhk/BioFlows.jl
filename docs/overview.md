@@ -14,10 +14,12 @@ radius = 8
 center = 32
 sdf(x, t) = √((x[1] - center)^2 + (x[2] - center)^2) - radius
 
-# Create simulation: domain (nx, nz), boundary velocity, length scale
-sim = Simulation((128, 64), (1, 0), 2radius;
+# Create simulation: domain (nx, nz), domain size (Lx, Lz)
+sim = Simulation((128, 64), (128.0, 64.0);
+                 inletBC = (1, 0),
                  ν = 2radius / 100,    # Re = 100
-                 body = AutoBody(sdf))
+                 body = AutoBody(sdf),
+                 L_char = 2radius)     # for force coefficients
 
 # Advance to t*U/L = 1.0 (convective time units)
 sim_step!(sim, 1.0; remeasure=false)
@@ -37,23 +39,24 @@ Key concepts:
 ### Simulation
 
 ```julia
-Simulation(dims::NTuple, inletBC, L::Number;
-           U=norm(inletBC), Δt=0.25, ν=0., ϵ=1, g=nothing,
-           perdir=(), outletBC=false,
+Simulation(dims::NTuple{N}, L::NTuple{N};
+           inletBC=nothing, U=nothing, Δt=0.25, ν=0., ϵ=1, g=nothing,
+           perdir=(), outletBC=false, L_char=nothing,
            body::AbstractBody=NoBody(),
            T=Float32, mem=Array)
 ```
 
 - `dims`: Grid dimensions `(nx, nz)` for 2D or `(nx, ny, nz)` for 3D
-- `inletBC`: Inlet boundary velocity:
-  - `Tuple`: Constant velocity, e.g., `(1.0, 0.0)` for uniform flow
+- `L`: Physical domain size `(Lx, Lz)` or `(Lx, Ly, Lz)` in meters
+- `inletBC`: Inlet boundary velocity (keyword argument):
+  - `Tuple`: Constant velocity, e.g., `(1.0, 0.0)` for uniform flow (default)
   - `Function(i,x,t)`: Spatially/temporally varying, where `i`=component, `x`=position, `t`=time
-- `L`: Length scale for non-dimensionalization
 - `U`: Velocity scale (auto-computed from `inletBC` if constant, **required** if function)
 - `ν`: Kinematic viscosity (`Re = U*L/ν`)
 - `ϵ`: BDIM kernel width
 - `perdir`: Periodic directions, e.g. `(2,)` for z-periodic
 - `outletBC`: Enable convective outlet boundary in x-direction
+- `L_char`: Characteristic length for force coefficients (default: `L[1]`)
 - `body`: Immersed geometry (`AutoBody`, `NoBody`, etc.)
 - `T`: Float type (`Float32` or `Float64`)
 - `mem`: Array backend (`Array` for CPU, `CuArray` for GPU)
@@ -61,12 +64,12 @@ Simulation(dims::NTuple, inletBC, L::Number;
 **Inlet BC Examples:**
 ```julia
 # Uniform inlet
-sim = Simulation(dims, (1.0, 0.0), L; ν=0.01)
+sim = Simulation(dims, L; inletBC=(1.0, 0.0), ν=0.01)
 
 # Parabolic profile (varies with z in 2D)
 H = Lz / 2
 inletBC(i, x, t) = i == 1 ? 1.5 * (1 - ((x[2] - H) / H)^2) : 0.0
-sim = Simulation(dims, inletBC, L; U=1.5, ν=0.01)
+sim = Simulation(dims, L; inletBC=inletBC, U=1.5, ν=0.01)
 ```
 
 ### Flow
@@ -114,8 +117,9 @@ config = AMRConfig(
     vorticity_weight = 0.2
 )
 
-sim = AMRSimulation((128, 128), (1.0, 0.0), 16.0;
-                    Re=200, body=AutoBody(sdf), amr_config=config)
+sim = AMRSimulation((128, 128), (128.0, 128.0);
+                    inletBC=(1.0, 0.0), ν=16.0/200,  # Re = U*L/ν = 200
+                    body=AutoBody(sdf), L_char=16.0, amr_config=config)
 
 # AMR regridding happens automatically during sim_step!
 for _ in 1:1000

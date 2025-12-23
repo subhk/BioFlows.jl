@@ -34,9 +34,11 @@ config = AMRConfig(
 )
 
 # Create AMR simulation
-sim = AMRSimulation((128, 128), (1.0, 0.0), 2radius;
+sim = AMRSimulation((128, 128), (128.0, 128.0);
+                    inletBC = (1.0, 0.0),
                     ν = 2radius / 200,
                     body = AutoBody(sdf),
+                    L_char = 2radius,
                     amr_config = config)
 
 # Time integration (regridding happens automatically)
