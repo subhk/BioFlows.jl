@@ -35,31 +35,55 @@ function median(a,b,c)
     return a
 end
 
-function conv_diff!(r,u,Φ,λ::F;ν=0.1,perdir=()) where {F}
+"""
+    conv_diff!(r, u, Φ, λ; ν, Δx=1, perdir=())
+
+Compute convective and diffusive fluxes for the momentum equation.
+
+The dimensional form is:
+    r = -∇·(u⊗u) + ν∇²u
+
+With proper scaling:
+- Convective flux: (u·∇)u scaled by 1/Δx
+- Diffusive flux: ν∇²u scaled by ν/Δx²
+
+# Arguments
+- `r`: RHS accumulator (output)
+- `u`: Velocity field
+- `Φ`: Flux work array
+- `λ`: Convection scheme (quick, vanLeer, cds)
+- `ν`: Kinematic viscosity (m²/s)
+- `Δx`: Grid spacing (m), default 1 for non-dimensional
+- `perdir`: Tuple of periodic directions
+"""
+function conv_diff!(r,u,Φ,λ::F;ν=0.1,Δx=1,perdir=()) where {F}
     r .= zero(eltype(r))
     N,n = size_u(u)
+    T = eltype(r)
+    inv_Δx = T(1/Δx)        # For convective term: (u·∇)u ~ Δu/Δx
+    ν_over_Δx = T(ν/Δx)     # For diffusive term: ν∇²u ~ ν*Δu/Δx²
     for i ∈ 1:n, j ∈ 1:n
         # if it is periodic direction
         tagper = (j in perdir)
         # treatment for bottom boundary with BCs
-        lowerBoundary!(r,u,Φ,ν,i,j,N,λ,Val{tagper}())
-        # inner cells
-        @loop (Φ[I] = ϕu(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν*∂(j,CI(I,i),u);
+        lowerBoundary!(r,u,Φ,ν_over_Δx,inv_Δx,i,j,N,λ,Val{tagper}())
+        # inner cells: Φ = convective_flux/Δx - ν*diffusive_flux/Δx²
+        @loop (Φ[I] = inv_Δx*ϕu(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν_over_Δx*∂(j,CI(I,i),u);
                r[I,i] += Φ[I]) over I ∈ inside_u(N,j)
         @loop r[I-δ(j,I),i] -= Φ[I] over I ∈ inside_u(N,j)
         # treatment for upper boundary with BCs
-        upperBoundary!(r,u,Φ,ν,i,j,N,λ,Val{tagper}())
+        upperBoundary!(r,u,Φ,ν_over_Δx,inv_Δx,i,j,N,λ,Val{tagper}())
     end
 end
 
-# Neumann BC Building block
-lowerBoundary!(r,u,Φ,ν,i,j,N,λ,::Val{false}) = @loop r[I,i] += ϕuL(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν*∂(j,CI(I,i),u) over I ∈ slice(N,2,j,2)
-upperBoundary!(r,u,Φ,ν,i,j,N,λ,::Val{false}) = @loop r[I-δ(j,I),i] += -ϕuR(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) + ν*∂(j,CI(I,i),u) over I ∈ slice(N,N[j],j,2)
+# Neumann BC Building block (dimensional form)
+lowerBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{false}) = @loop r[I,i] += inv_Δx*ϕuL(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν_Δx*∂(j,CI(I,i),u) over I ∈ slice(N,2,j,2)
+upperBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{false}) = @loop r[I-δ(j,I),i] += -inv_Δx*ϕuR(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) + ν_Δx*∂(j,CI(I,i),u) over I ∈ slice(N,N[j],j,2)
 
-# Periodic BC Building block
-lowerBoundary!(r,u,Φ,ν,i,j,N,λ,::Val{true}) = @loop (
-    Φ[I] = ϕuP(j,CIj(j,CI(I,i),N[j]-2),CI(I,i),u,ϕ(i,CI(I,j),u),λ) -ν*∂(j,CI(I,i),u); r[I,i] += Φ[I]) over I ∈ slice(N,2,j,2)
-upperBoundary!(r,u,Φ,ν,i,j,N,λ,::Val{true}) = @loop r[I-δ(j,I),i] -= Φ[CIj(j,I,2)] over I ∈ slice(N,N[j],j,2)
+# Periodic BC Building block (dimensional form)
+lowerBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{true}) = @loop (
+    Φ[I] = inv_Δx*ϕuP(j,CIj(j,CI(I,i),N[j]-2),CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν_Δx*∂(j,CI(I,i),u); r[I,i] += Φ[I]) over I ∈ slice(N,2,j,2)
+upperBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{true}) = @loop r[I-δ(j,I),i] -= Φ[CIj(j,I,2)] over I ∈ slice(N,N[j],j,2)
 
 """
     accelerate!(r,t,g,U)
@@ -80,6 +104,13 @@ Flow solves the unsteady incompressible [Navier-Stokes equations](https://en.wik
 Solid boundaries are modelled using the [Boundary Data Immersion Method](https://eprints.soton.ac.uk/369635/).
 The primary variables are the scalar pressure `p` (an array of dimension `D`)
 and the velocity vector field `u` (an array of dimension `D+1`).
+
+The equations solved are the dimensional incompressible Navier-Stokes:
+    ∂u/∂t + (u·∇)u = -∇p/ρ + ν∇²u + g
+    ∇·u = 0
+
+where `Δx` is the uniform grid spacing, `ν` is kinematic viscosity (m²/s),
+and all spatial derivatives are properly scaled by `Δx`.
 """
 struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{T}}
     # Fluid fields
@@ -95,12 +126,44 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     # Non-fields
     uBC :: Union{NTuple{D,Number},Function} # domain boundary values/function
     Δt:: Vector{T} # time step (stored in CPU memory)
-    ν :: T # kinematic viscosity
-    g :: Union{Function,Nothing} # acceleration field funciton
+    ν :: T # kinematic viscosity (m²/s)
+    Δx :: T # uniform grid spacing (m)
+    g :: Union{Function,Nothing} # acceleration field function
     exitBC :: Bool # Convection exit
     perdir :: NTuple # tuple of periodic direction
-    function Flow(N::NTuple{D}, uBC; f=Array, Δt=0.25, ν=0., g=nothing,
+    """
+        Flow(N, uBC; L=nothing, Δx=1, ...)
+
+    Construct a Flow on grid of size `N` (number of cells in each direction).
+
+    # Grid spacing
+    - If `L` (domain size tuple) is provided: `Δx = L[1]/N[1]` (must be uniform)
+    - Otherwise uses `Δx` directly (default: 1 for non-dimensional)
+
+    # Arguments
+    - `N::NTuple{D}`: Number of grid cells in each direction
+    - `uBC`: Boundary velocity (tuple or function)
+    - `L::NTuple{D}`: Physical domain size (e.g., `(1.0, 0.5)` for 1m × 0.5m)
+    - `Δx::Real`: Grid spacing (used if `L` not provided)
+    - `ν::Real`: Kinematic viscosity (m²/s)
+    - `Δt::Real`: Initial time step (s)
+    - Other kwargs: `g`, `uλ`, `perdir`, `exitBC`, `T`, `f`
+    """
+    function Flow(N::NTuple{D}, uBC; f=Array, Δt=0.25, ν=0., L=nothing, Δx=1, g=nothing,
             uλ=nothing, perdir=(), exitBC=false, T=Float32) where D
+        # Compute grid spacing from domain size if provided
+        if !isnothing(L)
+            @assert length(L) == D "Domain size L must have $D components"
+            Δx_computed = T(L[1] / N[1])
+            # Verify uniform spacing
+            for d in 2:D
+                Δx_d = T(L[d] / N[d])
+                @assert isapprox(Δx_d, Δx_computed; rtol=1e-6) "Non-uniform grid spacing not supported: Δx[$d]=$Δx_d ≠ Δx[1]=$Δx_computed"
+            end
+            Δx = Δx_computed
+        else
+            Δx = T(Δx)
+        end
         Ng = N .+ 2
         Nd = (Ng..., D)
         isnothing(uλ) && (uλ = ic_function(uBC))
@@ -111,7 +174,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
         fv, p, σ = zeros(T, Nd) |> f, zeros(T, Ng) |> f, zeros(T, Ng) |> f
         V, μ₀, μ₁ = zeros(T, Nd) |> f, ones(T, Nd) |> f, zeros(T, Ng..., D, D) |> f
         BC!(μ₀,ntuple(zero, D),false,perdir)
-        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,uBC,T[Δt],T(ν),g,exitBC,perdir)
+        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,uBC,T[Δt],T(ν),T(Δx),g,exitBC,perdir)
     end
 end
 
