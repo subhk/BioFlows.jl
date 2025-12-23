@@ -382,6 +382,16 @@ end
 Set patch ghost cell values from coarse pressure solution.
 Uses 2D bilinear interpolation for Dirichlet BCs at patch edges.
 Falls back to Neumann BC (zero gradient) at domain boundaries.
+
+The fine grid has cells 1..nx+2 where:
+- Cell 1 is the left ghost
+- Cells 2..nx+1 are interior
+- Cell nx+2 is the right ghost
+
+The mapping to coarse coordinates:
+- Fine cell center fi has position (fi - 1.5) in fine cell units from patch origin
+- In coarse cell units: (fi - 1.5) / ratio
+- Adding anchor gives global coarse position
 """
 function set_patch_boundary!(patch::PatchPoisson{T},
                               p_coarse::AbstractArray{T},
@@ -391,41 +401,44 @@ function set_patch_boundary!(patch::PatchPoisson{T},
     nx, nz = patch.fine_dims
     nc_i, nc_j = size(p_coarse, 1), size(p_coarse, 2)
 
-    # Helper for 2D bilinear interpolation with bounds checking
-    function bilinear_interp(fi::Int, fj::Int, i_offset::Int, j_offset::Int)
-        # Map fine cell to coarse location
-        xf = (fi - 1.5) / ratio
-        zf = (fj - 1.5) / ratio
+    # Helper for bilinear interpolation at a specific fine cell position
+    # The fine cell center is at (fi - 0.5) in 1-indexed fine coordinates
+    # Mapping to coarse: coarse_pos = (fi - 1) / ratio + ai - 1 + 0.5
+    # Simplified: coarse_pos = (fi - 1) / ratio + ai - 0.5
+    function bilinear_interp_at(fi::Int, fj::Int)
+        # Fine cell center in coarse coordinates (relative to ai, aj)
+        # Fine cell fi has center at (fi - 1.5) / ratio relative to anchor
+        x_coarse = (fi - T(1.5)) / ratio + ai
+        z_coarse = (fj - T(1.5)) / ratio + aj
 
-        # Coarse indices (with offset for boundary position)
-        ic = floor(Int, xf) + ai + i_offset
-        jc = floor(Int, zf) + aj + j_offset
+        # Get lower-left coarse cell for interpolation
+        ic = floor(Int, x_coarse - T(0.5)) + 1  # Convert to 1-based index
+        jc = floor(Int, z_coarse - T(0.5)) + 1
 
-        # Bounds check
+        # Clamp to valid range (leaving room for +1 access)
         ic = clamp(ic, 1, nc_i - 1)
         jc = clamp(jc, 1, nc_j - 1)
 
-        # Ensure we don't go out of bounds for +1 access
-        ic_next = min(ic + 1, nc_i)
-        jc_next = min(jc + 1, nc_j)
-
-        # Weights for bilinear interpolation
-        wx = clamp(xf - floor(xf), zero(T), one(T))
-        wz = clamp(zf - floor(zf), zero(T), one(T))
+        # Interpolation weights (based on cell center positions)
+        # Coarse cell ic has center at ic (in 1-based coordinates)
+        wx = x_coarse - T(ic)
+        wz = z_coarse - T(jc)
+        wx = clamp(wx, zero(T), one(T))
+        wz = clamp(wz, zero(T), one(T))
 
         # Bilinear interpolation
         v00 = p_coarse[ic, jc]
-        v10 = p_coarse[ic_next, jc]
-        v01 = p_coarse[ic, jc_next]
-        v11 = p_coarse[ic_next, jc_next]
+        v10 = p_coarse[ic+1, jc]
+        v01 = p_coarse[ic, jc+1]
+        v11 = p_coarse[ic+1, jc+1]
 
         return (1-wx)*(1-wz)*v00 + wx*(1-wz)*v10 + (1-wx)*wz*v01 + wx*wz*v11
     end
 
-    # Left boundary (i = 1)
+    # Left boundary (i = 1) - ghost cell to the left of interior
     if ai > 1  # Interior interface - use Dirichlet from coarse
         for fj in 1:nz+2
-            patch.x[1, fj] = bilinear_interp(0, fj, -1, 0)
+            patch.x[1, fj] = bilinear_interp_at(1, fj)
         end
     else  # Domain boundary - use Neumann BC (zero gradient)
         for fj in 1:nz+2
@@ -433,11 +446,11 @@ function set_patch_boundary!(patch::PatchPoisson{T},
         end
     end
 
-    # Right boundary (i = nx+2)
+    # Right boundary (i = nx+2) - ghost cell to the right of interior
     right_coarse = ai + patch.coarse_extent[1]
-    if right_coarse < nc_i  # Interior interface - use Dirichlet
+    if right_coarse <= nc_i  # Interior interface - use Dirichlet
         for fj in 1:nz+2
-            patch.x[nx+2, fj] = bilinear_interp(nx+2, fj, 0, 0)
+            patch.x[nx+2, fj] = bilinear_interp_at(nx+2, fj)
         end
     else  # Domain boundary - use Neumann BC
         for fj in 1:nz+2
@@ -445,10 +458,10 @@ function set_patch_boundary!(patch::PatchPoisson{T},
         end
     end
 
-    # Bottom boundary (j = 1)
+    # Bottom boundary (j = 1) - ghost cell below interior
     if aj > 1  # Interior interface - use Dirichlet
         for fi in 1:nx+2
-            patch.x[fi, 1] = bilinear_interp(fi, 0, 0, -1)
+            patch.x[fi, 1] = bilinear_interp_at(fi, 1)
         end
     else  # Domain boundary - use Neumann BC
         for fi in 1:nx+2
@@ -456,11 +469,11 @@ function set_patch_boundary!(patch::PatchPoisson{T},
         end
     end
 
-    # Top boundary (j = nz+2)
+    # Top boundary (j = nz+2) - ghost cell above interior
     top_coarse = aj + patch.coarse_extent[2]
-    if top_coarse < nc_j  # Interior interface - use Dirichlet
+    if top_coarse <= nc_j  # Interior interface - use Dirichlet
         for fi in 1:nx+2
-            patch.x[fi, nz+2] = bilinear_interp(fi, nz+2, 0, 0)
+            patch.x[fi, nz+2] = bilinear_interp_at(fi, nz+2)
         end
     else  # Domain boundary - use Neumann BC
         for fi in 1:nx+2
