@@ -11,9 +11,9 @@ Simulation
 ### Constructor
 
 ```julia
-Simulation(dims::NTuple, inletBC, L::Number;
-           U=norm(inletBC), Δt=0.25, ν=0., ϵ=1, g=nothing,
-           perdir=(), outletBC=false,
+Simulation(dims::NTuple{N}, L::NTuple{N};
+           inletBC=nothing, U=nothing, Δt=0.25, ν=0., ϵ=1, g=nothing,
+           perdir=(), outletBC=false, L_char=nothing,
            body::AbstractBody=NoBody(),
            T=Float32, mem=Array)
 ```
@@ -23,8 +23,8 @@ Simulation(dims::NTuple, inletBC, L::Number;
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `dims` | `NTuple{N,Int}` | Grid dimensions `(nx, nz)` or `(nx, ny, nz)` |
-| `inletBC` | `Tuple` or `Function` | Inlet boundary velocity (see below) |
-| `L` | `Number` | Length scale for non-dimensionalization |
+| `L` | `NTuple{N}` | Physical domain size `(Lx, Lz)` or `(Lx, Ly, Lz)` in meters |
+| `inletBC` | `Tuple` or `Function` | Inlet boundary velocity (see below). Default: `(1, 0, ...)` |
 | `U` | `Number` | Velocity scale (auto-computed if `inletBC` is constant, **required** if function) |
 | `Δt` | `Number` | Initial time step (default: 0.25) |
 | `ν` | `Number` | Kinematic viscosity (`Re = U*L/ν`) |
@@ -32,6 +32,7 @@ Simulation(dims::NTuple, inletBC, L::Number;
 | `g` | `Function` or `Nothing` | Acceleration field `g(i,x,t)` |
 | `perdir` | `Tuple` | Periodic directions, e.g. `(2,)` |
 | `outletBC` | `Bool` | Convective outlet in x-direction |
+| `L_char` | `Number` | Characteristic length for force coefficients (default: `L[1]`) |
 | `body` | `AbstractBody` | Immersed geometry |
 | `T` | `Type` | Float type (`Float32` or `Float64`) |
 | `mem` | `Type` | Array backend (`Array` for CPU) |

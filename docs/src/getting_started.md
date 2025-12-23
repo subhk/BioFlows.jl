@@ -38,8 +38,9 @@ Re = 100        # Reynolds number
 U = 1.0         # Inlet velocity
 D = 16.0        # Cylinder diameter (length scale)
 
-# Grid parameters
+# Grid and domain parameters
 nx, nz = 128, 64
+Lx, Lz = Float64(nx), Float64(nz)  # Domain size (Δx = 1)
 
 # Define cylinder geometry
 center_x = nx / 4
@@ -50,9 +51,11 @@ radius = D / 2
 sdf(x, t) = sqrt((x[1] - center_x)^2 + (x[2] - center_z)^2) - radius
 
 # Create simulation
-sim = Simulation((nx, nz), (U, 0), D;
+sim = Simulation((nx, nz), (Lx, Lz);
+                 inletBC = (U, 0.0),
                  ν = U * D / Re,
-                 body = AutoBody(sdf))
+                 body = AutoBody(sdf),
+                 L_char = D)
 
 # Time integration
 final_time = 10.0  # Convective time units
@@ -106,22 +109,22 @@ sdf_sphere(x, t) = sqrt(x[1]^2 + x[2]^2 + x[3]^2) - radius
 
 ### Boundary Conditions
 
-Specify inlet boundary conditions via `inletBC`:
+Specify inlet boundary conditions via the `inletBC` keyword argument:
 
 ```julia
 # Constant inlet velocity (uniform flow)
-sim = Simulation(dims, (1.0, 0.0), L; ...)
+sim = Simulation(dims, L; inletBC=(1.0, 0.0), ...)
 
 # Spatially-varying inlet (parabolic profile in z)
 # Function signature: inletBC(i, x, t) where i=component, x=position, t=time
 H = Lz / 2  # channel half-height
 U_max = 1.5
 inletBC(i, x, t) = i == 1 ? U_max * (1 - ((x[2] - H) / H)^2) : 0.0
-sim = Simulation(dims, inletBC, L; U=U_max, ...)  # Must specify U for functions
+sim = Simulation(dims, L; inletBC=inletBC, U=U_max, ...)  # Must specify U for functions
 
 # Time-varying inlet (oscillating)
 inletBC(i, x, t) = i == 1 ? 1.0 + 0.1*sin(2π*t) : 0.0
-sim = Simulation(dims, inletBC, L; U=1.0, ...)
+sim = Simulation(dims, L; inletBC=inletBC, U=1.0, ...)
 ```
 
 Additional boundary options:
