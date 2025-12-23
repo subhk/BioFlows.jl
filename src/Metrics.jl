@@ -72,6 +72,13 @@ Compute ``∥𝛚∥`` at the center of cell `I`.
 """
 ω_mag(I::CartesianIndex{3},u) = norm2(ω(I,u))
 """
+    ω_mag(I::CartesianIndex{2},u)
+
+Compute ``|ω₃|`` at the center of cell `I` for 2D flows.
+In 2D, vorticity has only the out-of-plane component.
+"""
+ω_mag(I::CartesianIndex{2},u) = abs(curl(3,I,u))
+"""
     ω_θ(I::CartesianIndex{3},z,center,u)
 
 Compute ``𝛚⋅𝛉`` at the center of cell `I` where ``𝛉`` is the azimuth
