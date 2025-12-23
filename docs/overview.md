@@ -98,6 +98,28 @@ map(x, t) = x .- [0, A*sin(ω*t)]  # vertical oscillation
 body = AutoBody(sdf, map)
 ```
 
+Example — swimming fish with traveling wave:
+```julia
+# Fish body with traveling wave deformation
+function fish_sdf(x, t)
+    s = x[1] - x_head  # distance from head
+    if s < 0 || s > L
+        return Inf  # outside fish
+    end
+    # Amplitude increases from head to tail
+    A_local = A_tail * (s/L)^2
+    # Centerline with traveling wave
+    z_body = z_center + A_local * sin(k*s - ω*t)
+    # Thickness envelope (NACA-like)
+    h_local = h_max * 4 * (s/L) * (1 - s/L)
+    return abs(x[2] - z_body) - h_local
+end
+body = AutoBody(fish_sdf)  # Time-dependent SDF
+
+# Use remeasure=true for deforming bodies
+sim_step!(sim; remeasure=true)
+```
+
 ## Adaptive Mesh Refinement (AMR)
 
 BioFlows includes AMR support for efficient resolution near bodies and flow features.
@@ -214,6 +236,7 @@ vtkWriter(sim, "output")
 | `flow_past_cylinder_2d.jl` | Full 2D cylinder simulation with configurable grid, Re, boundary conditions, and JLD2 snapshot output |
 | `circle_benchmark.jl` | Simple 2D cylinder benchmark with force logging |
 | `oscillating_cylinder.jl` | Cylinder with sinusoidal cross-flow motion |
+| `swimming_fish.jl` | Swimming fish with traveling wave motion; fish school simulation |
 | `torus_3d.jl` | 3D torus in periodic inflow |
 | `sphere_3d.jl` | 3D sphere wake simulation |
 
@@ -222,6 +245,7 @@ Run examples:
 julia --project examples/flow_past_cylinder_2d.jl
 julia --project examples/circle_benchmark.jl
 julia --project examples/oscillating_cylinder.jl
+julia --project examples/swimming_fish.jl
 julia --project examples/torus_3d.jl
 julia --project examples/sphere_3d.jl
 ```
