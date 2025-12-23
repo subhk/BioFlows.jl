@@ -96,14 +96,17 @@ end
 """
     conv_diff!(r, u, Φ, λ; ν, Δx, perdir=())
 
-Compute convective and diffusive fluxes for the momentum equation.
+Compute convective and diffusive fluxes for the momentum equation in conservative form.
 
-The dimensional form is:
-    r = -∇·(u⊗u) + ν∇²u
+The momentum equation RHS is computed as:
+    r_i = -∑_j ∂(u_j u_i)/∂x_j + ν ∑_j ∂²u_i/∂x_j²
 
-With proper scaling for anisotropic grids:
-- Convective flux in direction j: (u·∇)u scaled by 1/Δx[j]
-- Diffusive flux in direction j: ν∂²u/∂xⱼ² scaled by ν/Δx[j]²
+For 2D (i,j ∈ {1,2} = {x,z}):
+- u-momentum (i=1): r₁ = -∂(uu)/∂x - ∂(wu)/∂z + ν(∂²u/∂x² + ∂²u/∂z²)
+- w-momentum (i=2): r₂ = -∂(uw)/∂x - ∂(ww)/∂z + ν(∂²w/∂x² + ∂²w/∂z²)
+
+The convective terms are in **conservative flux form** ∂(u_j u_i)/∂x_j,
+not the non-conservative form u_j ∂u_i/∂x_j.
 
 # Arguments
 - `r`: RHS accumulator (output)
@@ -111,7 +114,7 @@ With proper scaling for anisotropic grids:
 - `Φ`: Flux work array
 - `λ`: Convection scheme (quick, vanLeer, cds)
 - `ν`: Kinematic viscosity (m²/s)
-- `Δx`: Grid spacing tuple (m), e.g., `(Δx, Δy)` or `(Δx, Δy, Δz)`
+- `Δx`: Grid spacing tuple (m), e.g., `(Δx, Δz)` or `(Δx, Δy, Δz)`
 - `perdir`: Tuple of periodic directions
 """
 function conv_diff!(r,u,Φ,λ::F;ν=0.1,Δx=(1,1),perdir=()) where {F}
@@ -157,9 +160,18 @@ upperBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{true}) = @loop r[I-δ(j,I),i
 
 Compute and store convective and diffusive fluxes at all cell faces.
 
-For finite volume formulation, fluxes are stored at each face and applied
-conservatively: the same flux value is added to one cell and subtracted
-from its neighbor, ensuring exact conservation.
+The convective flux of momentum component i through face j is:
+    F_conv[I,j,i] = (u_j)_face · ϕ(u_i) / Δx_j
+
+where ϕ(u_i) is the upwind-reconstructed value of u_i at the face.
+This represents the conservative flux ∂(u_j u_i)/∂x_j.
+
+For 2D, the fluxes computed are:
+- F_conv[I,1,1] = ∂(uu)/∂x,  F_conv[I,2,1] = ∂(wu)/∂z  (u-momentum)
+- F_conv[I,1,2] = ∂(uw)/∂x,  F_conv[I,2,2] = ∂(ww)/∂z  (w-momentum)
+
+Fluxes are applied conservatively: the same flux value is added to one
+cell and subtracted from its neighbor, ensuring exact momentum conservation.
 
 # Arguments
 - `F_conv`: Convective flux storage [I,j,i] = flux of u_i through face j at index I
