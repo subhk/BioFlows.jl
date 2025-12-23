@@ -228,10 +228,19 @@ function compute_combined_indicator(flow::Flow{N,T}, body::AbstractBody;
     end
 
     # Set boundary values to zero
-    fill!(view(combined, 1, :), zero(T))
-    fill!(view(combined, size(combined, 1), :), zero(T))
-    fill!(view(combined, :, 1), zero(T))
-    fill!(view(combined, :, size(combined, 2)), zero(T))
+    if N == 2
+        fill!(view(combined, 1, :), zero(T))
+        fill!(view(combined, size(combined, 1), :), zero(T))
+        fill!(view(combined, :, 1), zero(T))
+        fill!(view(combined, :, size(combined, 2)), zero(T))
+    else  # N == 3
+        fill!(view(combined, 1, :, :), zero(T))
+        fill!(view(combined, size(combined, 1), :, :), zero(T))
+        fill!(view(combined, :, 1, :), zero(T))
+        fill!(view(combined, :, size(combined, 2), :), zero(T))
+        fill!(view(combined, :, :, 1), zero(T))
+        fill!(view(combined, :, :, size(combined, 3)), zero(T))
+    end
 
     return combined
 end
