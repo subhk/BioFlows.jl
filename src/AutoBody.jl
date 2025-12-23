@@ -85,6 +85,7 @@ function measure(body::AutoBody,x,t;fastd²=Inf)
     # Correct for pseudo-SDF: a general implicit function f(x)=0 has |∇f| ≠ 1
     # True distance ≈ f(x) / |∇f| (first-order Taylor expansion)
     m = √sum(abs2,n)  # |∇f|
+    m == 0 && return (d,zero(x),zero(x))
     d /= m            # Corrected distance
     n /= m            # Unit normal
 
@@ -93,8 +94,17 @@ function measure(body::AutoBody,x,t;fastd²=Inf)
     # This gives: ∂map/∂t + J·ẋ = 0, where J = ∂map/∂x
     # Solving: ẋ = -J⁻¹ · (∂map/∂t)
     J = ForwardDiff.jacobian(x->body.map(x,t), x)    # Jacobian of map
-    dot = ForwardDiff.derivative(t->body.map(x,t), t) # Time derivative of map
-    return (d, n, -J\dot)  # (distance, normal, velocity)
+    dmap_dt = _map_time_derivative(body.map, x, t)
+    return (d, n, -J\dmap_dt)  # (distance, normal, velocity)
+end
+
+@inline function _map_time_derivative(mapf, x, t)
+    map_xt = mapf(x, t)
+    dmap_dt = similar(map_xt)
+    @inbounds for i in eachindex(map_xt)
+        dmap_dt[i] = ForwardDiff.derivative(τ -> mapf(x, τ)[i], t)
+    end
+    dmap_dt
 end
 
 using LinearAlgebra: tr
