@@ -169,6 +169,250 @@ The discrete Laplacian for the Poisson equation:
 \nabla^2 p_{i,j} = \frac{p_{i+1,j} - 2p_{i,j} + p_{i-1,j}}{\Delta x^2} + \frac{p_{i,j+1} - 2p_{i,j} + p_{i,j-1}}{\Delta y^2}
 ```
 
+## Convection-Diffusion Discretization
+
+The momentum equation contains convection and diffusion terms that must be carefully discretized on the staggered grid.
+
+### Momentum Equation
+
+For velocity component $u_i$, the semi-discrete momentum equation is:
+
+```math
+\frac{\partial u_i}{\partial t} = -\sum_j \frac{\partial (u_j u_i)}{\partial x_j} + \nu \sum_j \frac{\partial^2 u_i}{\partial x_j^2} - \frac{1}{\rho}\frac{\partial p}{\partial x_i}
+```
+
+The convection term $\partial(u_j u_i)/\partial x_j$ represents momentum flux in direction $j$, while the diffusion term $\nu \partial^2 u_i/\partial x_j^2$ represents viscous stress.
+
+### Finite Volume Formulation
+
+BioFlows.jl uses a **conservative finite volume method (FVM)** where fluxes are computed at cell faces and applied symmetrically to adjacent cells. This ensures exact conservation of momentum.
+
+For a control volume around velocity $u_i$ at location $I$:
+
+```math
+\frac{d u_i^I}{d t} = \sum_j \left( F_{i,j}^{I} - F_{i,j}^{I-\delta_j} \right)
+```
+
+where $F_{i,j}^I$ is the total flux (convective + diffusive) of momentum component $i$ through face $j$ at index $I$.
+
+### Flux Computation at Cell Faces
+
+At each face in direction $j$, two fluxes contribute to the momentum balance:
+
+#### 1. Convective Flux
+
+The convective flux transports momentum with the flow velocity:
+
+```math
+F_{i,j}^{conv} = \frac{u_j^{face}}{\Delta x_j} \cdot \phi(u_i)
+```
+
+where:
+- $u_j^{face}$ = face-normal velocity (interpolated to face)
+- $\phi(u_i)$ = upwind-biased reconstruction of $u_i$ at the face
+- $\Delta x_j$ = grid spacing in direction $j$
+
+The face velocity $u_j^{face}$ is computed by interpolation:
+```math
+u_j^{face} = \frac{1}{2}(u_j^L + u_j^R)
+```
+
+#### 2. Diffusive Flux
+
+The diffusive flux represents viscous stress:
+
+```math
+F_{i,j}^{diff} = -\frac{\nu}{\Delta x_j} \left( u_i^I - u_i^{I-\delta_j} \right)
+```
+
+This is a central difference approximation to $-\nu \partial u_i / \partial x_j$.
+
+#### Total Flux
+
+The total flux at face $I$ in direction $j$ for momentum component $i$:
+
+```math
+F_{i,j}^I = F_{i,j}^{conv,I} + F_{i,j}^{diff,I}
+```
+
+### Upwind Schemes for Convection
+
+BioFlows.jl implements several upwind schemes for reconstructing face values $\phi(u_i)$.
+
+#### QUICK (Quadratic Upstream Interpolation)
+
+The QUICK scheme uses a 3-point quadratic interpolation biased in the upwind direction:
+
+```math
+\phi(u) = \begin{cases}
+\frac{3}{8}u_D + \frac{6}{8}u_C - \frac{1}{8}u_U & \text{if } u_{face} > 0 \\
+\frac{3}{8}u_U + \frac{6}{8}u_C - \frac{1}{8}u_D & \text{if } u_{face} < 0
+\end{cases}
+```
+
+where $U$=upwind, $C$=center, $D$=downwind relative to face velocity direction.
+
+#### Van Leer (TVD)
+
+The van Leer scheme uses a flux limiter to prevent oscillations near discontinuities:
+
+```math
+\phi(r) = \frac{r + |r|}{1 + |r|}
+```
+
+where $r = (u_C - u_U)/(u_D - u_C)$ is the gradient ratio.
+
+#### Central Difference (CDS)
+
+For comparison, the central difference scheme provides 2nd-order accuracy but may oscillate:
+
+```math
+\phi(u) = \frac{1}{2}(u_L + u_R)
+```
+
+### Conservative Flux Application
+
+The key feature of FVM is that **the same flux value is added to one cell and subtracted from its neighbor**:
+
+```
+Cell I-1:    r[I-1] -= F[I]    (flux leaves)
+Cell I:      r[I]   += F[I]    (flux enters)
+```
+
+This ensures that momentum is exactly conserved — no momentum is created or destroyed at internal faces.
+
+```
+        Face I
+          ↓
+    ┌─────┼─────┐
+    │     │     │
+    │ I-1 │  I  │
+    │     │     │
+    └─────┼─────┘
+          │
+     -F ←─┼─→ +F
+```
+
+### Code Implementation
+
+The FVM is implemented in `src/Flow.jl`. Here's how the math maps to code:
+
+#### Flux Storage (Optional)
+
+```julia
+# Flow struct fields for explicit flux storage
+F_conv :: Array{T,D+2}  # Convective flux F_conv[I,j,i]
+F_diff :: Array{T,D+2}  # Diffusive flux F_diff[I,j,i]
+store_fluxes :: Bool    # Enable FVM mode
+```
+
+The flux tensor has indices:
+- `I` = spatial cell index (D-dimensional)
+- `j` = face direction (1=x, 2=y, 3=z)
+- `i` = momentum component
+
+#### Computing Fluxes
+
+```julia
+# From compute_face_flux! in src/Flow.jl
+for i ∈ 1:n, j ∈ 1:n
+    inv_Δxj = 1/Δx[j]
+    ν_Δxj = ν/Δx[j]
+
+    # Interior faces
+    @loop (
+        # Convective flux: (1/Δx) * u_face * ϕ(u)
+        F_conv[I,j,i] = inv_Δxj * ϕu(j, CI(I,i), u, ϕ(i,CI(I,j),u), λ);
+        # Diffusive flux: -(ν/Δx) * ∂u/∂x
+        F_diff[I,j,i] = -ν_Δxj * ∂(j, CI(I,i), u)
+    ) over I ∈ inside_u(N,j)
+
+    # Boundary fluxes (one-sided stencils)
+    compute_boundary_flux!(...)
+end
+```
+
+Key functions:
+- `ϕ(i,I,u)` — Interpolates velocity component `i` to face location
+- `ϕu(j,I,u,u_face,λ)` — Computes upwind flux using scheme `λ` (quick, vanLeer, cds)
+- `∂(j,I,u)` — Central difference $u^I - u^{I-\delta_j}$
+
+#### Applying Fluxes Conservatively
+
+```julia
+# From apply_fluxes! in src/Flow.jl
+for i ∈ 1:n, j ∈ 1:n
+    F_total = F_conv[I,j,i] + F_diff[I,j,i]
+
+    # Lower boundary: only flux INTO domain
+    @loop r[I,i] += F_total over I ∈ slice(N,2,j,2)
+
+    # Interior: flux enters I, leaves I-δ (CONSERVATIVE!)
+    @loop r[I,i] += F_total over I ∈ inside_u(N,j)
+    @loop r[I-δ(j,I),i] -= F_total over I ∈ inside_u(N,j)
+
+    # Upper boundary: only flux OUT OF domain
+    @loop r[I-δ(j,I),i] -= F_total over I ∈ slice(N,N[j],j,2)
+end
+```
+
+### Enabling FVM Mode
+
+To use explicit flux storage and verification:
+
+```julia
+# Enable FVM with flux storage
+sim = Simulation((nx, ny), (Lx, Ly);
+                 store_fluxes = true,  # Enable FVM mode
+                 ν = 0.01)
+
+# Run simulation
+sim_step!(sim)
+
+# Access stored fluxes for analysis
+F_conv = sim.flow.F_conv  # Convective fluxes
+F_diff = sim.flow.F_diff  # Diffusive fluxes
+
+# Verify conservation (sum of internal fluxes = 0)
+```
+
+When `store_fluxes=false` (default), the original method is used which computes fluxes on-the-fly without storing them.
+
+### Boundary Flux Treatment
+
+At domain boundaries, fluxes are handled specially since there's no neighbor cell outside:
+
+| Boundary | Treatment | Stencil |
+|----------|-----------|---------|
+| Lower (index 2) | One-sided upwind | `ϕuL` |
+| Upper (index N) | One-sided upwind | `ϕuR` |
+| Periodic | Wrap-around | `ϕuP` |
+
+```julia
+# Lower boundary: use left-biased stencil
+F_conv[I,j,i] = ϕuL(j, I, u, u_face, λ)
+
+# Upper boundary: use right-biased stencil
+F_conv[I,j,i] = ϕuR(j, I, u, u_face, λ)
+
+# Periodic: wrap to opposite boundary
+F_conv[I,j,i] = ϕuP(j, I_wrapped, I, u, u_face, λ)
+```
+
+### Conservation Verification
+
+The FVM ensures exact momentum conservation. For a closed system with no external forces:
+
+```math
+\frac{d}{dt} \sum_I u_i^I \cdot \Delta V = \sum_{\text{boundaries}} F_{i}^{boundary}
+```
+
+Interior fluxes cancel exactly because each internal face contributes:
+- $+F$ to cell $I$
+- $-F$ to cell $I-\delta$
+
+This property is crucial for accurate long-time simulations and proper vortex dynamics.
+
 ## Time Integration
 
 BioFlows.jl uses a **2nd-order predictor-corrector** (Heun's method) combined with pressure projection to ensure incompressibility. This provides 2nd-order temporal accuracy.
@@ -504,3 +748,9 @@ sim = Simulation((nx, nz), (Lx, Lz);
 2. Weymouth, G.D. and Yue, D.K.P. (2011). "Boundary data immersion method for Cartesian-grid simulations of fluid-body interaction problems." *Journal of Computational Physics*, 230(16), 6233-6247.
 
 3. Orlanski, I. (1976). "A simple boundary condition for unbounded hyperbolic flows." *Journal of Computational Physics*, 21(3), 251-269.
+
+4. Leonard, B.P. (1979). "A stable and accurate convective modelling procedure based on quadratic upstream interpolation." *Computer Methods in Applied Mechanics and Engineering*, 19(1), 59-98. (QUICK scheme)
+
+5. Van Leer, B. (1979). "Towards the ultimate conservative difference scheme. V. A second-order sequel to Godunov's method." *Journal of Computational Physics*, 32(1), 101-136. (Van Leer limiter)
+
+6. Versteeg, H.K. and Malalasekera, W. (2007). *An Introduction to Computational Fluid Dynamics: The Finite Volume Method*. Pearson Education.
