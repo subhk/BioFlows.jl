@@ -1,8 +1,26 @@
+# =============================================================================
+# BIOFLOWS UTILITY FUNCTIONS
+# =============================================================================
+# This module provides core utility functions for the BioFlows CFD solver:
+#
+# - Index operations: δ, CI, inside, slice
+# - GPU/parallel execution: @loop macro with KernelAbstractions backend
+# - Boundary conditions: BC!, perBC!, exitBC!
+# - Spatial operations: loc (coordinate mapping), interp (interpolation)
+# - Logging: @log macro for pressure solver diagnostics
+# =============================================================================
+
 using KernelAbstractions: get_backend, @index, @kernel
 using LoggingExtras
 
-# custom log macro
-_psolver = Logging.LogLevel(-123) # custom log level for pressure solver, needs the negative sign
+# =============================================================================
+# LOGGING FOR PRESSURE SOLVER DIAGNOSTICS
+# =============================================================================
+
+# Custom log level for pressure solver convergence tracking
+_psolver = Logging.LogLevel(-123)  # Negative = lower priority than Debug
+
+# Log pressure solver iterations and residuals
 macro log(exs...)
     quote
         @logmsg _psolver $(map(x -> esc(x), exs)...)
