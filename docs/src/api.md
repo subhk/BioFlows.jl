@@ -39,6 +39,10 @@ See [Adaptive Mesh Refinement](@ref) for details.
 | `get_refinement_indicator(sim)` | Get current indicator field |
 | `num_refined_cells(grid)` | Count refined cells |
 | `refinement_level(grid, i, j)` | Query cell refinement level |
+| `amr_info(sim)` | Print AMR status and statistics |
+| `check_divergence(sim)` | Check velocity divergence on all levels |
+| `amr_cfl(flow, cp)` | Compute CFL considering refined patches |
+| `synchronize_base_and_patches!(flow, cp)` | Sync data between base and patches |
 
 ## Force Diagnostics
 
@@ -63,6 +67,7 @@ See [Diagnostics](@ref) for details.
 | `vorticity_magnitude(sim)` | Vorticity magnitude field |
 | `cell_center_velocity(sim)` | Interpolated velocity at cell centers |
 | `cell_center_vorticity(sim)` | Interpolated vorticity at cell centers |
+| `cell_center_pressure(sim)` | Pressure at cell centers |
 
 ## Output
 
@@ -93,8 +98,9 @@ AbstractBody, AutoBody, measure_sdf!, sdf, measure
 
 # Diagnostics
 pressure_force, viscous_force, total_force, force_components, force_coefficients, record_force!
-vorticity_component, vorticity_magnitude, cell_center_velocity, cell_center_vorticity
+vorticity_component, vorticity_magnitude, cell_center_velocity, cell_center_vorticity, cell_center_pressure
 curl, ω, ω_mag
+compute_diagnostics, summarize_force_history
 
 # Output
 CenterFieldWriter, maybe_save!
