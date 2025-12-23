@@ -198,7 +198,10 @@ end
     apply_flux_correction!(patch, fluxes)
 
 Apply flux correction to ensure conservation at interfaces.
-Distributes flux mismatch equally among fine faces.
+Distributes flux mismatch equally among fine faces, accounting for sign conventions.
+
+The flux mismatch is: coarse_flux - sum(fine_fluxes)
+To correct, we adjust the interior pressure values adjacent to the interface.
 
 # Arguments
 - `patch`: PatchPoisson to correct
@@ -208,6 +211,7 @@ function apply_flux_correction!(patch::PatchPoisson{T},
                                  fluxes::Dict{Symbol, InterfaceFluxData{T}}) where T
     ratio = refinement_ratio(patch)
     nx, nz = patch.fine_dims
+    min_coeff = T(1e-10)  # Minimum coefficient to avoid division by zero
 
     for (side, flux_data) in fluxes
         mismatch = flux_data.mismatch
@@ -216,33 +220,58 @@ function apply_flux_correction!(patch::PatchPoisson{T},
             continue
         end
 
-        # Correction per fine face
-        correction = mismatch / n_fine
+        # Correction per fine face (positive mismatch means coarse > fine sum)
+        # We need to increase fine flux magnitude to match coarse
+        correction_per_face = mismatch / n_fine
 
-        # Apply correction to fine pressure gradient (affects patch solution)
+        # Apply correction to fine pressure to adjust flux
+        # Flux = L * (p_interior - p_ghost), so to increase flux, increase p_interior
         if side == :left
+            # Left interface: flux points into patch (negative x direction from ghost)
+            # Flux = L * (p[2] - p[1]), to increase flux, increase p[2]
             fine_i = 2
             for idx in 1:n_fine
-                fj = idx + 1  # Skip ghost
-                patch.x[fine_i, fj] += correction / patch.L[fine_i, fj, 1]
+                fj = idx + 1  # Skip ghost cell
+                if fj <= nz + 1  # Bounds check
+                    L_val = max(patch.L[fine_i, fj, 1], min_coeff)
+                    # Positive mismatch: coarse flux > sum fine flux
+                    # Need to increase fine flux = increase p_interior
+                    patch.x[fine_i, fj] += correction_per_face / L_val
+                end
             end
         elseif side == :right
+            # Right interface: flux points out of patch (positive x direction)
+            # Flux = L * (p[nx+2] - p[nx+1]), but ghost is p[nx+2]
+            # Fine interior flux = L * (p[nx+1] - p_ghost) with outward normal
             fine_i = nx + 1
             for idx in 1:n_fine
                 fj = idx + 1
-                patch.x[fine_i, fj] -= correction / patch.L[fine_i+1, fj, 1]
+                if fj <= nz + 1
+                    # For right face, flux is L[nx+2] * (p[nx+2] - p[nx+1])
+                    # But we control p[nx+1], so to increase flux, decrease p[nx+1]
+                    L_val = max(patch.L[fine_i+1, fj, 1], min_coeff)
+                    patch.x[fine_i, fj] -= correction_per_face / L_val
+                end
             end
         elseif side == :bottom
+            # Bottom interface: flux points into patch (negative z direction from ghost)
             fine_j = 2
             for idx in 1:n_fine
                 fi = idx + 1
-                patch.x[fi, fine_j] += correction / patch.L[fi, fine_j, 2]
+                if fi <= nx + 1
+                    L_val = max(patch.L[fi, fine_j, 2], min_coeff)
+                    patch.x[fi, fine_j] += correction_per_face / L_val
+                end
             end
         else  # :top
+            # Top interface: flux points out of patch
             fine_j = nz + 1
             for idx in 1:n_fine
                 fi = idx + 1
-                patch.x[fi, fine_j] -= correction / patch.L[fi, fine_j+1, 2]
+                if fi <= nx + 1
+                    L_val = max(patch.L[fi, fine_j+1, 2], min_coeff)
+                    patch.x[fi, fine_j] -= correction_per_face / L_val
+                end
             end
         end
     end
