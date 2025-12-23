@@ -74,10 +74,12 @@ end
     compute_interface_flux(patch, p_coarse, anchor, side)
 
 Compute flux at a single interface between coarse and fine grids.
+Includes bounds checking for domain boundaries.
 
 # Arguments
 - `patch`: PatchPoisson
 - `p_coarse`: Coarse pressure array
+- `L_coarse`: Coarse coefficient array
 - `anchor`: Anchor position
 - `side`: :left, :right, :bottom, or :top
 
@@ -92,86 +94,112 @@ function compute_interface_flux(patch::PatchPoisson{T},
     ratio = refinement_ratio(patch)
     ai, aj = anchor
     nx, nz = patch.fine_dims
-
-    # Determine direction and coarse cell index
-    if side == :left
-        dir = 1
-        ic = ai
-        jc_range = aj:(aj + patch.coarse_extent[2] - 1)
-        fine_i = 2  # First interior fine cell
-        fine_j_offset = 0
-    elseif side == :right
-        dir = 1
-        ic = ai + patch.coarse_extent[1]
-        jc_range = aj:(aj + patch.coarse_extent[2] - 1)
-        fine_i = nx + 1  # Last interior fine cell
-        fine_j_offset = 0
-    elseif side == :bottom
-        dir = 2
-        jc = aj
-        ic_range = ai:(ai + patch.coarse_extent[1] - 1)
-        fine_j = 2
-        fine_i_offset = 0
-    else  # :top
-        dir = 2
-        jc = aj + patch.coarse_extent[2]
-        ic_range = ai:(ai + patch.coarse_extent[1] - 1)
-        fine_j = nz + 1
-        fine_i_offset = 0
-    end
+    nc_i, nc_j = size(p_coarse, 1), size(p_coarse, 2)
 
     # Compute coarse flux and fine fluxes
     fine_fluxes = T[]
     coarse_flux = zero(T)
 
-    if dir == 1  # x-direction interface (left/right)
+    if side == :left
+        ic = ai
+        # Check if at domain boundary (no coarse neighbor to the left)
+        if ic <= 1
+            # At domain boundary - no flux mismatch to compute
+            return InterfaceFluxData{T}(zero(T), T[], zero(T))
+        end
+
         for cj_idx in 1:patch.coarse_extent[2]
             jc = aj + cj_idx - 1
-
-            # Coarse flux: L[ic,jc,1] * (p[ic,jc] - p[ic-1,jc]) for left
-            #              L[ic+1,jc,1] * (p[ic+1,jc] - p[ic,jc]) for right
-            if side == :left
+            if jc >= 1 && jc <= nc_j
+                # Coarse flux: L[ic,jc,1] * (p[ic,jc] - p[ic-1,jc])
                 c_flux = L_coarse[ic, jc, 1] * (p_coarse[ic, jc] - p_coarse[ic-1, jc])
-            else
-                c_flux = L_coarse[ic+1, jc, 1] * (p_coarse[ic+1, jc] - p_coarse[ic, jc])
-            end
-            coarse_flux += c_flux
+                coarse_flux += c_flux
 
-            # Fine fluxes
-            for dj in 1:ratio
-                fj = (cj_idx - 1) * ratio + dj + 1
-                if side == :left
-                    f_flux = patch.L[fine_i, fj, 1] * (patch.x[fine_i, fj] - patch.x[fine_i-1, fj])
-                else
-                    f_flux = patch.L[fine_i+1, fj, 1] * (patch.x[fine_i+1, fj] - patch.x[fine_i, fj])
+                # Fine fluxes
+                for dj in 1:ratio
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    if fj >= 1 && fj <= nz + 2
+                        f_flux = patch.L[2, fj, 1] * (patch.x[2, fj] - patch.x[1, fj])
+                        push!(fine_fluxes, f_flux)
+                    end
                 end
-                push!(fine_fluxes, f_flux)
             end
         end
-    else  # z-direction interface (bottom/top)
+
+    elseif side == :right
+        ic = ai + patch.coarse_extent[1]
+        # Check if at domain boundary
+        if ic >= nc_i
+            return InterfaceFluxData{T}(zero(T), T[], zero(T))
+        end
+
+        for cj_idx in 1:patch.coarse_extent[2]
+            jc = aj + cj_idx - 1
+            if jc >= 1 && jc <= nc_j && ic + 1 <= nc_i
+                # Coarse flux: L[ic+1,jc,1] * (p[ic+1,jc] - p[ic,jc])
+                c_flux = L_coarse[ic+1, jc, 1] * (p_coarse[ic+1, jc] - p_coarse[ic, jc])
+                coarse_flux += c_flux
+
+                for dj in 1:ratio
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    if fj >= 1 && fj <= nz + 2
+                        f_flux = patch.L[nx+2, fj, 1] * (patch.x[nx+2, fj] - patch.x[nx+1, fj])
+                        push!(fine_fluxes, f_flux)
+                    end
+                end
+            end
+        end
+
+    elseif side == :bottom
+        jc = aj
+        # Check if at domain boundary
+        if jc <= 1
+            return InterfaceFluxData{T}(zero(T), T[], zero(T))
+        end
+
         for ci_idx in 1:patch.coarse_extent[1]
             ic = ai + ci_idx - 1
-
-            if side == :bottom
+            if ic >= 1 && ic <= nc_i
+                # Coarse flux: L[ic,jc,2] * (p[ic,jc] - p[ic,jc-1])
                 c_flux = L_coarse[ic, jc, 2] * (p_coarse[ic, jc] - p_coarse[ic, jc-1])
-            else
-                c_flux = L_coarse[ic, jc+1, 2] * (p_coarse[ic, jc+1] - p_coarse[ic, jc])
-            end
-            coarse_flux += c_flux
+                coarse_flux += c_flux
 
-            for di in 1:ratio
-                fi = (ci_idx - 1) * ratio + di + 1
-                if side == :bottom
-                    f_flux = patch.L[fi, fine_j, 2] * (patch.x[fi, fine_j] - patch.x[fi, fine_j-1])
-                else
-                    f_flux = patch.L[fi, fine_j+1, 2] * (patch.x[fi, fine_j+1] - patch.x[fi, fine_j])
+                for di in 1:ratio
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    if fi >= 1 && fi <= nx + 2
+                        f_flux = patch.L[fi, 2, 2] * (patch.x[fi, 2] - patch.x[fi, 1])
+                        push!(fine_fluxes, f_flux)
+                    end
                 end
-                push!(fine_fluxes, f_flux)
+            end
+        end
+
+    else  # :top
+        jc = aj + patch.coarse_extent[2]
+        # Check if at domain boundary
+        if jc >= nc_j
+            return InterfaceFluxData{T}(zero(T), T[], zero(T))
+        end
+
+        for ci_idx in 1:patch.coarse_extent[1]
+            ic = ai + ci_idx - 1
+            if ic >= 1 && ic <= nc_i && jc + 1 <= nc_j
+                # Coarse flux: L[ic,jc+1,2] * (p[ic,jc+1] - p[ic,jc])
+                c_flux = L_coarse[ic, jc+1, 2] * (p_coarse[ic, jc+1] - p_coarse[ic, jc])
+                coarse_flux += c_flux
+
+                for di in 1:ratio
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    if fi >= 1 && fi <= nx + 2
+                        f_flux = patch.L[fi, nz+2, 2] * (patch.x[fi, nz+2] - patch.x[fi, nz+1])
+                        push!(fine_fluxes, f_flux)
+                    end
+                end
             end
         end
     end
 
-    mismatch = coarse_flux - sum(fine_fluxes)
+    mismatch = isempty(fine_fluxes) ? zero(T) : coarse_flux - sum(fine_fluxes)
     return InterfaceFluxData{T}(coarse_flux, fine_fluxes, mismatch)
 end
 
