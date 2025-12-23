@@ -137,7 +137,7 @@ without the corrections, no solution exists.
 """
 function residual!(p::Poisson)
     perBC!(p.x,p.perdir)
-    @inside p.r[I] = ifelse(p.iD[I]==0,0,p.z[I]-mult(I,p.L,p.D,p.x))
+    @inside p.r[I] = ifelse(p.iD[I]==0,0,p.z[I]-mult(I,p.L,p.D,p.x,p.inv_Δx²))
     s = sum(p.r)/length(inside(p.r))
     abs(s) <= 2eps(eltype(s)) && return
     @inside p.r[I] = p.r[I]-s
@@ -147,7 +147,7 @@ end
 # This maintains the residual without recomputing from scratch
 function increment!(p::Poisson)
     perBC!(p.ϵ,p.perdir)  # Enforce periodic BC on increment
-    @loop (p.r[I] = p.r[I]-mult(I,p.L,p.D,p.ϵ);  # Update residual
+    @loop (p.r[I] = p.r[I]-mult(I,p.L,p.D,p.ϵ,p.inv_Δx²);  # Update residual
            p.x[I] = p.x[I]+p.ϵ[I]) over I ∈ inside(p.x)  # Update solution
 end
 
@@ -188,16 +188,18 @@ using LinearAlgebra: ⋅
 Conjugate-Gradient smoother with Jacobi preditioning. Runs at most `it` iterations,
 but will exit early if the Gram-Schmidt update parameter `|α| < 1%` or `|r D⁻¹ r| < 1e-8`.
 Note: This runs for general backends and is the default smoother.
+Supports anisotropic grids via inv_Δx² scaling.
 """
 function pcg!(p::Poisson{T};it=6) where T
     x,r,ϵ,z = p.x,p.r,p.ϵ,p.z
+    inv_Δx² = p.inv_Δx²
     # Initialize: preconditioned residual and search direction
     @inside z[I] = ϵ[I] = r[I]*p.iD[I]
     rho = r⋅z  # ρ = r·D⁻¹r (preconditioned norm)
     abs(rho)<10eps(T) && return  # Already converged
     for i in 1:it
         perBC!(ϵ,p.perdir)
-        @inside z[I] = mult(I,p.L,p.D,ϵ)  # z = Aϵ
+        @inside z[I] = mult(I,p.L,p.D,ϵ,inv_Δx²)  # z = Aϵ
         alpha = rho/(z⋅ϵ)  # Step size (Rayleigh quotient)
         (abs(alpha)<1e-2 || abs(alpha)>1e2) && return  # Convergence check
         @loop (x[I] += alpha*ϵ[I];  # Update solution

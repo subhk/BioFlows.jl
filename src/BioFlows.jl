@@ -172,7 +172,7 @@ mutable struct Simulation <: AbstractSimulation
         measure!(flow,body;ϵ)
         # Use L_char for dimensionless time/forces, default to L[1]
         char_length = isnothing(L_char) ? L[1] : L_char
-        new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
+        new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;Δx=flow.Δx,perdir))
     end
 end
 

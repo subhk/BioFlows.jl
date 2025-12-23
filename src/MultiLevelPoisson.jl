@@ -49,13 +49,17 @@ end
 end
 
 # Create coarse level Poisson from fine level (Galerkin coarsening)
-function restrictML(b::Poisson)
-    N,n = size_u(b.L)
-    Na = map(i->1+i÷2,N)  # Coarse grid size (2:1 coarsening)
+# For multigrid, coarse grid spacing = 2 * fine grid spacing
+function restrictML(b::Poisson{T,S,V,N}) where {T,S,V,N}
+    Nsize,n = size_u(b.L)
+    Na = map(i->1+i÷2,Nsize)  # Coarse grid size (2:1 coarsening)
     aL = similar(b.L,(Na...,n)); fill!(aL,0)
     ax = similar(b.x,Na); fill!(ax,0)
     restrictL!(aL,b.L,perdir=b.perdir)  # Restrict coefficients
-    Poisson(ax,aL,copy(ax);b.perdir)
+    # Coarse Δx = 2 * fine Δx (grid spacing doubles with 2:1 coarsening)
+    # Recover Δx from inv_Δx²: Δx = 1/sqrt(inv_Δx²)
+    coarse_Δx = ntuple(d -> T(2/sqrt(b.inv_Δx²[d])), N)
+    Poisson(ax,aL,copy(ax);Δx=coarse_Δx,perdir=b.perdir)
 end
 
 # Restrict all L coefficients from fine to coarse grid
@@ -82,22 +86,24 @@ prolongate!(a,b) = @inside a[I] = b[down(I)]
 
 Composite type used to solve the pressure Poisson equation with a [geometric multigrid](https://en.wikipedia.org/wiki/Multigrid_method) method.
 The only variable is `levels`, a vector of nested `Poisson` systems.
+Supports anisotropic grids via Δx tuple.
 """
-struct MultiLevelPoisson{T,S<:AbstractArray{T},V<:AbstractArray{T}} <: AbstractPoisson{T,S,V}
+struct MultiLevelPoisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: AbstractPoisson{T,S,V}
     x::S
     L::V
     z::S
-    levels :: Vector{Poisson{T,S,V}}
+    levels :: Vector{Poisson{T,S,V,N}}
     n :: Vector{Int16}
     perdir :: NTuple # direction of periodic boundary condition
-    function MultiLevelPoisson(x::AbstractArray{T},L::AbstractArray{T},z::AbstractArray{T};maxlevels=10,perdir=()) where T
-        levels = Poisson[Poisson(x,L,z;perdir)]
+    function MultiLevelPoisson(x::AbstractArray{T,N},L::AbstractArray{T},z::AbstractArray{T};
+                               Δx::NTuple{N}=ntuple(_->one(T),N), maxlevels=10, perdir=()) where {T,N}
+        levels = Poisson{T,typeof(x),typeof(L),N}[Poisson(x,L,z;Δx,perdir)]
         while divisible(levels[end]) && length(levels) <= maxlevels
             push!(levels,restrictML(levels[end]))
         end
         text = "MultiLevelPoisson requires size=a2ⁿ, where n>2"
         @assert (length(levels)>2) text
-        new{T,typeof(x),typeof(L)}(x,L,z,levels,[],perdir)
+        new{T,typeof(x),typeof(L),N}(x,L,z,levels,[],perdir)
     end
 end
 

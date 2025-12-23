@@ -261,33 +261,38 @@ end
 
 Project velocity onto divergence-free space using pressure Poisson equation.
 
-For dimensional Navier-Stokes with grid spacing Δx:
+For dimensional Navier-Stokes with anisotropic grid spacing Δx[d]:
 
-1. Discrete Poisson equation:
-   L·Δ²p = (Δx/Δt)·div(u)   [RHS scaled by Δx/Δt]
+1. Discrete divergence: div(u) = Σ_d (u[I+d,d] - u[I,d]) / Δx[d]
 
-2. Velocity correction:
-   u = u* - (Δt/Δx)·L·∂p    [gradient scaled by Δt/Δx]
+2. Velocity correction in direction d:
+   u[I,d] -= (Δt/Δx[d]) * L[I,d] * (p[I] - p[I-d])
 
-The solver uses dt-scaled pressure for numerical stability:
-- Solve: L·Δ²(Δt·p̃) = Δx·div(u)
-- Correct: u -= (1/Δx)·L·∂(Δt·p̃) = (Δt/Δx)·L·∂p̃
-- Unscale: p = p̃
+The solver uses dt-scaled pressure for numerical stability.
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
     Δx = a.Δx
-    # Set source term: z = Δx * div(u) for discrete Poisson with dt-scaling
-    # The solver will find x such that L·Δ²x = z, where x = dt*p
-    @inside b.z[I] = Δx*div(I,a.u)
+    # Set source term: z = div(u) where div includes 1/Δx[d] per direction
+    # For anisotropic grids: div = Σ_d (u[I+d,d] - u[I,d]) / Δx[d]
+    @inside b.z[I] = div_aniso(I,a.u,Δx)
     b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
-    # Apply correction: u -= (1/Δx) * L * ∂(dt*p) = (dt/Δx) * L * ∂p
-    inv_Δx = inv(Δx)
+    # Apply correction: u[d] -= (1/Δx[d]) * L * ∂(dt*p) per direction
     for i ∈ 1:n
-        @loop a.u[I,i] -= inv_Δx*b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
+        inv_Δxi = inv(Δx[i])
+        @loop a.u[I,i] -= inv_Δxi*b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
     end
     b.x ./= dt  # Unscale to recover actual pressure
+end
+
+# Anisotropic divergence: div(u) = Σ_d (u[I+d,d] - u[I,d]) / Δx[d]
+@fastmath @inline function div_aniso(I::CartesianIndex{m},u,Δx) where {m}
+    s = zero(eltype(u))
+    for i in 1:m
+        s += @inbounds(∂(i,I,u) / Δx[i])
+    end
+    return s
 end
 
 """
@@ -326,20 +331,30 @@ scale_u!(a,scale) = @loop a.u[Ii] *= scale over Ii ∈ inside_u(size(a.p))
 """
     CFL(a::Flow; Δt_max=10)
 
-Compute CFL-stable time step for dimensional Navier-Stokes.
+Compute CFL-stable time step for dimensional Navier-Stokes with anisotropic grids.
 
-The CFL condition combines convective and diffusive stability:
-- Convective: Δt ≤ Δx / u_max
-- Diffusive: Δt ≤ Δx² / (2Dν) for D dimensions
+For anisotropic grids, the CFL condition considers each direction:
+- Convective: Δt ≤ 1 / Σ_d (u_d / Δx[d])
+- Diffusive: Δt ≤ 1 / Σ_d (2ν / Δx[d]²)
 
-Combined: Δt ≤ 1 / (u_max/Δx + 2Dν/Δx²)
+Combined: Δt ≤ 1 / (Σ_d u_d/Δx[d] + Σ_d 2ν/Δx[d]²)
 """
 function CFL(a::Flow{D};Δt_max=10) where D
-    @inside a.σ[I] = flux_out(I,a.u)
-    u_max = maximum(a.σ)
+    @inside a.σ[I] = flux_out_aniso(I,a.u,a.Δx)
+    max_flux = maximum(a.σ)
     Δx = a.Δx
-    # Convective CFL: u_max/Δx, Diffusive CFL: 2*D*ν/Δx²
-    min(Δt_max, inv(u_max/Δx + 2*D*a.ν/Δx^2))
+    # Diffusive CFL: Σ_d 2ν/Δx[d]²
+    diffusive = sum(d -> 2*a.ν/Δx[d]^2, 1:D)
+    min(Δt_max, inv(max_flux + diffusive))
+end
+
+# Anisotropic flux out: Σ_d (max(0,u[I+d,d])/Δx[d] + max(0,-u[I,d])/Δx[d])
+@fastmath @inline function flux_out_aniso(I::CartesianIndex{d},u,Δx) where {d}
+    s = zero(eltype(u))
+    for i in 1:d
+        s += @inbounds((max(0.,u[I+δ(i,I),i])+max(0.,-u[I,i])) / Δx[i])
+    end
+    return s
 end
 @fastmath @inline function flux_out(I::CartesianIndex{d},u) where {d}
     s = zero(eltype(u))
