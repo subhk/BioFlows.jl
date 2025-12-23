@@ -3,9 +3,9 @@ using Statistics
 using Random
 
 """
-    flow_past_cylinder_2d_sim(; nx=256, nz=64,
-                                 Lx=8.0, Lz=2.0,
-                                 Re=150, U=1,
+    flow_past_cylinder_2d_sim(; nx=240, nz=240,
+                                 Lx=4.0, Lz=4.0,
+                                 ν=0.001, U=1.0,
                                  radius=nothing,
                                  dt=nothing,
                                  uBC=nothing,
@@ -14,22 +14,30 @@ using Random
 
 Construct the classic 2D cylinder benchmark with explicit control over grid
 resolution `(nx,nz)` and physical domain `(Lx,Lz)`. The cylinder radius defaults
-to `Lz/8`, but can be overridden with the `radius` keyword (specified in
+to `0.2`, but can be overridden with the `radius` keyword (specified in
 physical units). Provide a fixed time step via `dt` (set to `nothing` to keep
 adaptive CFL stepping) and customise boundary conditions with `uBC`,
 `perdir`, and `exitBC` (e.g. `perdir=(2,)` makes the z-direction periodic).
 
+# Arguments
+- `nx`, `nz`: Grid dimensions
+- `Lx`, `Lz`: Physical domain size (m)
+- `ν`: Kinematic viscosity (m²/s)
+- `U`: Inflow velocity (m/s)
+- `radius`: Cylinder radius in physical units (m), defaults to 0.2
+- `dt`: Fixed time step, or `nothing` for adaptive CFL
+- `uBC`: Boundary condition, defaults to `(U, 0)`
+- `perdir`: Periodic directions tuple
+- `exitBC`: Enable convective exit BC
+
 Returns `(sim, meta)` where `meta` records the domain, grid, cell size, radius,
-time step (or `nothing` when adaptive), and boundary configuration used (with
-`uBC` interpreted as `(u_inlet, w_inlet)` for the `(x,z)` directions unless a
-function is provided). When executed as a script the example integrates to
-`final_time = 5.0` convective units unless overridden.
+time step (or `nothing` when adaptive), and boundary configuration used.
 """
 function flow_past_cylinder_2d_sim(; nx::Int=240,
                                       nz::Int=240,
                                       Lx::Real=4.0,
                                       Lz::Real=4.0,
-                                      Re::Real=500,
+                                      ν::Real=0.001,
                                       U::Real=1.0,
                                       radius::Union{Nothing,Real}=nothing,
                                       dt = 0.0004,
@@ -51,7 +59,7 @@ function flow_past_cylinder_2d_sim(; nx::Int=240,
     boundary = isnothing(uBC) ? (U, 0) : uBC
 
     diameter = 2radius_phys
-    base_kwargs = (; ν = U * diameter / Re,
+    base_kwargs = (; ν = ν,
                     perdir = perdir,
                     exitBC = exitBC,
                     body = AutoBody(sdf),
@@ -71,7 +79,7 @@ function flow_past_cylinder_2d_sim(; nx::Int=240,
         uBC = boundary,
         perdir = perdir,
         exitBC = exitBC,
-        Re = Re,
+        ν = ν,
         U = U,
     )
     return sim, meta

@@ -5,12 +5,19 @@ using StaticArrays: SVector
 using LinearAlgebra: norm
 
 """
-    donut_sim(; n=2^6, Re=1600, U=1, major_ratio=0.35, minor_ratio=0.12)
+    donut_sim(; n=2^6, ν=0.01, U=1, major_ratio=0.35, minor_ratio=0.12)
 
 Construct the 3D torus (donut) benchmark. `major_ratio` and
 `minor_ratio` scale the major and minor radii relative to the grid extent.
+
+# Arguments
+- `n`: Grid dimension (cubic grid n×n×n)
+- `ν`: Kinematic viscosity (m²/s)
+- `U`: Inflow velocity (m/s)
+- `major_ratio`: Major radius as fraction of domain size
+- `minor_ratio`: Minor radius as fraction of domain size
 """
-function donut_sim(; n::Int=2^6, Re::Real=1600, U::Real=1,
+function donut_sim(; n::Int=2^6, ν::Real=0.01, U::Real=1,
                      major_ratio::Real=0.35, minor_ratio::Real=0.12)
     dims = (n, n, n)
     center = SVector(map(d -> d / 2 - 1, dims)...)
@@ -26,7 +33,7 @@ function donut_sim(; n::Int=2^6, Re::Real=1600, U::Real=1,
     diameter = 2major
     # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
     Simulation(dims, (U, 0, 0), (Float64(n), Float64(n), Float64(n));
-               ν = U * diameter / Re,
+               ν = ν,
                body = AutoBody(sdf),
                perdir = (1,),
                L_char = diameter)

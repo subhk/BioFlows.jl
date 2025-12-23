@@ -5,14 +5,21 @@ using StaticArrays: SVector
 using LinearAlgebra: norm
 
 """
-    oscillating_cylinder_sim(; n=3*2^5, m=2^6, Re=200, U=1, St=0.2, amplitude=0.25)
+    oscillating_cylinder_sim(; n=3*2^5, m=2^6, ν=0.01, U=1, St=0.2, amplitude=0.25)
 
 Oscillating cylinder benchmark. The cylinder translates sinusoidally in the
 cross-flow direction with Strouhal number `St` and peak-to-peak amplitude
 `2*amplitude*radius`.
+
+# Arguments
+- `n`, `m`: Grid dimensions
+- `ν`: Kinematic viscosity (m²/s)
+- `U`: Inflow velocity (m/s)
+- `St`: Strouhal number for oscillation frequency
+- `amplitude`: Oscillation amplitude relative to radius
 """
 function oscillating_cylinder_sim(; n::Int=3*2^5, m::Int=2^6,
-                                     Re::Real=200, U::Real=1,
+                                     ν::Real=0.01, U::Real=1,
                                      St::Real=0.2, amplitude::Real=0.25)
     radius = m / 8
     center = SVector(m / 2 - 1, m / 2 - 1)
@@ -22,7 +29,7 @@ function oscillating_cylinder_sim(; n::Int=3*2^5, m::Int=2^6,
     diameter = 2radius
     # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
     Simulation((n, m), (U, 0), (Float64(n), Float64(m));
-               ν=U * diameter / Re,
+               ν=ν,
                body=AutoBody(sdf, move),
                L_char=diameter)
 end

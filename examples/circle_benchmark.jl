@@ -5,19 +5,24 @@ using StaticArrays: SVector
 using LinearAlgebra: norm
 
 """
-    circle_sim(; n=3*2^5, m=2^6, Re=100, U=1)
+    circle_sim(; n=3*2^5, m=2^6, ν=0.01, U=1)
 
 Construct the classic 2D cylinder benchmark using BioFlows.
-Uses uniform inflow past a stationary cylinder with Re based on the diameter.
+Uses uniform inflow past a stationary cylinder.
+
+# Arguments
+- `n`, `m`: Grid dimensions
+- `ν`: Kinematic viscosity (m²/s)
+- `U`: Inflow velocity (m/s)
 """
-function circle_sim(; n::Int=3*2^5, m::Int=2^6, Re::Real=100, U::Real=1)
+function circle_sim(; n::Int=3*2^5, m::Int=2^6, ν::Real=0.01, U::Real=1)
     radius = m / 8
     center = SVector(m / 2 - 1, m / 2 - 1)
     sdf(x, t) = norm(x .- center) - radius
     diameter = 2radius
     # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
     Simulation((n, m), (U, 0), (Float64(n), Float64(m));
-               ν=U * diameter / Re, body=AutoBody(sdf), L_char=diameter)
+               ν=ν, body=AutoBody(sdf), L_char=diameter)
 end
 
 """
