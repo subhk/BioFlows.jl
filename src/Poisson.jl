@@ -135,23 +135,45 @@ function residual!(p::Poisson)
     @inside p.r[I] = p.r[I]-s
 end
 
+# Update solution with error estimate: x += ϵ, r -= Aϵ
+# This maintains the residual without recomputing from scratch
 function increment!(p::Poisson)
-    perBC!(p.ϵ,p.perdir)
-    @loop (p.r[I] = p.r[I]-mult(I,p.L,p.D,p.ϵ);
-           p.x[I] = p.x[I]+p.ϵ[I]) over I ∈ inside(p.x)
+    perBC!(p.ϵ,p.perdir)  # Enforce periodic BC on increment
+    @loop (p.r[I] = p.r[I]-mult(I,p.L,p.D,p.ϵ);  # Update residual
+           p.x[I] = p.x[I]+p.ϵ[I]) over I ∈ inside(p.x)  # Update solution
 end
+
 """
     Jacobi!(p::Poisson; it=1)
 
 Jacobi smoother run `it` times.
 Note: This runs for general backends, but is _very_ slow to converge.
+
+Algorithm: ϵ = D⁻¹r, then x += ϵ, r -= Aϵ
 """
 @fastmath Jacobi!(p;it=1) = for _ ∈ 1:it
-    @inside p.ϵ[I] = p.r[I]*p.iD[I]
+    @inside p.ϵ[I] = p.r[I]*p.iD[I]  # Jacobi: ϵ = D⁻¹r
     increment!(p)
 end
 
 using LinearAlgebra: ⋅
+
+# =============================================================================
+# PRECONDITIONED CONJUGATE GRADIENT (PCG) SMOOTHER
+# =============================================================================
+# PCG is used as a smoother for the multigrid V-cycle. It provides fast
+# convergence for the smooth error components while being GPU-friendly.
+#
+# Algorithm:
+# 1. Initialize: z = ϵ = D⁻¹r (Jacobi preconditioner), ρ = r·z
+# 2. For each iteration:
+#    a. Compute search direction update: z = Aϵ
+#    b. Compute step size: α = ρ/(z·ϵ)
+#    c. Update: x += αϵ, r -= αz
+#    d. Compute new preconditioned residual: z = D⁻¹r
+#    e. Compute β = (r·z)/ρ for conjugate direction
+#    f. Update search direction: ϵ = βϵ + z
+# =============================================================================
 """
     pcg!(p::Poisson; it=6)
 
@@ -161,26 +183,27 @@ Note: This runs for general backends and is the default smoother.
 """
 function pcg!(p::Poisson{T};it=6) where T
     x,r,ϵ,z = p.x,p.r,p.ϵ,p.z
+    # Initialize: preconditioned residual and search direction
     @inside z[I] = ϵ[I] = r[I]*p.iD[I]
-    rho = r⋅z
-    abs(rho)<10eps(T) && return
+    rho = r⋅z  # ρ = r·D⁻¹r (preconditioned norm)
+    abs(rho)<10eps(T) && return  # Already converged
     for i in 1:it
         perBC!(ϵ,p.perdir)
-        @inside z[I] = mult(I,p.L,p.D,ϵ)
-        alpha = rho/(z⋅ϵ)
-        (abs(alpha)<1e-2 || abs(alpha)>1e2) && return # alpha should be O(1)
-        @loop (x[I] += alpha*ϵ[I];
-               r[I] -= alpha*z[I]) over I ∈ inside(x)
+        @inside z[I] = mult(I,p.L,p.D,ϵ)  # z = Aϵ
+        alpha = rho/(z⋅ϵ)  # Step size (Rayleigh quotient)
+        (abs(alpha)<1e-2 || abs(alpha)>1e2) && return  # Convergence check
+        @loop (x[I] += alpha*ϵ[I];  # Update solution
+               r[I] -= alpha*z[I]) over I ∈ inside(x)  # Update residual
         i==it && return
-        @inside z[I] = r[I]*p.iD[I]
+        @inside z[I] = r[I]*p.iD[I]  # New preconditioned residual
         rho2 = r⋅z
-        abs(rho2)<10eps(T) && return
-        beta = rho2/rho
-        @inside ϵ[I] = beta*ϵ[I]+z[I]
+        abs(rho2)<10eps(T) && return  # Converged
+        beta = rho2/rho  # Conjugate direction coefficient
+        @inside ϵ[I] = beta*ϵ[I]+z[I]  # Update search direction
         rho = rho2
     end
 end
-smooth!(p) = pcg!(p)
+smooth!(p) = pcg!(p)  # Default smoother
 
 L₂(p::Poisson) = p.r ⋅ p.r # special method since outside(p.r)≡0
 L∞(p::Poisson) = maximum(abs,p.r)
