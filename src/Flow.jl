@@ -191,33 +191,21 @@ end
 # Neumann boundary flux (non-periodic)
 function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx²,i,j,N,λ,::Val{false})
     # Lower boundary: use ϕuL stencil
-    @loop begin
-        u_face = ϕ(i,CI(I,j),u)
-        F_conv[I,j,i] = inv_Δx * ϕuL(j,CI(I,i),u,u_face,λ)
-        F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])
-    end over I ∈ slice(N,2,j,2)
+    @loop (F_conv[I,j,i] = inv_Δx * ϕuL(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ);
+           F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])) over I ∈ slice(N,2,j,2)
     # Upper boundary: use ϕuR stencil
-    @loop begin
-        u_face = ϕ(i,CI(I,j),u)
-        F_conv[I,j,i] = inv_Δx * ϕuR(j,CI(I,i),u,u_face,λ)
-        F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])
-    end over I ∈ slice(N,N[j],j,2)
+    @loop (F_conv[I,j,i] = inv_Δx * ϕuR(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ);
+           F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])) over I ∈ slice(N,N[j],j,2)
 end
 
 # Periodic boundary flux
 function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx²,i,j,N,λ,::Val{true})
     # Lower boundary: use ϕuP stencil with wrapped index
-    @loop begin
-        Ip = CIj(j,CI(I,i),N[j]-2)
-        u_face = ϕ(i,CI(I,j),u)
-        F_conv[I,j,i] = inv_Δx * ϕuP(j,Ip,CI(I,i),u,u_face,λ)
-        F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])
-    end over I ∈ slice(N,2,j,2)
+    @loop (F_conv[I,j,i] = inv_Δx * ϕuP(j,CIj(j,CI(I,i),N[j]-2),CI(I,i),u,ϕ(i,CI(I,j),u),λ);
+           F_diff[I,j,i] = -ν_Δx² * (u[CI(I,i)] - u[CI(I,i)-δ(j,I)])) over I ∈ slice(N,2,j,2)
     # Upper boundary: copy lower boundary flux (periodic wrap)
-    @loop begin
-        F_conv[I,j,i] = F_conv[CIj(j,I,2),j,i]
-        F_diff[I,j,i] = F_diff[CIj(j,I,2),j,i]
-    end over I ∈ slice(N,N[j],j,2)
+    @loop (F_conv[I,j,i] = F_conv[CIj(j,I,2),j,i];
+           F_diff[I,j,i] = F_diff[CIj(j,I,2),j,i]) over I ∈ slice(N,N[j],j,2)
 end
 
 """
@@ -236,10 +224,7 @@ function apply_fluxes!(r,F_conv,F_diff)
     T = eltype(r)
     r .= zero(T)
     for i ∈ 1:n, j ∈ 1:n
-        @loop begin
-            F_total = F_conv[I,j,i] + F_diff[I,j,i]
-            r[I,i] += F_total
-        end over I ∈ inside_u(N,j)
+        @loop r[I,i] += F_conv[I,j,i] + F_diff[I,j,i] over I ∈ inside_u(N,j)
         @loop r[I-δ(j,I),i] -= F_conv[I,j,i] + F_diff[I,j,i] over I ∈ inside_u(N,j)
     end
 end
