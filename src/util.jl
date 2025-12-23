@@ -42,10 +42,21 @@ function logger(fname::String="BioFlows")
     @log "p/c, iter, r∞, r₂\n"
 end
 
+# =============================================================================
+# CARTESIAN INDEX UTILITIES
+# =============================================================================
+# These functions manipulate CartesianIndex objects for staggered grid operations.
+# The staggered grid has N dimensions but indices are manipulated as tuples.
+# =============================================================================
+
+# Shorthand constructor for CartesianIndex
 @inline CI(a...) = CartesianIndex(a...)
+
 """
     CIj(j,I,jj)
-Replace jᵗʰ component of CartesianIndex with k
+
+Replace jᵗʰ component of CartesianIndex with k.
+Useful for implementing periodic boundary conditions.
 """
 CIj(j,I::CartesianIndex{d},k) where d = CI(ntuple(i -> i==j ? k : I[i], d))
 
@@ -54,6 +65,9 @@ CIj(j,I::CartesianIndex{d},k) where d = CI(ntuple(i -> i==j ? k : I[i], d))
     δ(i,I::CartesianIndex{N}) where {N}
 
 Return a CartesianIndex of dimension `N` which is one at index `i` and zero elsewhere.
+Used for offsetting indices in a specific direction.
+
+Example: δ(1, CartesianIndex(2,3)) returns CartesianIndex(1,0)
 """
 δ(i,::Val{N}) where N = CI(ntuple(j -> j==i ? 1 : 0, N))
 δ(i,I::CartesianIndex{N}) where N = δ(i, Val{N}())
