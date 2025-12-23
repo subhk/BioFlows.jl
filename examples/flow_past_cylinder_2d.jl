@@ -35,7 +35,8 @@ sim = Simulation((nx, nz), (Lx, Lz);
                  L_char = diameter,
                  perdir = (2,),       # Periodic in z
                  inletBC = inletBC,
-                 outletBC = true)     # Convective outlet
+                 outletBC = true,     # Convective outlet
+                 fixed_Δt=0.001)     
 
 # --- Output Writers ---
 force_writer = ForceWriter("force_coefficients.jld2";
