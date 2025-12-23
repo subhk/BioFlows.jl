@@ -6,9 +6,9 @@ using JLD2
                       overwrite::Bool=true,
                       strip_ghosts::Bool=true)
 
-Helper that saves cell-centred velocity and vorticity fields to a JLD2 file at
-fixed convective-time intervals. Call [`maybe_save!`](@ref) after each
-`sim_step!` to trigger writes.
+Helper that saves cell-centred velocity, vorticity, and pressure fields to a
+JLD2 file at fixed convective-time intervals. Call [`maybe_save!`](@ref) after
+each `sim_step!` to trigger writes.
 """
 mutable struct CenterFieldWriter
     filename::String
@@ -30,7 +30,8 @@ end
     maybe_save!(writer, sim)
 
 Check the simulation time and, if the configured interval has elapsed, append a
-snapshot with cell-centred velocity and vorticity to the writer's JLD2 file.
+snapshot with cell-centred velocity, vorticity, and pressure to the writer's
+JLD2 file.
 """
 function maybe_save!(writer::CenterFieldWriter, sim::AbstractSimulation)
     t = sim_time(sim)
@@ -48,11 +49,13 @@ end
 function _write_snapshot!(writer::CenterFieldWriter, sim::AbstractSimulation)
     vel = cell_center_velocity(sim; strip_ghosts=writer.strip_ghosts)
     vort = cell_center_vorticity(sim; strip_ghosts=writer.strip_ghosts)
+    pres = cell_center_pressure(sim; strip_ghosts=writer.strip_ghosts)
     time = sim_time(sim)
     jldopen(writer.filename, writer.samples == 0 ? "w" : "a") do file
         group = "snapshot_$(writer.samples + 1)"
         file["$group/time"] = time
         file["$group/velocity"] = vel
         file["$group/vorticity"] = vort
+        file["$group/pressure"] = pres
     end
 end
