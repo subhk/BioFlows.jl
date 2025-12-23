@@ -179,6 +179,38 @@ sim = Simulation((256, 128), inletBC, (2.0, 1.0); U=U₀, ν=1e-6)
 
 See files in `examples` folder for more examples.
 """
+
+"""
+    scale_poisson_coeffs(μ₀, Δx)
+
+Scale BDIM coefficients μ₀ for use in the Poisson solver with anisotropic grids.
+
+For the discrete Laplacian to correctly approximate the physical Laplacian
+∇²p = Σ ∂²p/∂xᵢ², the coefficients must be scaled by 1/Δxᵢ² for each direction i.
+
+Returns L[I,d] = μ₀[I,d] / Δx[d]²
+"""
+function scale_poisson_coeffs(μ₀::AbstractArray{T}, Δx::NTuple{N,T}) where {T,N}
+    L = copy(μ₀)
+    for d in 1:N
+        scale = T(1 / Δx[d]^2)
+        @loop L[I,d] *= scale over I in CartesianIndices(Base.front(axes(L)))
+    end
+    return L
+end
+
+"""
+    scale_poisson_coeffs!(L, μ₀, Δx)
+
+In-place version: scale μ₀ into L for anisotropic Poisson solver.
+"""
+function scale_poisson_coeffs!(L::AbstractArray{T}, μ₀::AbstractArray{T}, Δx::NTuple{N,T}) where {T,N}
+    for d in 1:N
+        scale = T(1 / Δx[d]^2)
+        @loop L[I,d] = μ₀[I,d] * scale over I in CartesianIndices(Base.front(axes(L)))
+    end
+end
+
 mutable struct Simulation <: AbstractSimulation
     U :: Number # velocity scale (for dimensionless time)
     L :: Number # characteristic length scale (for dimensionless time/forces)
@@ -199,14 +231,13 @@ mutable struct Simulation <: AbstractSimulation
         measure!(flow,body;ϵ)
         # Use L_char for dimensionless time/forces, default to L[1]
         char_length = isnothing(L_char) ? L[1] : L_char
-        # Check for anisotropic grids - warn if not supported
+
+        # Scale L coefficients for anisotropic grids
+        # L[I,d] = μ₀[I,d] / Δx[d]² ensures correct physical Laplacian
         Δx = flow.Δx
-        if !all(isapprox.(Δx, Δx[1], rtol=1e-6))
-            @warn "Anisotropic grids (Δx ≠ Δy) are not fully supported in the pressure solver. " *
-                  "The multigrid Poisson solver uses unit spacing internally. " *
-                  "For best accuracy, use isotropic grids (Δx = Δy = Δz)." Δx=Δx
-        end
-        new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
+        L_pois = scale_poisson_coeffs(flow.μ₀, Δx)
+
+        new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,L_pois,flow.σ;perdir))
     end
 end
 
