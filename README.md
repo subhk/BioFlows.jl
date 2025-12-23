@@ -121,7 +121,7 @@ end
 writer = CenterFieldWriter("fields.jld2"; interval=0.1)
 for step in 1:100
     sim_step!(sim)
-    maybe_save!(writer, sim)
+    file_save!(writer, sim)
 end
 ```
 

@@ -190,16 +190,18 @@ Scale Poisson coefficients for anisotropic grids: L_pois[I,i] = μ₀[I,i] / Δx
 This ensures the discrete Laplacian properly handles different grid spacings
 in each direction.
 """
-function scale_poisson_coeffs!(L_pois::AbstractArray{T}, Δx::NTuple{N}) where {T,N}
-    for i in 1:N
+function scale_poisson_coeffs!(L_pois::AbstractArray{T,3}, Δx::NTuple{2}) where T
+    # 2D case: L_pois is (nx, nz, 2)
+    for i in 1:2
         inv_Δx² = T(1 / Δx[i]^2)
-        L_pois[:,:,i] .*= inv_Δx²  # 2D case
+        @views L_pois[:,:,i] .*= inv_Δx²
     end
 end
 function scale_poisson_coeffs!(L_pois::AbstractArray{T,4}, Δx::NTuple{3}) where T
+    # 3D case: L_pois is (nx, ny, nz, 3)
     for i in 1:3
         inv_Δx² = T(1 / Δx[i]^2)
-        L_pois[:,:,:,i] .*= inv_Δx²  # 3D case
+        @views L_pois[:,:,:,i] .*= inv_Δx²
     end
 end
 
@@ -638,7 +640,7 @@ _silent_include("Output.jl")
 export pressure_force, viscous_force, total_force, curl, ω, ω_mag
 export vorticity_component, vorticity_magnitude
 export cell_center_velocity, cell_center_vorticity, cell_center_pressure
-export CenterFieldWriter, ForceWriter, maybe_save!
+export CenterFieldWriter, ForceWriter, file_save!
 export force_components, force_coefficients, record_force!
 export compute_diagnostics, summarize_force_history
 

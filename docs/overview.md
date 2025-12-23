@@ -172,7 +172,7 @@ writer = CenterFieldWriter("fields.jld2"; interval=0.1)
 
 for step in 1:1000
     sim_step!(sim)
-    maybe_save!(writer, sim)  # Saves when interval elapses
+    file_save!(writer, sim)  # Saves when interval elapses
 end
 
 println("Saved $(writer.samples) snapshots")
@@ -252,7 +252,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 
 ### Output
 - `CenterFieldWriter(filename; interval)` — Create writer
-- `maybe_save!(writer, sim)` — Conditional snapshot
+- `file_save!(writer, sim)` — Conditional snapshot
 - `save!(sim, fname)` — Save simulation state (requires JLD2)
 - `load!(sim; fname)` — Load simulation state
 - `vtkWriter(sim, path)` — VTK output (requires WriteVTK)

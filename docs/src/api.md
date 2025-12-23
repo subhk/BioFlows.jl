@@ -75,7 +75,7 @@ See [Diagnostics](@ref) for details.
 |----------|-------------|
 | `CenterFieldWriter(file; interval)` | Create JLD2 snapshot writer |
 | `ForceWriter(file; interval)` | Create JLD2 force coefficient writer |
-| `maybe_save!(writer, sim)` | Save snapshot if interval elapsed |
+| `file_save!(writer, sim)` | Save snapshot if interval elapsed |
 
 ## Exported Symbols
 
@@ -104,7 +104,7 @@ curl, ω, ω_mag
 compute_diagnostics, summarize_force_history
 
 # Output
-CenterFieldWriter, ForceWriter, maybe_save!
+CenterFieldWriter, ForceWriter, file_save!
 
 # AMR Types
 StaggeredGrid, SolutionState, RefinedGrid, GridType, TwoDimensional, ThreeDimensional

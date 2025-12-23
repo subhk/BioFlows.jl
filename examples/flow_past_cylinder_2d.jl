@@ -53,8 +53,8 @@ while sim_time(sim) < final_time
     sim_step!(sim)
 
     # Save outputs
-    maybe_save!(force_writer, sim)
-    maybe_save!(field_writer, sim)
+    file_save!(force_writer, sim)
+    file_save!(field_writer, sim)
 
     # Print progress
     if iter % print_interval == 0

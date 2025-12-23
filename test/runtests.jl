@@ -21,7 +21,7 @@ using JLD2
     writer = CenterFieldWriter(joinpath(tmp, "snapshots.jld2"); interval=0.05)
     for _ in 1:3
         sim_step!(circle; remeasure=false)
-        maybe_save!(writer, circle)
+        file_save!(writer, circle)
     end
     @test isfile(writer.filename)
     jldopen(writer.filename, "r") do f

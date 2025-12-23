@@ -76,7 +76,7 @@ force_writer = ForceWriter("forces.jld2"; interval=0.1, reference_area=sim.L)
 # Time stepping loop
 for _ in 1:5000
     sim_step!(sim)
-    maybe_save!(force_writer, sim)  # Writes to JLD2 when interval elapsed
+    file_save!(force_writer, sim)  # Writes to JLD2 when interval elapsed
 end
 ```
 
