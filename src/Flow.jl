@@ -271,16 +271,26 @@ end
 
 Project velocity onto divergence-free space using pressure Poisson equation.
 
-Uses the standard discretization with implicit Δx scaling in the Poisson solver.
-The pressure is dt-scaled for numerical stability during the solve.
+For anisotropic grids (Δx ≠ Δy ≠ Δz), the discrete operators are scaled:
+- Divergence: ∇·u = Σᵢ (∂uᵢ/∂xᵢ) with 1/Δxᵢ scaling
+- Gradient: ∂p/∂xᵢ with 1/Δxᵢ scaling
+
+The Poisson solver uses scaled coefficients L[I,i] that include the 1/Δxᵢ² weighting
+for proper handling of anisotropic grids.
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
-    @inside b.z[I] = div(I,a.u)
+    Δx = a.Δx
+    # Anisotropic divergence as RHS: ∇·u = Σᵢ (u[I+δᵢ,i] - u[I,i])/Δxᵢ
+    @inside b.z[I] = div_aniso(I,a.u,Δx)
     b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
+    # Anisotropic velocity correction: u[I,i] -= L[I,i] * (∂p/∂xᵢ) / Δxᵢ
+    # Note: L already contains 1/Δxᵢ² scaling, so we only divide by Δxᵢ once more
+    # to get the full 1/Δxᵢ for the gradient
     for i ∈ 1:n
-        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
+        inv_Δxi = 1/Δx[i]
+        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)*inv_Δxi over I ∈ inside(b.x)
     end
     b.x ./= dt  # Unscale to recover actual pressure
 end

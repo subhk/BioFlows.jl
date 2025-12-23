@@ -5,7 +5,7 @@
 #
 # - CenterFieldWriter: Periodic snapshot writer to JLD2 files
 # - ForceWriter: Periodic writer for lift/drag coefficients to CSV files
-# - maybe_save!: Conditional snapshot saving based on time intervals
+# - file_save!: Conditional snapshot saving based on time intervals
 #
 # Output files use JLD2 format (Julia Data Format v2) which can be read back
 # using the JLD2.jl package:
@@ -31,7 +31,7 @@ using JLD2
                       strip_ghosts::Bool=true)
 
 Helper that saves cell-centred velocity, vorticity, and pressure fields to a
-JLD2 file at fixed convective-time intervals. Call [`maybe_save!`](@ref) after
+JLD2 file at fixed convective-time intervals. Call [`file_save!`](@ref) after
 each `sim_step!` to trigger writes.
 """
 mutable struct CenterFieldWriter
@@ -51,13 +51,13 @@ mutable struct CenterFieldWriter
 end
 
 """
-    maybe_save!(writer, sim)
+    file_save!(writer, sim)
 
 Check the simulation time and, if the configured interval has elapsed, append a
 snapshot with cell-centred velocity, vorticity, and pressure to the writer's
 JLD2 file.
 """
-function maybe_save!(writer::CenterFieldWriter, sim::AbstractSimulation)
+function file_save!(writer::CenterFieldWriter, sim::AbstractSimulation)
     t = sim_time(sim)
     if t + eps(writer.interval) < writer.next_time
         return writer
@@ -100,7 +100,7 @@ end
                 reference_area::Real=1.0)
 
 Helper that saves lift and drag coefficients to a JLD2 file at fixed
-convective-time intervals. Call [`maybe_save!`](@ref) after each `sim_step!`
+convective-time intervals. Call [`file_save!`](@ref) after each `sim_step!`
 to trigger writes.
 
 # Arguments
@@ -132,7 +132,7 @@ force_writer = ForceWriter("forces.jld2"; interval=0.1, reference_area=sim.L)
 # Time stepping loop
 for _ in 1:1000
     sim_step!(sim)
-    maybe_save!(force_writer, sim)
+    file_save!(force_writer, sim)
 end
 ```
 
@@ -185,14 +185,14 @@ mutable struct ForceWriter
 end
 
 """
-    maybe_save!(writer::ForceWriter, sim)
+    file_save!(writer::ForceWriter, sim)
 
 Check the simulation time and, if the configured interval has elapsed, append
 the current lift and drag coefficients to the writer's JLD2 file.
 
 Returns the writer for chaining.
 """
-function maybe_save!(writer::ForceWriter, sim::AbstractSimulation)
+function file_save!(writer::ForceWriter, sim::AbstractSimulation)
     t = sim_time(sim)
     if t + eps(writer.interval) < writer.next_time
         return writer
