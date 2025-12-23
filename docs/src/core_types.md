@@ -13,7 +13,7 @@ Simulation
 ```julia
 Simulation(dims::NTuple{N}, L::NTuple{N};
            inletBC=nothing, U=nothing, Δt=0.25, fixed_Δt=nothing, ν=0., ϵ=1, g=nothing,
-           perdir=(), outletBC=false, L_char=nothing,
+           perdir=(), outletBC=false, L_char=nothing, store_fluxes=false,
            body::AbstractBody=NoBody(),
            T=Float32, mem=Array)
 ```
@@ -34,6 +34,7 @@ Simulation(dims::NTuple{N}, L::NTuple{N};
 | `perdir` | `Tuple` | Periodic directions, e.g. `(2,)` |
 | `outletBC` | `Bool` | Convective outlet in x-direction |
 | `L_char` | `Number` | Characteristic length for force coefficients (default: `L[1]`) |
+| `store_fluxes` | `Bool` | Enable FVM flux storage for conservation analysis (default: `false`) |
 | `body` | `AbstractBody` | Immersed geometry |
 | `T` | `Type` | Float type (`Float32` or `Float64`) |
 | `mem` | `Type` | Array backend (`Array` for CPU) |
@@ -88,16 +89,39 @@ Flow
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `u` | `Array{T,D+1}` | Velocity vector field |
+| `u` | `Array{T,D+1}` | Velocity vector field (m/s) |
 | `u⁰` | `Array{T,D+1}` | Previous velocity (for time stepping) |
-| `f` | `Array{T,D+1}` | Force vector field |
-| `p` | `Array{T,D}` | Pressure scalar field |
-| `σ` | `Array{T,D}` | Divergence scalar field |
+| `f` | `Array{T,D+1}` | Force/RHS vector field (m/s²) |
+| `p` | `Array{T,D}` | Pressure scalar field (m²/s²) |
+| `σ` | `Array{T,D}` | Divergence scalar field (work array) |
 | `V` | `Array{T,D+1}` | Body velocity vector (BDIM) |
 | `μ₀` | `Array{T,D+1}` | Zeroth moment (BDIM) |
 | `μ₁` | `Array{T,D+2}` | First moment tensor (BDIM) |
-| `Δt` | `Vector{T}` | Time step history |
-| `ν` | `T` | Kinematic viscosity |
+| `F_conv` | `Array{T,D+2}` or `Nothing` | Convective flux tensor (FVM mode) |
+| `F_diff` | `Array{T,D+2}` or `Nothing` | Diffusive flux tensor (FVM mode) |
+| `store_fluxes` | `Bool` | FVM flux storage enabled |
+| `Δt` | `Vector{T}` | Time step history (s) |
+| `ν` | `T` | Kinematic viscosity (m²/s) |
+| `Δx` | `NTuple{D,T}` | Grid spacing per direction (m) |
+| `fixed_Δt` | `T` or `Nothing` | Fixed time step (disables CFL) |
+
+### FVM Flux Storage
+
+When `store_fluxes=true`, the Flow stores explicit flux tensors for conservation analysis:
+
+```julia
+# Enable FVM mode
+flow = Flow((nx, nz); L=(Lx, Lz), store_fluxes=true, ν=0.01)
+
+# Access flux tensors after time step
+F_conv = flow.F_conv  # Convective flux: F_conv[I, j, i]
+F_diff = flow.F_diff  # Diffusive flux: F_diff[I, j, i]
+```
+
+The flux tensor indices are:
+- `I` = spatial cell index (D-dimensional CartesianIndex)
+- `j` = face direction (1=x, 2=y, 3=z)
+- `i` = momentum component being transported
 
 ## AutoBody
 
