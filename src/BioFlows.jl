@@ -126,6 +126,7 @@ Constructor for a BioFlows simulation solving the dimensional incompressible Nav
   - `Function(i,x,t)`: Spatially/temporally varying (requires `U` to be specified)
 - `outletBC=false`: Enable convective outlet BC in direction 1
 - `ν=0.`: Kinematic viscosity (m²/s)
+- `ρ=1000.`: Fluid density (kg/m³). Water = 1000, air ≈ 1.2
 - `body=NoBody()`: Immersed body geometry
 - `L_char`: Characteristic length for force coefficients (default: `L[1]`)
 - `U`: Velocity scale. Auto-computed from `inletBC` if constant, required if function

@@ -96,18 +96,16 @@ end
     ForceWriter(filename::AbstractString="force_coefficients.jld2";
                 interval::Real=0.1,
                 overwrite::Bool=true,
-                ρ::Real=1000.0,
                 reference_area::Real=1.0)
 
 Helper that saves lift and drag coefficients to a JLD2 file at fixed
 convective-time intervals. Call [`file_save!`](@ref) after each `sim_step!`
-to trigger writes.
+to trigger writes. Uses the simulation's density (sim.flow.ρ) for coefficients.
 
 # Arguments
 - `filename`: Output JLD2 file path (default: "force_coefficients.jld2")
 - `interval`: Time interval between saves (default: 0.1)
 - `overwrite`: If true, overwrite existing file; if false, append (default: true)
-- `ρ`: Fluid density for coefficient calculation (default: 1000.0 kg/m³, water)
 - `reference_area`: Reference area for coefficient calculation (default: 1.0,
   typically set to sim.L for 2D simulations)
 
@@ -153,7 +151,6 @@ mutable struct ForceWriter
     interval::Float64
     next_time::Float64
     samples::Int
-    ρ::Float64
     reference_area::Float64
     # Internal storage for accumulating data before writing
     time_history::Vector{Float64}
@@ -167,10 +164,8 @@ mutable struct ForceWriter
     function ForceWriter(filename::AbstractString="force_coefficients.jld2";
                          interval::Real=0.1,
                          overwrite::Bool=true,
-                         ρ::Real=1000.0,
                          reference_area::Real=1.0)
         interval > 0 || throw(ArgumentError("interval must be positive"))
-        ρ > 0 || throw(ArgumentError("density ρ must be positive"))
         reference_area > 0 || throw(ArgumentError("reference_area must be positive"))
 
         # Handle file creation/overwrite
@@ -179,7 +174,7 @@ mutable struct ForceWriter
         end
 
         return new(String(filename), float(interval), float(interval), 0,
-                   float(ρ), float(reference_area),
+                   float(reference_area),
                    Float64[], Float64[], Float64[], Float64[], Float64[], Float64[], Float64[])
     end
 end
@@ -206,10 +201,10 @@ function file_save!(writer::ForceWriter, sim::AbstractSimulation)
 end
 
 function _write_forces!(writer::ForceWriter, sim::AbstractSimulation)
-    # Compute force coefficients
+    # Compute force coefficients using simulation's density (sim.flow.ρ)
     # Use sim.L as reference area if writer.reference_area is 1.0 (default)
     ref_area = writer.reference_area == 1.0 ? sim.L : writer.reference_area
-    components = force_components(sim; ρ=writer.ρ, reference_area=ref_area)
+    components = force_components(sim; reference_area=ref_area)
 
     t = sim_time(sim)
 
