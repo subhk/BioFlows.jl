@@ -1,6 +1,5 @@
 using Test
 using BioFlows
-using LinearAlgebra
 using Statistics: mean
 
 # Helper function for correlation - must be defined before testset
@@ -333,5 +332,4 @@ end
         # D[I] = -(L[I,1] + L[I+1,1] + L[I,2] + L[I+1,2]) = -(2+2+3+3) = -10
         @test pois.D[5,5] ≈ -10.0
     end
-    
 end

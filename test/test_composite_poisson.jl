@@ -1,7 +1,5 @@
 using Test
 using BioFlows
-using LinearAlgebra
-using Statistics: mean
 
 @testset "Composite Poisson Solver" begin
 
