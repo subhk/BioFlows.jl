@@ -248,12 +248,20 @@ function summarize_force_history(history; discard::Int=200)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    sim, history, stats, writer, diagnostics = run_flow_past_cylinder(;
+    sim, history, stats, writers, diagnostics = run_flow_past_cylinder(;
                                                 save_center_fields=true,
-                                                center_filename="cylinder_center_fields.jld2")
+                                                center_filename="cylinder_center_fields.jld2",
+                                                save_force_coefficients=true,
+                                                force_filename="cylinder_forces.jld2")
 
     message = "Flow past cylinder 2D complete"
-    extra = writer === nothing ? (; ) : (; center_file=writer.filename, samples=writer.samples)
+    extra = (;)
+    if writers.center !== nothing
+        extra = merge(extra, (; center_file=writers.center.filename, center_samples=writers.center.samples))
+    end
+    if writers.force !== nothing
+        extra = merge(extra, (; force_file=writers.force.filename, force_samples=writers.force.samples))
+    end
     @info message steps=diagnostics.steps stats... diagnostics... extra...
 
     println(message)
@@ -275,14 +283,21 @@ if abspath(PROGRAM_FILE) == @__FILE__
     end
 
     for (name, value) in pairs(diagnostics)
-        name in (:grid, :domain, :cell_size, :radius, :length_scale, :uBC, :perdir, :exitBC, :fixed_dt, :steps, :final_time, :target_time, :center_interval_time, :center_interval_conv) && continue
+        name in (:grid, :domain, :cell_size, :radius, :length_scale, :uBC, :perdir, :exitBC, :fixed_dt, :steps, :final_time, :target_time, :center_interval_time, :center_interval_conv, :force_interval_time, :force_interval_conv) && continue
         println("  ", name, " = ", value)
     end
 
-    if writer !== nothing
-        println("  center_file = ", writer.filename)
-        println("  samples     = ", writer.samples)
+    if writers.center !== nothing
+        println("  center_file = ", writers.center.filename)
+        println("  center_samples = ", writers.center.samples)
         println("  center interval (sim time) = ", diagnostics.center_interval_time)
         println("  center interval (tU/L)     = ", diagnostics.center_interval_conv)
+    end
+
+    if writers.force !== nothing
+        println("  force_file = ", writers.force.filename)
+        println("  force_samples = ", writers.force.samples)
+        println("  force interval (sim time) = ", diagnostics.force_interval_time)
+        println("  force interval (tU/L)     = ", diagnostics.force_interval_conv)
     end
 end
