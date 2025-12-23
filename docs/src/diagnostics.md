@@ -59,6 +59,37 @@ println("Mean lift: ", stats.lift_mean)
 println("Lift std:  ", stats.lift_std)
 ```
 
+### Automatic Force File Output
+
+Use `ForceWriter` to automatically save lift and drag coefficients to a CSV file
+at specified time intervals:
+
+```julia
+using BioFlows
+
+# Create simulation
+sim = Simulation((128, 128), (1.0, 0.0), 1.0; ν=0.001, body=AutoBody(sdf))
+
+# Create force writer - saves every 0.1 time units
+force_writer = ForceWriter("forces.csv"; interval=0.1, reference_area=sim.L)
+
+# Time stepping loop
+for _ in 1:5000
+    sim_step!(sim)
+    maybe_save!(force_writer, sim)  # Writes to CSV when interval elapsed
+end
+```
+
+The CSV file contains columns: `time`, `Cd`, `Cl`, `Cd_pressure`, `Cd_viscous`,
+`Cl_pressure`, `Cl_viscous`.
+
+```julia
+# Read the output file
+using DelimitedFiles
+data = readdlm("forces.csv", ',', Float64; skipstart=1)
+time, Cd, Cl = data[:,1], data[:,2], data[:,3]
+```
+
 ## Vorticity
 
 ### Vorticity Fields
