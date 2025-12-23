@@ -28,9 +28,10 @@ plus refined patches with proper coarse-fine coupling.
 """
 
 """
-    CompositePoisson{T,S,V}
+    CompositePoisson{T,S,V,N}
 
 Composite grid Poisson solver managing base grid and refined patches.
+Supports anisotropic grids via the Δx tuple in MultiLevelPoisson.
 
 # Fields
 - `base`: Base grid MultiLevelPoisson solver
@@ -42,10 +43,10 @@ Composite grid Poisson solver managing base grid and refined patches.
 - `n`: Iteration count history
 - `perdir`: Periodic directions tuple
 """
-mutable struct CompositePoisson{T,S<:AbstractArray{T},V<:AbstractArray{T}} <: AbstractPoisson{T,S,V}
-    base::MultiLevelPoisson{T,S,V}
-    patches::Dict{Tuple{Int,Int}, PatchPoisson{T,S,V}}
-    patches_3d::Dict{Tuple{Int,Int,Int}, PatchPoisson{T,S,V}}
+mutable struct CompositePoisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: AbstractPoisson{T,S,V}
+    base::MultiLevelPoisson{T,S,V,N}
+    patches::Dict{Tuple{Int,Int}, PatchPoisson{T}}
+    patches_3d::Dict{Tuple{Int,Int,Int}, PatchPoisson{T}}
     refined_velocity::RefinedVelocityField{T,2}
     refinement_ratio::Int
     max_level::Int
@@ -67,12 +68,12 @@ Create a CompositePoisson wrapping an existing MultiLevelPoisson.
 - `base`: Existing MultiLevelPoisson solver
 - `max_level`: Maximum refinement level (1=2x, 2=4x, 3=8x)
 """
-function CompositePoisson(base::MultiLevelPoisson{T,S,V};
-                          max_level::Int=3) where {T,S,V}
-    CompositePoisson{T,S,V}(
+function CompositePoisson(base::MultiLevelPoisson{T,S,V,N};
+                          max_level::Int=3) where {T,S,V,N}
+    CompositePoisson{T,S,V,N}(
         base,
-        Dict{Tuple{Int,Int}, PatchPoisson{T,S,V}}(),
-        Dict{Tuple{Int,Int,Int}, PatchPoisson{T,S,V}}(),
+        Dict{Tuple{Int,Int}, PatchPoisson{T}}(),
+        Dict{Tuple{Int,Int,Int}, PatchPoisson{T}}(),
         RefinedVelocityField(Val{2}(), T),
         2,  # Always 2:1 ratio
         max_level,
@@ -85,13 +86,13 @@ function CompositePoisson(base::MultiLevelPoisson{T,S,V};
 end
 
 """
-    CompositePoisson(x, L, z; perdir=(), max_level=3)
+    CompositePoisson(x, L, z; Δx, perdir=(), max_level=3)
 
 Create a CompositePoisson from arrays (creates MultiLevelPoisson internally).
 """
-function CompositePoisson(x::AbstractArray{T}, L::AbstractArray{T}, z::AbstractArray{T};
-                          perdir=(), max_level::Int=3) where T
-    base = MultiLevelPoisson(x, L, z; perdir)
+function CompositePoisson(x::AbstractArray{T,N}, L::AbstractArray{T}, z::AbstractArray{T};
+                          Δx::NTuple{N}=ntuple(_->one(T),N), perdir=(), max_level::Int=3) where {T,N}
+    base = MultiLevelPoisson(x, L, z; Δx, perdir)
     CompositePoisson(base; max_level)
 end
 
