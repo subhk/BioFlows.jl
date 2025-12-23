@@ -82,9 +82,22 @@ end
 """
     interpolate_velocity_to_patches!(refined_velocity, u_coarse)
 
-Interpolate coarse velocity to all refined patches.
+Interpolate coarse velocity to all refined patches (2D version).
 """
 function interpolate_velocity_to_patches!(refined_velocity::RefinedVelocityField{T,2},
+                                           u_coarse::AbstractArray{T}) where T
+    for (anchor, vel_patch) in refined_velocity.patches
+        interpolate_from_coarse!(vel_patch, u_coarse, anchor)
+        fill_ghost_cells!(vel_patch, u_coarse, anchor)
+    end
+end
+
+"""
+    interpolate_velocity_to_patches!(refined_velocity, u_coarse) - 3D version
+
+Interpolate coarse velocity to all refined patches (3D version).
+"""
+function interpolate_velocity_to_patches!(refined_velocity::RefinedVelocityField{T,3},
                                            u_coarse::AbstractArray{T}) where T
     for (anchor, vel_patch) in refined_velocity.patches
         interpolate_from_coarse!(vel_patch, u_coarse, anchor)

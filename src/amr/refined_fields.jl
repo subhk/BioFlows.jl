@@ -463,3 +463,178 @@ function fill_ghost_cells!(patch::RefinedVelocityPatch{T,2},
         end
     end
 end
+
+"""
+    fill_ghost_cells!(patch, u_coarse, anchor) - 3D version
+
+Fill 3D patch ghost cells by interpolation from coarse grid.
+Uses bilinear interpolation on each face.
+Falls back to Neumann BC (zero gradient) at domain boundaries.
+"""
+function fill_ghost_cells!(patch::RefinedVelocityPatch{T,3},
+                            u_coarse::AbstractArray{T},
+                            anchor::NTuple{3,Int}) where T
+    ratio = refinement_ratio(patch)
+    ai, aj, ak = anchor
+    nx, ny, nz = patch.fine_dims
+
+    # Coarse grid bounds
+    nc_i, nc_j, nc_k = size(u_coarse, 1), size(u_coarse, 2), size(u_coarse, 3)
+
+    # Helper for bilinear interpolation with bounds checking
+    function bilinear_interp_2d(u_coarse, ic, jc, kc, d, wy, wz, nc_j, nc_k)
+        jc = clamp(jc, 1, nc_j - 1)
+        kc = clamp(kc, 1, nc_k - 1)
+        v00 = u_coarse[ic, jc, kc, d]
+        v10 = u_coarse[ic, jc+1, kc, d]
+        v01 = u_coarse[ic, jc, kc+1, d]
+        v11 = u_coarse[ic, jc+1, kc+1, d]
+        return (1-wy)*(1-wz)*v00 + wy*(1-wz)*v10 + (1-wy)*wz*v01 + wy*wz*v11
+    end
+
+    function bilinear_interp_xz(u_coarse, ic, jc, kc, d, wx, wz, nc_i, nc_k)
+        ic = clamp(ic, 1, nc_i - 1)
+        kc = clamp(kc, 1, nc_k - 1)
+        v00 = u_coarse[ic, jc, kc, d]
+        v10 = u_coarse[ic+1, jc, kc, d]
+        v01 = u_coarse[ic, jc, kc+1, d]
+        v11 = u_coarse[ic+1, jc, kc+1, d]
+        return (1-wx)*(1-wz)*v00 + wx*(1-wz)*v10 + (1-wx)*wz*v01 + wx*wz*v11
+    end
+
+    function bilinear_interp_xy(u_coarse, ic, jc, kc, d, wx, wy, nc_i, nc_j)
+        ic = clamp(ic, 1, nc_i - 1)
+        jc = clamp(jc, 1, nc_j - 1)
+        v00 = u_coarse[ic, jc, kc, d]
+        v10 = u_coarse[ic+1, jc, kc, d]
+        v01 = u_coarse[ic, jc+1, kc, d]
+        v11 = u_coarse[ic+1, jc+1, kc, d]
+        return (1-wx)*(1-wy)*v00 + wx*(1-wy)*v10 + (1-wx)*wy*v01 + wx*wy*v11
+    end
+
+    # Left ghost face (i=1)
+    ic = ai - 1
+    if ic >= 1
+        for fj in 1:ny+2, fk in 1:nz+2
+            yf = (fj - 1.5) / ratio
+            zf = (fk - 1.5) / ratio
+            jc = floor(Int, yf) + aj
+            kc = floor(Int, zf) + ak
+            wy = clamp(yf - floor(yf), zero(T), one(T))
+            wz = clamp(zf - floor(zf), zero(T), one(T))
+
+            for d in 1:3
+                patch.u[1, fj, fk, d] = bilinear_interp_2d(u_coarse, ic, jc, kc, d, wy, wz, nc_j, nc_k)
+            end
+        end
+    else
+        for fj in 1:ny+2, fk in 1:nz+2, d in 1:3
+            patch.u[1, fj, fk, d] = patch.u[2, fj, fk, d]
+        end
+    end
+
+    # Right ghost face (i=nx+2)
+    ic = ai + patch.coarse_extent[1]
+    if ic <= nc_i
+        for fj in 1:ny+2, fk in 1:nz+2
+            yf = (fj - 1.5) / ratio
+            zf = (fk - 1.5) / ratio
+            jc = floor(Int, yf) + aj
+            kc = floor(Int, zf) + ak
+            wy = clamp(yf - floor(yf), zero(T), one(T))
+            wz = clamp(zf - floor(zf), zero(T), one(T))
+
+            for d in 1:3
+                patch.u[nx+2, fj, fk, d] = bilinear_interp_2d(u_coarse, ic, jc, kc, d, wy, wz, nc_j, nc_k)
+            end
+        end
+    else
+        for fj in 1:ny+2, fk in 1:nz+2, d in 1:3
+            patch.u[nx+2, fj, fk, d] = patch.u[nx+1, fj, fk, d]
+        end
+    end
+
+    # Front ghost face (j=1)
+    jc = aj - 1
+    if jc >= 1
+        for fi in 1:nx+2, fk in 1:nz+2
+            xf = (fi - 1.5) / ratio
+            zf = (fk - 1.5) / ratio
+            ic = floor(Int, xf) + ai
+            kc = floor(Int, zf) + ak
+            wx = clamp(xf - floor(xf), zero(T), one(T))
+            wz = clamp(zf - floor(zf), zero(T), one(T))
+
+            for d in 1:3
+                patch.u[fi, 1, fk, d] = bilinear_interp_xz(u_coarse, ic, jc, kc, d, wx, wz, nc_i, nc_k)
+            end
+        end
+    else
+        for fi in 1:nx+2, fk in 1:nz+2, d in 1:3
+            patch.u[fi, 1, fk, d] = patch.u[fi, 2, fk, d]
+        end
+    end
+
+    # Back ghost face (j=ny+2)
+    jc = aj + patch.coarse_extent[2]
+    if jc <= nc_j
+        for fi in 1:nx+2, fk in 1:nz+2
+            xf = (fi - 1.5) / ratio
+            zf = (fk - 1.5) / ratio
+            ic = floor(Int, xf) + ai
+            kc = floor(Int, zf) + ak
+            wx = clamp(xf - floor(xf), zero(T), one(T))
+            wz = clamp(zf - floor(zf), zero(T), one(T))
+
+            for d in 1:3
+                patch.u[fi, ny+2, fk, d] = bilinear_interp_xz(u_coarse, ic, jc, kc, d, wx, wz, nc_i, nc_k)
+            end
+        end
+    else
+        for fi in 1:nx+2, fk in 1:nz+2, d in 1:3
+            patch.u[fi, ny+2, fk, d] = patch.u[fi, ny+1, fk, d]
+        end
+    end
+
+    # Bottom ghost face (k=1)
+    kc = ak - 1
+    if kc >= 1
+        for fi in 1:nx+2, fj in 1:ny+2
+            xf = (fi - 1.5) / ratio
+            yf = (fj - 1.5) / ratio
+            ic = floor(Int, xf) + ai
+            jc = floor(Int, yf) + aj
+            wx = clamp(xf - floor(xf), zero(T), one(T))
+            wy = clamp(yf - floor(yf), zero(T), one(T))
+
+            for d in 1:3
+                patch.u[fi, fj, 1, d] = bilinear_interp_xy(u_coarse, ic, jc, kc, d, wx, wy, nc_i, nc_j)
+            end
+        end
+    else
+        for fi in 1:nx+2, fj in 1:ny+2, d in 1:3
+            patch.u[fi, fj, 1, d] = patch.u[fi, fj, 2, d]
+        end
+    end
+
+    # Top ghost face (k=nz+2)
+    kc = ak + patch.coarse_extent[3]
+    if kc <= nc_k
+        for fi in 1:nx+2, fj in 1:ny+2
+            xf = (fi - 1.5) / ratio
+            yf = (fj - 1.5) / ratio
+            ic = floor(Int, xf) + ai
+            jc = floor(Int, yf) + aj
+            wx = clamp(xf - floor(xf), zero(T), one(T))
+            wy = clamp(yf - floor(yf), zero(T), one(T))
+
+            for d in 1:3
+                patch.u[fi, fj, nz+2, d] = bilinear_interp_xy(u_coarse, ic, jc, kc, d, wx, wy, nc_i, nc_j)
+            end
+        end
+    else
+        for fi in 1:nx+2, fj in 1:ny+2, d in 1:3
+            patch.u[fi, fj, nz+2, d] = patch.u[fi, fj, nz+1, d]
+        end
+    end
+end
