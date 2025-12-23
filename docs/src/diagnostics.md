@@ -17,19 +17,19 @@ record_force!
 ```julia
 using BioFlows
 
-# Get all force components (ρ=1000 kg/m³ water density by default)
+# Get all force components (uses simulation's ρ from sim.flow.ρ)
 components = force_components(sim; reference_area=sim.L)
 
-# For air simulations, specify density explicitly
-components = force_components(sim; ρ=1.2, reference_area=sim.L)
-
-# Access individual forces
+# Access individual forces (in Newtons)
 pressure_force = components.pressure   # [Fx, Fz] or [Fx, Fy, Fz]
 viscous_force = components.viscous
 total_force = components.total
 
-# Dimensionless coefficients
+# Dimensionless coefficients (Cd, Cl, etc.)
 Cd, Cl = components.coefficients[3]  # Total force coefficients
+
+# For air simulations, set ρ when creating the simulation:
+sim_air = Simulation((128, 64), (1.0, 0.5); ν=1.5e-5, ρ=1.2, body=cylinder)
 ```
 
 ### Force History

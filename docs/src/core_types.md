@@ -29,6 +29,7 @@ Simulation(dims::NTuple{N}, L::NTuple{N};
 | `Δt` | `Number` | Initial time step (default: 0.25) |
 | `fixed_Δt` | `Number` or `Nothing` | Fixed time step. If set, disables adaptive CFL (default: `nothing`) |
 | `ν` | `Number` | Kinematic viscosity (`Re = U*L/ν`) |
+| `ρ` | `Number` | Fluid density (default: 1000 kg/m³ for water) |
 | `ϵ` | `Number` | BDIM kernel width (default: 1) |
 | `g` | `Function` or `Nothing` | Acceleration field `g(i,x,t)` |
 | `perdir` | `Tuple` | Periodic directions, e.g. `(2,)` |
