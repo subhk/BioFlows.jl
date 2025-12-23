@@ -82,7 +82,7 @@ function Vcycle!(ml::MultiLevelPoisson;l=1)
 end
 
 mult!(ml::MultiLevelPoisson,x) = mult!(ml.levels[1],x)
-residual!(ml::MultiLevelPoisson,x) = residual!(ml.levels[1],x)
+residual!(ml::MultiLevelPoisson) = residual!(ml.levels[1])
 
 function solver!(ml::MultiLevelPoisson;tol=1e-4,itmx=32)
     p = ml.levels[1]

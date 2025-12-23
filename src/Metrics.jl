@@ -158,9 +158,10 @@ function pressure_moment(x₀,p,df,body,t=0)
 end
 
 """
-     MeanFlow{T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Mf<:AbstractArray{T}}
+     MeanFlow{T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Mf}
 
 Holds temporal averages of pressure, velocity, and squared-velocity tensor.
+The `Mf` type parameter can be `Nothing` when `uu_stats=false`, or an array type when enabled.
 """
 struct MeanFlow{T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Mf}
     P :: Sf # pressure scalar field
@@ -216,7 +217,7 @@ function uu(a::MeanFlow)
     return τ
 end
 
-function copy!(a::Flow, b::MeanFlow)
+function Base.copy!(a::Flow, b::MeanFlow)
     a.u .= b.U
     a.p .= b.P
 end
