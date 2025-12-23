@@ -301,7 +301,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     perdir :: NTuple # periodic directions tuple
     fixed_Δt :: Union{T,Nothing} # fixed time step (nothing = adaptive CFL)
     """
-        Flow(N; L, inletBC=nothing, ν=0, Δt=0.25, fixed_Δt=nothing, ...)
+        Flow(N; L, inletBC=nothing, ν=0, ρ=1000, Δt=0.25, fixed_Δt=nothing, ...)
 
     Construct a Flow on grid of size `N` with domain size `L`.
 
@@ -315,6 +315,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     - `inletBC`: Inlet boundary velocity (m/s). Tuple or `Function(i,x,t)`.
       Default: unit velocity in x-direction `(1, 0, ...)`.
     - `ν=0.`: Kinematic viscosity (m²/s). Water ≈ 1e-6, air ≈ 1.5e-5
+    - `ρ=1000.`: Fluid density (kg/m³). Water = 1000, air ≈ 1.2
     - `Δt=0.25`: Initial time step (s). Used as first step, then adaptive CFL unless `fixed_Δt` is set.
     - `fixed_Δt=nothing`: Fixed time step (s). If specified, disables adaptive CFL time stepping.
     - `g=nothing`: Body acceleration function `g(i,x,t)` returning m/s²
@@ -327,14 +328,14 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
 
     # Example
     ```julia
-    # Adaptive time stepping (default)
+    # Water flow (default density)
     flow = Flow((200, 100); L=(2.0, 1.0), inletBC=(1.0, 0.0), ν=1e-6)
 
-    # Fixed time step of 0.01s
-    flow = Flow((200, 100); L=(2.0, 1.0), inletBC=(1.0, 0.0), ν=1e-6, fixed_Δt=0.01)
+    # Air flow
+    flow = Flow((200, 100); L=(2.0, 1.0), inletBC=(1.0, 0.0), ν=1.5e-5, ρ=1.2)
     ```
     """
-    function Flow(N::NTuple{D}; L::NTuple{D}, inletBC=nothing, f=Array, Δt=0.25, ν=0., g=nothing,
+    function Flow(N::NTuple{D}; L::NTuple{D}, inletBC=nothing, f=Array, Δt=0.25, ν=0., ρ=1000., g=nothing,
             uλ=nothing, perdir=(), outletBC=false, store_fluxes=false, T=Float32, fixed_Δt=nothing) where D
         # Default inletBC: unit velocity in x-direction
         if isnothing(inletBC)
@@ -362,7 +363,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
         end
         # Convert fixed_Δt to correct type if specified
         fixed_dt = isnothing(fixed_Δt) ? nothing : T(fixed_Δt)
-        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,F_conv,F_diff,store_fluxes,inletBC,T[Δt],T(ν),Δx,g,outletBC,perdir,fixed_dt)
+        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,F_conv,F_diff,store_fluxes,inletBC,T[Δt],T(ν),T(ρ),Δx,g,outletBC,perdir,fixed_dt)
     end
 end
 
@@ -398,6 +399,11 @@ end
 
 Project velocity onto divergence-free space using pressure Poisson equation.
 
+Solves: ∇²p = ρ·∇·u*/Δt
+Updates: u = u* - (Δt/ρ)·∇p
+
+The pressure field `p` has units of Pa (kg/(m·s²)).
+
 Note: The Poisson solver uses unit spacing internally (Δx=1 in computational coordinates).
 For isotropic grids (Δx = Δy = Δz), this works correctly because all operators use
 the same implicit scaling. For anisotropic grids (Δx ≠ Δy), see the warning in the
@@ -405,11 +411,12 @@ Simulation constructor - the pressure solver accuracy may be reduced.
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
-    @inside b.z[I] = div(I,a.u)
+    ρ = a.ρ
+    @inside b.z[I] = ρ*div(I,a.u)  # RHS scaled by ρ for actual pressure
     b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
     for i ∈ 1:n
-        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
+        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)/ρ over I ∈ inside(b.x)  # Divide gradient by ρ
     end
     b.x ./= dt  # Unscale to recover actual pressure
 end
