@@ -106,7 +106,7 @@ export amr_cfl, synchronize_base_and_patches!, interpolate_velocity_to_patches!
 # Simulation container
 abstract type AbstractSimulation end
 """
-    Simulation(dims::NTuple{N}, uBC, L::NTuple{N}; L_char=nothing, kwargs...)
+    Simulation(dims::NTuple{N}, inletBC, L::NTuple{N}; L_char=nothing, kwargs...)
 
 Constructor for a BioFlows simulation solving the dimensional incompressible Navier-Stokes equations:
 
@@ -117,7 +117,7 @@ Constructor for a BioFlows simulation solving the dimensional incompressible Nav
 
 ## Required
 - `dims::NTuple{N,Int}`: Number of grid cells in each direction, e.g., `(nx, nz)` or `(nx, ny, nz)`
-- `uBC`: Boundary velocity. Either a `Tuple` for constant BCs, or `Function(i,x,t)` for space/time varying
+- `inletBC`: Inlet boundary velocity. Either a `Tuple` for constant BCs, or `Function(i,x,t)` for space/time varying
 - `L::NTuple{N}`: Physical domain size in each direction (e.g., `(Lx, Lz)` in meters)
   - Grid spacing is computed as `Δx = L[1]/dims[1]` (must be uniform)
 
@@ -125,14 +125,14 @@ Constructor for a BioFlows simulation solving the dimensional incompressible Nav
 - `L_char`: Characteristic length scale for dimensionless time and force coefficients
   - Defaults to `L[1]` if not specified
   - For cylinder flows, typically use the diameter (2*radius)
-- `U`: Velocity scale for dimensionless time reporting. Required if `uBC` is a `Function`
+- `U`: Velocity scale for dimensionless time reporting. Required if `inletBC` is a `Function`
 - `Δt=0.25`: Initial time step (seconds)
 - `ν=0.`: Kinematic viscosity (m²/s)
 - `g=nothing`: Body acceleration function `g(i,x,t)` (m/s²)
 - `ϵ=1`: BDIM kernel width (in grid cells)
 - `perdir=()`: Periodic directions, e.g., `(2,)` for y-periodic
 - `uλ=nothing`: Initial velocity condition. Tuple or `Function(i,x)`
-- `exitBC=false`: Enable convective exit BC in direction 1
+- `outletBC=false`: Enable convective outlet BC in direction 1
 - `body=NoBody()`: Immersed body geometry
 - `T=Float32`: Numeric type
 - `mem=Array`: Memory backend (`Array`, `CuArray`, etc.)
@@ -160,15 +160,15 @@ mutable struct Simulation <: AbstractSimulation
     body :: AbstractBody
     pois :: AbstractPoisson
 
-    function Simulation(dims::NTuple{N}, uBC, L::NTuple{N};
+    function Simulation(dims::NTuple{N}, inletBC, L::NTuple{N};
                         L_char=nothing, Δt=0.25, ν=0., g=nothing, U=nothing, ϵ=1, perdir=(),
-                        uλ=nothing, exitBC=false, body::AbstractBody=NoBody(),
+                        uλ=nothing, outletBC=false, body::AbstractBody=NoBody(),
                         T=Float32, mem=Array) where N
-        @assert !(isnothing(U) && isa(uBC,Function)) "`U` (velocity scale) must be specified if boundary conditions `uBC` is a `Function`"
-        isnothing(U) && (U = √sum(abs2,uBC))
-        check_fn(uBC,N,T,3); check_fn(g,N,T,3); check_fn(uλ,N,T,2)
+        @assert !(isnothing(U) && isa(inletBC,Function)) "`U` (velocity scale) must be specified if boundary conditions `inletBC` is a `Function`"
+        isnothing(U) && (U = √sum(abs2,inletBC))
+        check_fn(inletBC,N,T,3); check_fn(g,N,T,3); check_fn(uλ,N,T,2)
         # Pass domain size L to Flow for dimensional Δx computation
-        flow = Flow(dims,uBC;L=L,uλ,Δt,ν,g,T,f=mem,perdir,exitBC)
+        flow = Flow(dims,inletBC;L=L,uλ,Δt,ν,g,T,f=mem,perdir,outletBC)
         measure!(flow,body;ϵ)
         # Use L_char for dimensionless time/forces, default to L[1]
         char_length = isnothing(L_char) ? L[1] : L_char
@@ -331,22 +331,22 @@ mutable struct AMRSimulation <: AbstractSimulation
 end
 
 """
-    AMRSimulation(dims, uBC, L::NTuple{N}; amr_config=AMRConfig(), kwargs...)
+    AMRSimulation(dims, inletBC, L::NTuple{N}; amr_config=AMRConfig(), kwargs...)
 
 Create an AMR-enabled simulation.
 
 # Arguments
 - `dims`: Grid dimensions
-- `uBC`: Boundary conditions
+- `inletBC`: Inlet boundary conditions
 - `L::NTuple{N}`: Physical domain size tuple
 - `amr_config`: AMR configuration (default: AMRConfig())
 - `kwargs...`: Additional arguments passed to Simulation constructor (including `L_char`)
 """
-function AMRSimulation(dims::NTuple{N}, uBC, L::NTuple{N};
+function AMRSimulation(dims::NTuple{N}, inletBC, L::NTuple{N};
                        amr_config::AMRConfig=AMRConfig(),
                        kwargs...) where N
     # Create base simulation
-    sim = Simulation(dims, uBC, L; kwargs...)
+    sim = Simulation(dims, inletBC, L; kwargs...)
 
     # Create adapter and refined grid using domain size L[1]
     adapter = FlowToGridAdapter(sim.flow, L[1])

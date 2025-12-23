@@ -260,8 +260,8 @@ condition `a[I,i]=A[i]` is applied to the vector component _normal_ to the domai
 boundary. For example `aₓ(x)=Aₓ ∀ x ∈ minmax(X)`. A zero Neumann condition
 is applied to the tangential components.
 """
-BC!(a,U,saveexit=false,perdir=(),t=0) = BC!(a,(i,x,t)->U[i],saveexit,perdir,t)
-function BC!(a,uBC::Function,saveexit=false,perdir=(),t=0)
+BC!(a,U,saveoutlet=false,perdir=(),t=0) = BC!(a,(i,x,t)->U[i],saveoutlet,perdir,t)
+function BC!(a,inletBC::Function,saveoutlet=false,perdir=(),t=0)
     N,n = size_u(a)
     for i ∈ 1:n, j ∈ 1:n  # i = velocity component, j = boundary direction
         if j in perdir
@@ -271,23 +271,23 @@ function BC!(a,uBC::Function,saveexit=false,perdir=(),t=0)
         else
             if i==j  # NORMAL component: Dirichlet BC
                 for s ∈ (1,2)  # Both ghost layers at inlet
-                    @loop a[I,i] = uBC(i,loc(i,I),t) over I ∈ slice(N,s,j)
+                    @loop a[I,i] = inletBC(i,loc(i,I),t) over I ∈ slice(N,s,j)
                 end
-                # Outlet: apply BC unless saveexit and x-direction
-                (!saveexit || i>1) && (@loop a[I,i] = uBC(i,loc(i,I),t) over I ∈ slice(N,N[j],j))
+                # Outlet: apply BC unless saveoutlet and x-direction
+                (!saveoutlet || i>1) && (@loop a[I,i] = inletBC(i,loc(i,I),t) over I ∈ slice(N,N[j],j))
             else  # TANGENTIAL component: Neumann BC (zero gradient)
                 # u_ghost = u_BC + (u_interior - u_BC) = u_interior
-                @loop a[I,i] = uBC(i,loc(i,I),t)+a[I+δ(j,I),i]-uBC(i,loc(i,I+δ(j,I)),t) over I ∈ slice(N,1,j)
-                @loop a[I,i] = uBC(i,loc(i,I),t)+a[I-δ(j,I),i]-uBC(i,loc(i,I-δ(j,I)),t) over I ∈ slice(N,N[j],j)
+                @loop a[I,i] = inletBC(i,loc(i,I),t)+a[I+δ(j,I),i]-inletBC(i,loc(i,I+δ(j,I)),t) over I ∈ slice(N,1,j)
+                @loop a[I,i] = inletBC(i,loc(i,I),t)+a[I-δ(j,I),i]-inletBC(i,loc(i,I-δ(j,I)),t) over I ∈ slice(N,N[j],j)
             end
         end
     end
 end
 
 """
-    exitBC!(u,u⁰,U,Δt)
+    exitBC!(u,u⁰,Δt)
 
-Apply a 1D convection scheme to fill the ghost cell on the exit of the domain.
+Apply a 1D convection scheme to fill the ghost cell on the outlet of the domain.
 """
 function exitBC!(u,u⁰,Δt)
     N,_ = size_u(u)
@@ -375,7 +375,7 @@ end
 xtargs(::Val{2},N,T) = (zeros(SVector{N,T}),)
 xtargs(::Val{3},N,T) = (zeros(SVector{N,T}),zero(T))
 
-ic_function(uBC::Function) = (i,x)->uBC(i,x,0)
-ic_function(uBC::Tuple) = (i,x)->uBC[i]
+ic_function(inletBC::Function) = (i,x)->inletBC(i,x,0)
+ic_function(inletBC::Tuple) = (i,x)->inletBC[i]
 
 squeeze(a::AbstractArray) = dropdims(a, dims = tuple(findall(size(a) .== 1)...))
