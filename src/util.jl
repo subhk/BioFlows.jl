@@ -15,7 +15,8 @@ Set up a logger to write the pressure solver data to a logging file named `BioFl
 """
 function logger(fname::String="BioFlows")
     ENV["JULIA_DEBUG"] = all
-    logger = FormatLogger(ifelse(fname[end-3:end]==".log",fname[1:end-4],fname)*".log"; append=false) do io, args
+    logname = endswith(fname, ".log") ? fname : fname * ".log"
+    logger = FormatLogger(logname; append=false) do io, args
         args.level == _psolver && print(io, args.message)
     end;
     global_logger(logger);
