@@ -129,6 +129,7 @@ Constructor for a BioFlows simulation solving the dimensional incompressible Nav
 - `L_char`: Characteristic length for force coefficients (default: `L[1]`)
 - `U`: Velocity scale. Auto-computed from `inletBC` if constant, required if function
 - `Δt=0.25`: Initial time step (seconds)
+- `fixed_Δt=nothing`: Fixed time step (seconds). If specified, disables adaptive CFL time stepping.
 - `g=nothing`: Body acceleration function `g(i,x,t)` (m/s²)
 - `ϵ=1`: BDIM kernel width (in grid cells)
 - `perdir=()`: Periodic directions, e.g., `(2,)` for z-periodic
@@ -221,7 +222,7 @@ mutable struct Simulation <: AbstractSimulation
     function Simulation(dims::NTuple{N}, L::NTuple{N};
                         inletBC=nothing, L_char=nothing, Δt=0.25, ν=0., g=nothing, U=nothing, ϵ=1, perdir=(),
                         uλ=nothing, outletBC=false, body::AbstractBody=NoBody(),
-                        T=Float32, mem=Array) where N
+                        T=Float32, mem=Array, fixed_Δt=nothing) where N
         # Default inletBC: unit velocity in x-direction
         if isnothing(inletBC)
             inletBC = ntuple(i -> i==1 ? one(T) : zero(T), N)
@@ -230,7 +231,7 @@ mutable struct Simulation <: AbstractSimulation
         isnothing(U) && (U = √sum(abs2,inletBC))
         check_fn(inletBC,N,T,3); check_fn(g,N,T,3); check_fn(uλ,N,T,2)
         # Pass domain size L to Flow for dimensional Δx computation
-        flow = Flow(dims;L=L,inletBC=inletBC,uλ,Δt,ν,g,T,f=mem,perdir,outletBC)
+        flow = Flow(dims;L=L,inletBC=inletBC,uλ,Δt,ν,g,T,f=mem,perdir,outletBC,fixed_Δt=fixed_Δt)
         measure!(flow,body;ϵ)
         # Use L_char for dimensionless time/forces, default to L[1]
         char_length = isnothing(L_char) ? L[1] : L_char
