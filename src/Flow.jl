@@ -46,6 +46,12 @@
 # Right boundary: central diff for outflow (u<0), upwind for inflow (u>0)
 @inline ϕuR(a,I,f,u,λ) = @inbounds u<0 ? u*ϕ(a,I,f) : u*λ(f[I-2δ(a,I)],f[I-δ(a,I)],f[I])
 
+# =============================================================================
+# DIVERGENCE AND BDIM OPERATORS
+# =============================================================================
+
+# Velocity divergence: ∇·u = Σ ∂u_i/∂x_i
+# Used to compute pressure source term in projection step
 @fastmath @inline function div(I::CartesianIndex{m},u) where {m}
     init=zero(eltype(u))
     for i in 1:m
@@ -53,6 +59,9 @@
     end
     return init
 end
+
+# BDIM first-moment correction: μ₁·∇f (directional derivative weighted by μ₁)
+# Part of the immersed boundary forcing that smoothly transitions flow at body surface
 @fastmath @inline function μddn(I::CartesianIndex{np1},μ,f) where np1
     s = zero(eltype(f))
     for j ∈ 1:np1-1
@@ -60,6 +69,9 @@ end
     end
     return 0.5s
 end
+
+# Median of three values - used by QUICK scheme as flux limiter
+# Branchless-friendly implementation for performance
 function median(a,b,c)
     if a>b
         b>=c && return b
