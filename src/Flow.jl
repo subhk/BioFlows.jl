@@ -191,14 +191,35 @@ function BDIM!(a::Flow)
     @loop a.u[Ii] += μddn(Ii,a.μ₁,a.f)+a.V[Ii]+a.μ₀[Ii]*a.f[Ii] over Ii ∈ inside_u(size(a.p))
 end
 
+"""
+    project!(a::Flow, b::AbstractPoisson, w=1)
+
+Project velocity onto divergence-free space using pressure Poisson equation.
+
+Solves the pressure Poisson equation:
+    ∇²p = (1/Δt) ∇·u*
+
+Then corrects velocity:
+    u^{n+1} = u* - Δt ∇p
+
+With proper Δx scaling for dimensional equations:
+- Divergence: ∇·u = (1/Δx) Σ Δu
+- Pressure gradient: ∇p = (1/Δx) Δp
+"""
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
-    @inside b.z[I] = div(I,a.u); b.x .*= dt # set source term & solution IC
+    Δx = a.Δx
+    inv_Δx = inv(Δx)
+    # Set source term: z = div(u)/Δx (dimensional divergence)
+    @inside b.z[I] = inv_Δx*div(I,a.u)
+    b.x .*= dt  # Scale initial guess
     solver!(b)
-    for i ∈ 1:n  # apply solution and unscale to recover pressure
-        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
+    # Apply pressure gradient correction: u -= (dt/Δx) * L * ∂p
+    scale = dt * inv_Δx
+    for i ∈ 1:n
+        @loop a.u[I,i] -= scale*b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
     end
-    b.x ./= dt
+    b.x ./= dt  # Unscale to recover actual pressure
 end
 
 """
@@ -206,12 +227,18 @@ end
 
 Integrate the `Flow` one time step using the [Boundary Data Immersion Method](https://eprints.soton.ac.uk/369635/)
 and the `AbstractPoisson` pressure solver to project the velocity onto an incompressible flow.
+
+Solves the dimensional incompressible Navier-Stokes equations:
+    ∂u/∂t + (u·∇)u = -∇p/ρ + ν∇²u + g
+    ∇·u = 0
+
+Uses predictor-corrector time integration with proper Δx scaling.
 """
 @fastmath function mom_step!(a::Flow{N},b::AbstractPoisson;λ=quick,udf=nothing,kwargs...) where N
     a.u⁰ .= a.u; scale_u!(a,0); t₁ = sum(a.Δt); t₀ = t₁-a.Δt[end]
     # predictor u → u'
     @log "p"
-    conv_diff!(a.f,a.u⁰,a.σ,λ;ν=a.ν,perdir=a.perdir)
+    conv_diff!(a.f,a.u⁰,a.σ,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
     udf!(a,udf,t₀; kwargs...)
     accelerate!(a.f,t₀,a.g,a.uBC)
     BDIM!(a); BC!(a.u,a.uBC,a.exitBC,a.perdir,t₁) # BC MUST be at t₁
@@ -219,7 +246,7 @@ and the `AbstractPoisson` pressure solver to project the velocity onto an incomp
     project!(a,b); BC!(a.u,a.uBC,a.exitBC,a.perdir,t₁)
     # corrector u → u¹
     @log "c"
-    conv_diff!(a.f,a.u,a.σ,λ;ν=a.ν,perdir=a.perdir)
+    conv_diff!(a.f,a.u,a.σ,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
     udf!(a,udf,t₁; kwargs...)
     accelerate!(a.f,t₁,a.g,a.uBC)
     BDIM!(a); scale_u!(a,0.5); BC!(a.u,a.uBC,a.exitBC,a.perdir,t₁)
@@ -228,9 +255,23 @@ and the `AbstractPoisson` pressure solver to project the velocity onto an incomp
 end
 scale_u!(a,scale) = @loop a.u[Ii] *= scale over Ii ∈ inside_u(size(a.p))
 
-function CFL(a::Flow;Δt_max=10)
+"""
+    CFL(a::Flow; Δt_max=10)
+
+Compute CFL-stable time step for dimensional Navier-Stokes.
+
+The CFL condition combines convective and diffusive stability:
+- Convective: Δt ≤ Δx / u_max
+- Diffusive: Δt ≤ Δx² / (2Dν) for D dimensions
+
+Combined: Δt ≤ 1 / (u_max/Δx + 2Dν/Δx²)
+"""
+function CFL(a::Flow{D};Δt_max=10) where D
     @inside a.σ[I] = flux_out(I,a.u)
-    min(Δt_max,inv(maximum(a.σ)+5a.ν))
+    u_max = maximum(a.σ)
+    Δx = a.Δx
+    # Convective CFL: u_max/Δx, Diffusive CFL: 2*D*ν/Δx²
+    min(Δt_max, inv(u_max/Δx + 2*D*a.ν/Δx^2))
 end
 @fastmath @inline function flux_out(I::CartesianIndex{d},u) where {d}
     s = zero(eltype(u))

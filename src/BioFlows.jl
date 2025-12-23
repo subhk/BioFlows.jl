@@ -106,40 +106,72 @@ export amr_cfl, synchronize_base_and_patches!, interpolate_velocity_to_patches!
 # Simulation container
 abstract type AbstractSimulation end
 """
-    Simulation(dims::NTuple, uBC::Union{NTuple,Function}, L::Number;
-               U=norm2(Uλ), Δt=0.25, ν=0., ϵ=1, g=nothing,
-               perdir=(), exitBC=false,
-               body::AbstractBody=NoBody(),
-               T=Float32, mem=Array)
+    Simulation(dims::NTuple, uBC, L; kwargs...)
 
-Constructor for a BioFlows simulation:
+Constructor for a BioFlows simulation solving the dimensional incompressible Navier-Stokes equations.
 
-  - `dims`: Simulation domain dimensions.
-  - `uBC`: Velocity field applied to boundary and acceleration conditions.
-        Define a `Tuple` for constant BCs, or a `Function` for space and time varying BCs `uBC(i,x,t)`.
-  - `L`: Simulation length scale.
-  - `U`: Simulation velocity scale. Required if using `Uλ::Function`.
-  - `Δt`: Initial time step.
-  - `ν`: Scaled viscosity (`Re=UL/ν`).
-  - `g`: Domain acceleration, `g(i,x,t)=duᵢ/dt`
-  - `ϵ`: BDIM kernel width.
-  - `perdir`: Domain periodic boundary condition in the `(i,)` direction.
-  - `uλ`: Velocity field applied to the initial condition.
-        Define a Tuple for homogeneous (per direction) IC, or a `Function` for space varying IC `uλ(i,x)`.
-  - `exitBC`: Convective exit boundary condition in the `i=1` direction.
-  - `body`: Immersed geometry.
-  - `T`: Array element type.
-  - `mem`: memory location. `Array`, `CuArray`, `ROCm` to run on CPU, NVIDIA, or AMD devices, respectively.
+# Arguments
 
-See files in `examples` folder for examples.
+## Required
+- `dims::NTuple{N,Int}`: Number of grid cells in each direction, e.g., `(nx, nz)` or `(nx, ny, nz)`
+- `uBC`: Boundary velocity. Either a `Tuple` for constant BCs, or `Function(i,x,t)` for space/time varying
+- `L`: Domain specification. Either:
+    - `L::Number`: Characteristic length scale (for non-dimensional formulation, Δx=1)
+    - `L::NTuple{N}`: Physical domain size, e.g., `(Lx, Ly)` in meters (dimensional formulation)
+
+## Optional (keyword arguments)
+- `U`: Velocity scale. Required if `uBC` is a `Function`, otherwise computed from `uBC`
+- `Δt=0.25`: Initial time step (seconds for dimensional, non-dim for Δx=1)
+- `ν=0.`: Kinematic viscosity (m²/s for dimensional)
+- `g=nothing`: Body acceleration function `g(i,x,t)`
+- `ϵ=1`: BDIM kernel width (in grid cells)
+- `perdir=()`: Periodic directions, e.g., `(2,)` for y-periodic
+- `uλ=nothing`: Initial condition. Tuple or `Function(i,x)`
+- `exitBC=false`: Enable convective exit BC in direction 1
+- `body=NoBody()`: Immersed body geometry
+- `T=Float32`: Numeric type
+- `mem=Array`: Memory backend (`Array`, `CuArray`, etc.)
+
+# Examples
+
+## Non-dimensional (L is a scalar, Δx=1 implicitly)
+```julia
+sim = Simulation((128, 64), (1.0, 0.0), 1.0; ν=0.001, body=cylinder)
+```
+
+## Dimensional (L is a tuple, Δx computed from L/dims)
+```julia
+# Domain 1m × 0.5m with 200 × 100 cells → Δx = 0.005m
+sim = Simulation((200, 100), (1.0, 0.0), (1.0, 0.5); ν=1e-6, body=cylinder)
+```
+
+See files in `examples` folder for more examples.
 """
 mutable struct Simulation <: AbstractSimulation
     U :: Number # velocity scale
-    L :: Number # length scale
+    L :: Number # length scale (characteristic length for non-dim time)
     ϵ :: Number # kernel width
     flow :: Flow
     body :: AbstractBody
     pois :: AbstractPoisson
+
+    # Constructor with domain size tuple (dimensional form)
+    function Simulation(dims::NTuple{N}, uBC, L::NTuple{N};
+                        Δt=0.25, ν=0., g=nothing, U=nothing, ϵ=1, perdir=(),
+                        uλ=nothing, exitBC=false, body::AbstractBody=NoBody(),
+                        T=Float32, mem=Array) where N
+        @assert !(isnothing(U) && isa(uBC,Function)) "`U` (velocity scale) must be specified if boundary conditions `uBC` is a `Function`"
+        isnothing(U) && (U = √sum(abs2,uBC))
+        check_fn(uBC,N,T,3); check_fn(g,N,T,3); check_fn(uλ,N,T,2)
+        # Pass domain size L to Flow for dimensional Δx computation
+        flow = Flow(dims,uBC;L=L,uλ,Δt,ν,g,T,f=mem,perdir,exitBC)
+        measure!(flow,body;ϵ)
+        # Use L[1] as characteristic length for sim_time
+        L_char = L[1]
+        new(U,L_char,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
+    end
+
+    # Constructor with scalar L (non-dimensional form, backward compatible)
     function Simulation(dims::NTuple{N}, uBC, L::Number;
                         Δt=0.25, ν=0., g=nothing, U=nothing, ϵ=1, perdir=(),
                         uλ=nothing, exitBC=false, body::AbstractBody=NoBody(),
@@ -147,6 +179,7 @@ mutable struct Simulation <: AbstractSimulation
         @assert !(isnothing(U) && isa(uBC,Function)) "`U` (velocity scale) must be specified if boundary conditions `uBC` is a `Function`"
         isnothing(U) && (U = √sum(abs2,uBC))
         check_fn(uBC,N,T,3); check_fn(g,N,T,3); check_fn(uλ,N,T,2)
+        # Δx=1 (non-dimensional) when L is scalar
         flow = Flow(dims,uBC;uλ,Δt,ν,g,T,f=mem,perdir,exitBC)
         measure!(flow,body;ϵ)
         new(U,L,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
