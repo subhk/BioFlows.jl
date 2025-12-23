@@ -4,6 +4,7 @@
 # This module provides tools for saving simulation results to disk:
 #
 # - CenterFieldWriter: Periodic snapshot writer to JLD2 files
+# - ForceWriter: Periodic writer for lift/drag coefficients to CSV files
 # - maybe_save!: Conditional snapshot saving based on time intervals
 #
 # Output files use JLD2 format (Julia Data Format v2) which can be read back
@@ -12,6 +13,9 @@
 #   data = load("center_fields.jld2")
 #   vel = data["snapshot_1/velocity"]
 #
+# Force coefficient files use CSV format for easy import into plotting tools:
+#   time, Cd, Cl, Cd_pressure, Cd_viscous, Cl_pressure, Cl_viscous
+#
 # Snapshots include:
 # - Velocity (cell-centered, [nx, nz, 2] for 2D or [nx, ny, nz, 3] for 3D)
 # - Vorticity (cell-centered, scalar for 2D or vector for 3D)
@@ -19,6 +23,7 @@
 # =============================================================================
 
 using JLD2
+using Printf
 
 """
     CenterFieldWriter(filename::AbstractString="center_fields.jld2";
