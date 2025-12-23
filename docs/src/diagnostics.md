@@ -17,8 +17,11 @@ record_force!
 ```julia
 using BioFlows
 
-# Get all force components
-components = force_components(sim; ρ=1.0, reference_area=sim.L)
+# Get all force components (ρ=1000 kg/m³ water density by default)
+components = force_components(sim; reference_area=sim.L)
+
+# For air simulations, specify density explicitly
+components = force_components(sim; ρ=1.2, reference_area=sim.L)
 
 # Access individual forces
 pressure_force = components.pressure   # [Fx, Fz] or [Fx, Fy, Fz]
@@ -38,7 +41,7 @@ history = NamedTuple[]
 
 for step in 1:1000
     sim_step!(sim)
-    record_force!(history, sim; ρ=1.0, reference_area=sim.L)
+    record_force!(history, sim; reference_area=sim.L)  # Uses water density by default
 end
 
 # Access recorded data

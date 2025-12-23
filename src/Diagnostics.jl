@@ -100,13 +100,13 @@ function cell_center_vorticity(sim::AbstractSimulation; strip_ghosts::Bool=true)
 end
 
 """
-    force_components(sim; ρ=1.0, reference_area=sim.L, with_coefficients=true)
+    force_components(sim; ρ=1000.0, reference_area=sim.L, with_coefficients=true)
 
 Collect pressure, viscous, and total force vectors for `sim`. When
 `with_coefficients=true`, dimensionless coefficients are returned using the
-reference area `½ρU²A`.
+reference area `½ρU²A`. Uses water density (1000 kg/m³) by default.
 """
-function force_components(sim::AbstractSimulation; ρ::Real=1.0,
+function force_components(sim::AbstractSimulation; ρ::Real=1000.0,
                           reference_area::Real=sim.L, with_coefficients::Bool=true)
     pressure = pressure_force(sim)
     viscous = viscous_force(sim)
@@ -126,24 +126,25 @@ function force_components(sim::AbstractSimulation; ρ::Real=1.0,
 end
 
 """
-    force_coefficients(sim; ρ=1.0, reference_area=sim.L)
+    force_coefficients(sim; ρ=1000.0, reference_area=sim.L)
 
 Convenience wrapper returning only the total force coefficients.
+Uses water density (1000 kg/m³) by default.
 """
-function force_coefficients(sim::AbstractSimulation; ρ::Real=1.0,
+function force_coefficients(sim::AbstractSimulation; ρ::Real=1000.0,
                             reference_area::Real=sim.L)
     components = force_components(sim; ρ, reference_area)
     return components.coefficients === nothing ? nothing : components.coefficients[3]
 end
 
 """
-    record_force!(history, sim; ρ=1.0, reference_area=sim.L)
+    record_force!(history, sim; ρ=1000.0, reference_area=sim.L)
 
 Append a force sample to `history`, which should be a `Vector` of `NamedTuple`s.
-Stores time, raw forces, and coefficients.
+Stores time, raw forces, and coefficients. Uses water density (1000 kg/m³) by default.
 """
 function record_force!(history::Vector, sim::AbstractSimulation;
-                       ρ::Real=1.0, reference_area::Real=sim.L)
+                       ρ::Real=1000.0, reference_area::Real=sim.L)
     components = force_components(sim; ρ, reference_area)
     push!(history, (
         time = sim_time(sim),

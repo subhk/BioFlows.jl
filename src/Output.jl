@@ -96,7 +96,7 @@ end
     ForceWriter(filename::AbstractString="force_coefficients.jld2";
                 interval::Real=0.1,
                 overwrite::Bool=true,
-                ρ::Real=1.0,
+                ρ::Real=1000.0,
                 reference_area::Real=1.0)
 
 Helper that saves lift and drag coefficients to a JLD2 file at fixed
@@ -107,7 +107,7 @@ to trigger writes.
 - `filename`: Output JLD2 file path (default: "force_coefficients.jld2")
 - `interval`: Time interval between saves (default: 0.1)
 - `overwrite`: If true, overwrite existing file; if false, append (default: true)
-- `ρ`: Fluid density for coefficient calculation (default: 1.0)
+- `ρ`: Fluid density for coefficient calculation (default: 1000.0 kg/m³, water)
 - `reference_area`: Reference area for coefficient calculation (default: 1.0,
   typically set to sim.L for 2D simulations)
 
@@ -167,7 +167,7 @@ mutable struct ForceWriter
     function ForceWriter(filename::AbstractString="force_coefficients.jld2";
                          interval::Real=0.1,
                          overwrite::Bool=true,
-                         ρ::Real=1.0,
+                         ρ::Real=1000.0,
                          reference_area::Real=1.0)
         interval > 0 || throw(ArgumentError("interval must be positive"))
         ρ > 0 || throw(ArgumentError("density ρ must be positive"))

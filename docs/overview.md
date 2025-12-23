@@ -141,8 +141,8 @@ println("Refined cells: ", num_refined_cells(sim.refined_grid))
 ### Force Computation
 
 ```julia
-# Get force components
-components = force_components(sim; ρ=1.0, reference_area=sim.L)
+# Get force components (ρ=1000 kg/m³ water density by default)
+components = force_components(sim; reference_area=sim.L)
 # Returns: (pressure, viscous, total, coefficients)
 
 # Get dimensionless force coefficients
