@@ -149,14 +149,16 @@ end
 
 Compute the pressure force on an immersed body.
 Integrates pressure times surface normal over the body using BDIM weighting.
-Returns a vector [Fx, Fz] in 2D or [Fx, Fy, Fz] in 3D.
+Returns force in Newtons as a vector [Fx, Fz] in 2D or [Fx, Fy, Fz] in 3D.
+
+The pressure field `p` is in Pa (kg/(m·s²)), so the result is in N.
 """
 pressure_force(sim) = pressure_force(sim.flow,sim.body)
 pressure_force(flow,body) = pressure_force(flow.p,flow.f,body,time(flow))
 function pressure_force(p,df,body,t=0)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
-    # Compute contribution at each cell: F = Σ p * n̂ * K(d)
+    # Compute contribution at each cell: F = Σ p * n̂ * dA (p in Pa, F in N)
     @loop df[I,:] .= p[I]*nds(body,loc(0,I,Tp),t) over I ∈ inside(p)
     # Sum over all spatial dimensions to get total force vector
     sum(To,df,dims=ntuple(i->i,ndims(p)))[:] |> Array
@@ -173,13 +175,17 @@ S(I::CartesianIndex{3},u) = @SMatrix [0.5*(∂(i,j,I,u)+∂(j,i,I,u)) for i ∈ 
    viscous_force(sim::Simulation)
 
 Compute the viscous force on an immersed body.
+Returns force in Newtons as a vector [Fx, Fz] in 2D or [Fx, Fy, Fz] in 3D.
+
+The viscous stress τ = 2μS = 2ρνS, so force F = -τ·n̂·dA.
 """
 viscous_force(sim) = viscous_force(sim.flow,sim.body)
-viscous_force(flow,body) = viscous_force(flow.u,flow.ν,flow.f,body,time(flow))
-function viscous_force(u,ν,df,body,t=0)
+viscous_force(flow,body) = viscous_force(flow.u,flow.ν,flow.ρ,flow.f,body,time(flow))
+function viscous_force(u,ν,ρ,df,body,t=0)
     Tu = eltype(u); To = promote_type(Float64,Tu)
+    μ = ρ * ν  # dynamic viscosity (Pa·s)
     df .= zero(Tu)
-    @loop df[I,:] .= -2ν*S(I,u)*nds(body,loc(0,I,Tu),t) over I ∈ inside_u(u)
+    @loop df[I,:] .= -2μ*S(I,u)*nds(body,loc(0,I,Tu),t) over I ∈ inside_u(u)
     sum(To,df,dims=ntuple(i->i,ndims(u)-1))[:] |> Array
 end
 

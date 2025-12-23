@@ -100,17 +100,18 @@ function cell_center_vorticity(sim::AbstractSimulation; strip_ghosts::Bool=true)
 end
 
 """
-    force_components(sim; ρ=1000.0, reference_area=sim.L, with_coefficients=true)
+    force_components(sim; reference_area=sim.L, with_coefficients=true)
 
-Collect pressure, viscous, and total force vectors for `sim`. When
-`with_coefficients=true`, dimensionless coefficients are returned using the
-reference area `½ρU²A`. Uses water density (1000 kg/m³) by default.
+Collect pressure, viscous, and total force vectors for `sim` in Newtons.
+When `with_coefficients=true`, dimensionless coefficients are returned using
+the reference area `½ρU²A`. Uses the density from the simulation (sim.flow.ρ).
 """
-function force_components(sim::AbstractSimulation; ρ::Real=1000.0,
+function force_components(sim::AbstractSimulation;
                           reference_area::Real=sim.L, with_coefficients::Bool=true)
     pressure = pressure_force(sim)
     viscous = viscous_force(sim)
     total = pressure .+ viscous
+    ρ = sim.flow.ρ  # Use density from simulation
     coeff_scale = with_coefficients ? (0.5 * ρ * sim.U^2 * reference_area) : nothing
     coefficients = isnothing(coeff_scale) ? nothing : (
         pressure ./ coeff_scale,
@@ -126,14 +127,13 @@ function force_components(sim::AbstractSimulation; ρ::Real=1000.0,
 end
 
 """
-    force_coefficients(sim; ρ=1000.0, reference_area=sim.L)
+    force_coefficients(sim; reference_area=sim.L)
 
 Convenience wrapper returning only the total force coefficients.
-Uses water density (1000 kg/m³) by default.
+Uses the density from the simulation (sim.flow.ρ).
 """
-function force_coefficients(sim::AbstractSimulation; ρ::Real=1000.0,
-                            reference_area::Real=sim.L)
-    components = force_components(sim; ρ, reference_area)
+function force_coefficients(sim::AbstractSimulation; reference_area::Real=sim.L)
+    components = force_components(sim; reference_area)
     return components.coefficients === nothing ? nothing : components.coefficients[3]
 end
 
