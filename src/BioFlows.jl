@@ -159,7 +159,6 @@ mutable struct Simulation <: AbstractSimulation
     flow :: Flow
     body :: AbstractBody
     pois :: AbstractPoisson
-    L_pois :: AbstractArray  # Scaled Poisson coefficients: L_pois[I,i] = μ₀[I,i] / Δxᵢ²
 
     function Simulation(dims::NTuple{N}, uBC, L::NTuple{N};
                         L_char=nothing, Δt=0.25, ν=0., g=nothing, U=nothing, ϵ=1, perdir=(),
@@ -173,35 +172,14 @@ mutable struct Simulation <: AbstractSimulation
         measure!(flow,body;ϵ)
         # Use L_char for dimensionless time/forces, default to L[1]
         char_length = isnothing(L_char) ? L[1] : L_char
-        # Create scaled Poisson coefficients for anisotropic grid support
-        # L_pois[I,i] = μ₀[I,i] / Δxᵢ² for proper Laplacian discretization
+        # Check for anisotropic grids - warn if not supported
         Δx = flow.Δx
-        L_pois = copy(flow.μ₀)
-        scale_poisson_coeffs!(L_pois, Δx)
-        new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,L_pois,flow.σ;perdir),L_pois)
-    end
-end
-
-"""
-    scale_poisson_coeffs!(L_pois, Δx)
-
-Scale Poisson coefficients for anisotropic grids: L_pois[I,i] = μ₀[I,i] / Δxᵢ²
-
-This ensures the discrete Laplacian properly handles different grid spacings
-in each direction.
-"""
-function scale_poisson_coeffs!(L_pois::AbstractArray{T,3}, Δx::NTuple{2}) where T
-    # 2D case: L_pois is (nx, nz, 2)
-    for i in 1:2
-        inv_Δx² = T(1 / Δx[i]^2)
-        @views L_pois[:,:,i] .*= inv_Δx²
-    end
-end
-function scale_poisson_coeffs!(L_pois::AbstractArray{T,4}, Δx::NTuple{3}) where T
-    # 3D case: L_pois is (nx, ny, nz, 3)
-    for i in 1:3
-        inv_Δx² = T(1 / Δx[i]^2)
-        @views L_pois[:,:,:,i] .*= inv_Δx²
+        if !all(isapprox.(Δx, Δx[1], rtol=1e-6))
+            @warn "Anisotropic grids (Δx ≠ Δy) are not fully supported in the pressure solver. " *
+                  "The multigrid Poisson solver uses unit spacing internally. " *
+                  "For best accuracy, use isotropic grids (Δx = Δy = Δz)." Δx=Δx
+        end
+        new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
     end
 end
 
@@ -243,16 +221,7 @@ end
     measure!(sim::Simulation,t=timeNext(sim))
 
 Measure a dynamic `body` to update the `flow` and `pois` coefficients.
-For anisotropic grids, the Poisson coefficients are scaled by 1/Δxᵢ².
 """
-function measure!(sim::Simulation,t=sum(sim.flow.Δt))
-    measure!(sim.flow,sim.body;t,ϵ=sim.ϵ)
-    # Update scaled Poisson coefficients: L_pois = μ₀ / Δx²
-    sim.L_pois .= sim.flow.μ₀
-    scale_poisson_coeffs!(sim.L_pois, sim.flow.Δx)
-    update!(sim.pois)
-end
-# Fallback for other AbstractSimulation types
 function measure!(sim::AbstractSimulation,t=sum(sim.flow.Δt))
     measure!(sim.flow,sim.body;t,ϵ=sim.ϵ)
     update!(sim.pois)
