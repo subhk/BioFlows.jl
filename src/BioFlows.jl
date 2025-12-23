@@ -580,5 +580,6 @@ export vorticity_component, vorticity_magnitude
 export cell_center_velocity, cell_center_vorticity
 export CenterFieldWriter, maybe_save!
 export force_components, force_coefficients, record_force!
+export compute_diagnostics, summarize_force_history
 
 end # module
