@@ -1,3 +1,30 @@
+# =============================================================================
+# AMR PROJECTION FUNCTIONS
+# =============================================================================
+# This file implements AMR-aware projection to enforce velocity divergence-free
+# constraint across all refinement levels. The projection step is critical for
+# incompressible flow simulation.
+#
+# Algorithm:
+# 1. Compute divergence on base grid and refined patches
+# 2. Interpolate velocity to refined patches (for consistency)
+# 3. Solve composite Poisson system (pressure correction)
+# 4. Correct velocity: u -= (1/dt) * L * ∇p on all levels
+# 5. Enforce flux matching at coarse-fine interfaces
+#
+# Key functions:
+# - amr_project!: Main projection step (used in time-stepping)
+# - amr_mom_step!: Full momentum step with AMR projection
+# - check_amr_divergence: Verify divergence-free constraint
+# - amr_cfl: Compute time step considering refined grids
+# - regrid_amr!: Dynamic regridding based on indicators
+#
+# The projection ensures:
+# - ∇·u = 0 at all grid levels
+# - Flux conservation at coarse-fine interfaces
+# - Proper boundary conditions on patches
+# =============================================================================
+
 """
     AMR Projection Functions
 

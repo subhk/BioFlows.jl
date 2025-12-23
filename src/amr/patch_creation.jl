@@ -1,3 +1,29 @@
+# =============================================================================
+# PATCH CREATION FOR AMR
+# =============================================================================
+# This file handles the creation and management of refined patches from
+# cell-level refinement markers. The key steps are:
+#
+# 1. Cell marking: Mark cells that need refinement based on indicators
+#    (e.g., vorticity magnitude, gradient magnitude, proximity to body)
+#
+# 2. Clustering: Group adjacent marked cells into connected components
+#    using BFS/flood-fill algorithm
+#
+# 3. Bounding box: Compute rectangular bounding boxes for each cluster
+#
+# 4. Patch creation: Create PatchPoisson solvers for each bounding box
+#
+# Proper nesting ensures smooth transitions between refinement levels:
+# - A level-n cell must be surrounded by level-(n-1) cells
+# - This prevents abrupt jumps in resolution
+#
+# The algorithm supports:
+# - Multiple refinement levels (1, 2, 3 = 2x, 4x, 8x)
+# - 2D and 3D grids
+# - Dynamic regridding during simulation
+# =============================================================================
+
 """
     Patch Creation for AMR
 

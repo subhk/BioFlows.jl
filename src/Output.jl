@@ -1,3 +1,23 @@
+# =============================================================================
+# SIMULATION OUTPUT UTILITIES
+# =============================================================================
+# This module provides tools for saving simulation results to disk:
+#
+# - CenterFieldWriter: Periodic snapshot writer to JLD2 files
+# - maybe_save!: Conditional snapshot saving based on time intervals
+#
+# Output files use JLD2 format (Julia Data Format v2) which can be read back
+# using the JLD2.jl package:
+#   using JLD2
+#   data = load("center_fields.jld2")
+#   vel = data["snapshot_1/velocity"]
+#
+# Snapshots include:
+# - Velocity (cell-centered, [nx, nz, 2] for 2D or [nx, ny, nz, 3] for 3D)
+# - Vorticity (cell-centered, scalar for 2D or vector for 3D)
+# - Pressure (cell-centered)
+# =============================================================================
+
 using JLD2
 
 """

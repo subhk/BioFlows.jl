@@ -45,8 +45,9 @@ end
 @testset "AMR Adapter" begin
     # Create a simple simulation
     sdf(x, t) = norm(x .- SVector(16.0, 16.0)) - 4.0
-    sim = Simulation((32, 32), (1.0, 0.0), 8.0;
-                     ν=0.01, body=AutoBody(sdf))
+    # Domain size = (32, 32) with Δx=1, characteristic length L_char=8.0
+    sim = Simulation((32, 32), (1.0, 0.0), (32.0, 32.0);
+                     ν=0.01, body=AutoBody(sdf), L_char=8.0)
 
     # Test adapter creation
     adapter = FlowToGridAdapter(sim.flow, 8.0)
@@ -73,8 +74,9 @@ end
 @testset "Body Refinement Indicator" begin
     # Create simulation with cylinder body
     sdf(x, t) = norm(x .- SVector(16.0, 16.0)) - 4.0
-    sim = Simulation((32, 32), (1.0, 0.0), 8.0;
-                     ν=0.01, body=AutoBody(sdf))
+    # Domain size = (32, 32) with Δx=1, characteristic length L_char=8.0
+    sim = Simulation((32, 32), (1.0, 0.0), (32.0, 32.0);
+                     ν=0.01, body=AutoBody(sdf), L_char=8.0)
 
     # Advance a few steps to get non-trivial flow
     for _ in 1:5
@@ -128,8 +130,9 @@ end
     sdf(x, t) = norm(x .- SVector(16.0, 16.0)) - 4.0
     config = AMRConfig(max_level=2, body_distance_threshold=4.0, regrid_interval=5)
 
-    amr_sim = AMRSimulation((32, 32), (1.0, 0.0), 8.0;
-                            ν=0.01, body=AutoBody(sdf), amr_config=config)
+    # Domain size = (32, 32) with Δx=1, characteristic length L_char=8.0
+    amr_sim = AMRSimulation((32, 32), (1.0, 0.0), (32.0, 32.0);
+                            ν=0.01, body=AutoBody(sdf), amr_config=config, L_char=8.0)
 
     @test isa(amr_sim, AMRSimulation)
     @test isa(amr_sim, AbstractSimulation)

@@ -19,9 +19,12 @@ function oscillating_cylinder_sim(; n::Int=3*2^5, m::Int=2^6,
     sdf(x, t) = norm(x .- center) - radius
     displacement(t) = amplitude * radius * sin(2π * St * t)
     move(x, t) = x - SVector(zero(t), displacement(t))
-    Simulation((n, m), (U, 0), 2radius;
-               ν=U * 2radius / Re,
-               body=AutoBody(sdf, move))
+    diameter = 2radius
+    # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
+    Simulation((n, m), (U, 0), (Float64(n), Float64(m));
+               ν=U * diameter / Re,
+               body=AutoBody(sdf, move),
+               L_char=diameter)
 end
 
 """

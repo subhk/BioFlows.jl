@@ -23,10 +23,13 @@ function donut_sim(; n::Int=2^6, Re::Real=1600, U::Real=1,
         q = SVector(radial, xp[3])
         norm(q) - minor
     end
-    Simulation(dims, (U, 0, 0), 2major;
-               ν = U * 2major / Re,
+    diameter = 2major
+    # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
+    Simulation(dims, (U, 0, 0), (Float64(n), Float64(n), Float64(n));
+               ν = U * diameter / Re,
                body = AutoBody(sdf),
-               perdir = (1,))
+               perdir = (1,),
+               L_char = diameter)
 end
 
 """

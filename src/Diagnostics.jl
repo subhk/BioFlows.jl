@@ -1,4 +1,25 @@
+# =============================================================================
+# FLOW DIAGNOSTICS AND ANALYSIS
+# =============================================================================
+# This module provides functions to analyze simulation results:
+#
+# - Field extraction: Convert staggered grid fields to cell-centered format
+# - Vorticity: Compute vorticity components and magnitude
+# - Forces: Compute and record force coefficients on immersed bodies
+# - Statistics: Summarize force history (mean, standard deviation)
+#
+# All functions work with AbstractSimulation and handle ghost cell stripping
+# automatically. Results are returned in physical (non-ghost) grid dimensions.
+# =============================================================================
+
 using StaticArrays
+
+# =============================================================================
+# GHOST CELL HANDLING
+# =============================================================================
+# BioFlows arrays include ghost cells for boundary conditions.
+# These helpers strip ghost cells to return only physical domain values.
+# =============================================================================
 
 # Internal helper to strip ghost layers from BioFlows arrays.
 _strip_ghosts(A, spatial_dims) = begin

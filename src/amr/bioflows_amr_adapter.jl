@@ -1,3 +1,28 @@
+# =============================================================================
+# BIOFLOWS AMR ADAPTER
+# =============================================================================
+# This adapter bridges BioFlows' Flow-based architecture with the AMR system.
+# The main challenge is that:
+#
+# - BioFlows Flow: Uses (nx+2, nz+2, D) arrays with ghost cells, staggered layout
+# - AMR types: Use separate u, v, w, p arrays without ghost cells
+#
+# Key conversions:
+# - flow_to_staggered_grid: Create StaggeredGrid from Flow dimensions
+# - flow_to_solution_state: Extract velocity/pressure from Flow
+# - update_flow_from_state!: Copy solution back to Flow
+# - create_refined_grid: Initialize RefinedGrid from Flow
+#
+# Index mapping:
+# - BioFlows indices: 1-based with ghost cells (interior starts at 2)
+# - AMR indices: 1-based without ghost cells (interior starts at 1)
+# - cell_index_to_flow_index: (i,j) → (i+1, j+1)
+# - flow_index_to_cell_index: CartesianIndex → (i-1, j-1)
+#
+# The adapter also provides interpolation functions for transferring data
+# between coarse and refined grids.
+# =============================================================================
+
 """
     BioFlows AMR Adapter
 

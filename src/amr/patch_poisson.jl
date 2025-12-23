@@ -1,3 +1,24 @@
+# =============================================================================
+# PATCH POISSON SOLVER
+# =============================================================================
+# PatchPoisson is a local Poisson solver for a single refined patch.
+# It mirrors the structure of the base Poisson solver but operates on
+# a smaller, finer grid with boundary data interpolated from the coarse grid.
+#
+# Boundary conditions:
+# - At interior interfaces (patch edge not at domain boundary):
+#   Use Dirichlet BC with pressure interpolated from coarse grid
+# - At domain boundaries:
+#   Use Neumann BC (zero gradient) matching the base solver
+#
+# Matrix structure is identical to base Poisson:
+#   A = L + D + L'   (symmetric, negative definite)
+# where L contains off-diagonal coefficients and D is the diagonal.
+#
+# The coefficients L are initialized by interpolating the coarse μ₀
+# (BDIM volume fraction) to fine grid locations.
+# =============================================================================
+
 """
     PatchPoisson - Local Poisson Solver for Refined Patches
 

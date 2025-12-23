@@ -51,8 +51,9 @@ end
         n = 64
         ν = 0.01
 
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), Float64(n/4);
-                                   ν=ν, T=Float64)
+        # Domain size = (n, n) with Δx=1, L_char = n/4
+        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
+                                   ν=ν, T=Float64, L_char=Float64(n/4))
 
         # Simulation uses MultiLevelPoisson
         @test isa(sim.pois, BioFlows.MultiLevelPoisson)
@@ -77,9 +78,9 @@ end
         n = 64
         ν = 0.01  # kinematic viscosity
 
-        # Simple simulation setup
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), Float64(n/4);
-                                   ν=ν, T=Float64)
+        # Simple simulation setup - Domain size = (n, n) with Δx=1, L_char = n/4
+        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
+                                   ν=ν, T=Float64, L_char=Float64(n/4))
         flow = sim.flow
         pois = sim.pois
 
@@ -231,8 +232,9 @@ end
         # Full simulation test: after mom_step!, velocity should be divergence-free
         n = 48
         ν = 0.01
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), Float64(n/4);
-                                   ν=ν, T=Float64)
+        # Domain size = (n, n) with Δx=1, L_char = n/4
+        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
+                                   ν=ν, T=Float64, L_char=Float64(n/4))
 
         # Take a momentum step
         BioFlows.mom_step!(sim.flow, sim.pois)
@@ -251,8 +253,9 @@ end
     @testset "CFL Condition" begin
         n = 32
         ν = 0.01
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), Float64(n/4);
-                                   ν=ν, T=Float64)
+        # Domain size = (n, n) with Δx=1, L_char = n/4
+        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
+                                   ν=ν, T=Float64, L_char=Float64(n/4))
 
         # CFL should give reasonable time step
         dt = BioFlows.CFL(sim.flow)
@@ -265,8 +268,9 @@ end
         # Verify that the two-stage scheme produces stable results
         n = 32
         ν = 0.01
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), Float64(n/4);
-                                   ν=ν, T=Float64)
+        # Domain size = (n, n) with Δx=1, L_char = n/4
+        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
+                                   ν=ν, T=Float64, L_char=Float64(n/4))
 
         # Take several momentum steps
         for _ in 1:5

@@ -1,3 +1,24 @@
+# =============================================================================
+# AMR TYPE DEFINITIONS FOR BIOFLOWS.JL
+# =============================================================================
+# Adaptive Mesh Refinement (AMR) allows higher resolution in regions of interest
+# (e.g., near bodies, in wakes) while keeping coarse resolution elsewhere.
+#
+# Architecture:
+# - StaggeredGrid: Grid structure with cell/face coordinates
+# - SolutionState: Container for velocity and pressure arrays
+# - RefinedGrid: Tracks which cells are refined and at what level
+#
+# Refinement levels:
+# - Level 0: Base (coarse) grid
+# - Level 1: 2x refinement (each coarse cell → 4 fine cells in 2D)
+# - Level 2: 4x refinement (16 fine cells per coarse cell)
+# - Level 3: 8x refinement (64 fine cells per coarse cell)
+#
+# The refinement is "block-structured" - refined regions form rectangular patches
+# rather than arbitrary cell-by-cell refinement.
+# =============================================================================
+
 """
     AMR Type Definitions for BioFlows.jl
 

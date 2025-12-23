@@ -106,7 +106,7 @@ export amr_cfl, synchronize_base_and_patches!, interpolate_velocity_to_patches!
 # Simulation container
 abstract type AbstractSimulation end
 """
-    Simulation(dims::NTuple{N}, uBC, L::NTuple{N}; kwargs...)
+    Simulation(dims::NTuple{N}, uBC, L::NTuple{N}; L_char=nothing, kwargs...)
 
 Constructor for a BioFlows simulation solving the dimensional incompressible Navier-Stokes equations:
 
@@ -122,6 +122,9 @@ Constructor for a BioFlows simulation solving the dimensional incompressible Nav
   - Grid spacing is computed as `Δx = L[1]/dims[1]` (must be uniform)
 
 ## Optional (keyword arguments)
+- `L_char`: Characteristic length scale for dimensionless time and force coefficients
+  - Defaults to `L[1]` if not specified
+  - For cylinder flows, typically use the diameter (2*radius)
 - `U`: Velocity scale for dimensionless time reporting. Required if `uBC` is a `Function`
 - `Δt=0.25`: Initial time step (seconds)
 - `ν=0.`: Kinematic viscosity (m²/s)
@@ -141,23 +144,24 @@ Constructor for a BioFlows simulation solving the dimensional incompressible Nav
 # Inlet velocity 1 m/s, water viscosity
 sim = Simulation((256, 128), (1.0, 0.0), (2.0, 1.0); ν=1e-6)
 
-# With immersed cylinder
-cylinder = AutoBody((x,t) -> √(x[1]^2 + x[2]^2) - 0.1)
-sim = Simulation((256, 128), (1.0, 0.0), (2.0, 1.0); ν=1e-6, body=cylinder)
+# With immersed cylinder of diameter 0.2m
+diameter = 0.2
+cylinder = AutoBody((x,t) -> √(x[1]^2 + x[2]^2) - diameter/2)
+sim = Simulation((256, 128), (1.0, 0.0), (2.0, 1.0); ν=1e-6, body=cylinder, L_char=diameter)
 ```
 
 See files in `examples` folder for more examples.
 """
 mutable struct Simulation <: AbstractSimulation
     U :: Number # velocity scale (for dimensionless time)
-    L :: Number # length scale (L[1], for dimensionless time)
+    L :: Number # characteristic length scale (for dimensionless time/forces)
     ϵ :: Number # kernel width
     flow :: Flow
     body :: AbstractBody
     pois :: AbstractPoisson
 
     function Simulation(dims::NTuple{N}, uBC, L::NTuple{N};
-                        Δt=0.25, ν=0., g=nothing, U=nothing, ϵ=1, perdir=(),
+                        L_char=nothing, Δt=0.25, ν=0., g=nothing, U=nothing, ϵ=1, perdir=(),
                         uλ=nothing, exitBC=false, body::AbstractBody=NoBody(),
                         T=Float32, mem=Array) where N
         @assert !(isnothing(U) && isa(uBC,Function)) "`U` (velocity scale) must be specified if boundary conditions `uBC` is a `Function`"
@@ -166,9 +170,9 @@ mutable struct Simulation <: AbstractSimulation
         # Pass domain size L to Flow for dimensional Δx computation
         flow = Flow(dims,uBC;L=L,uλ,Δt,ν,g,T,f=mem,perdir,exitBC)
         measure!(flow,body;ϵ)
-        # Use L[1] as characteristic length for sim_time
-        L_char = L[1]
-        new(U,L_char,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
+        # Use L_char for dimensionless time/forces, default to L[1]
+        char_length = isnothing(L_char) ? L[1] : L_char
+        new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
     end
 end
 
@@ -320,25 +324,25 @@ mutable struct AMRSimulation <: AbstractSimulation
 end
 
 """
-    AMRSimulation(dims, uBC, L; amr_config=AMRConfig(), kwargs...)
+    AMRSimulation(dims, uBC, L::NTuple{N}; amr_config=AMRConfig(), kwargs...)
 
 Create an AMR-enabled simulation.
 
 # Arguments
 - `dims`: Grid dimensions
 - `uBC`: Boundary conditions
-- `L`: Length scale
+- `L::NTuple{N}`: Physical domain size tuple
 - `amr_config`: AMR configuration (default: AMRConfig())
-- `kwargs...`: Additional arguments passed to Simulation constructor
+- `kwargs...`: Additional arguments passed to Simulation constructor (including `L_char`)
 """
-function AMRSimulation(dims::NTuple{N}, uBC, L::Number;
+function AMRSimulation(dims::NTuple{N}, uBC, L::NTuple{N};
                        amr_config::AMRConfig=AMRConfig(),
                        kwargs...) where N
     # Create base simulation
     sim = Simulation(dims, uBC, L; kwargs...)
 
-    # Create adapter and refined grid
-    adapter = FlowToGridAdapter(sim.flow, L)
+    # Create adapter and refined grid using domain size L[1]
+    adapter = FlowToGridAdapter(sim.flow, L[1])
     refined_grid = create_refined_grid(adapter)
 
     # Create composite Poisson solver wrapping the base MultiLevelPoisson

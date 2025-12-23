@@ -50,14 +50,16 @@ function flow_past_cylinder_2d_sim(; nx::Int=240,
     sdf(x, t) = √((x[1] - center_x_cells)^2 + (x[2] - center_z_cells)^2) - radius_cells
     boundary = isnothing(uBC) ? (U, 0) : uBC
 
-    base_kwargs = (; ν = U * (2radius_phys) / Re,
+    diameter = 2radius_phys
+    base_kwargs = (; ν = U * diameter / Re,
                     perdir = perdir,
                     exitBC = exitBC,
-                    body = AutoBody(sdf))
+                    body = AutoBody(sdf),
+                    L_char = diameter)
 
     sim = dt === nothing ?
-        Simulation((nx, nz), boundary, 2radius_phys; base_kwargs...) :
-        Simulation((nx, nz), boundary, 2radius_phys; Δt = dt, base_kwargs...)
+        Simulation((nx, nz), boundary, (Lx, Lz); base_kwargs...) :
+        Simulation((nx, nz), boundary, (Lx, Lz); Δt = dt, base_kwargs...)
 
     meta = (
         domain = (Lx, Lz),

@@ -18,10 +18,13 @@ function sphere_sim(; n::Int=3*2^5, m::Int=2^6, ℓ::Int=2^6,
     radius = m / 8
     center = SVector(map(d -> d / 2 - 1, dims)...)
     sdf(x, t) = norm(x .- center) - radius
-    Simulation(dims, (U, 0, 0), 2radius;
-               ν=U * 2radius / Re,
+    diameter = 2radius
+    # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
+    Simulation(dims, (U, 0, 0), (T(n), T(m), T(ℓ));
+               ν=U * diameter / Re,
                body=AutoBody(sdf),
-               T, mem)
+               T, mem,
+               L_char=diameter)
 end
 
 """

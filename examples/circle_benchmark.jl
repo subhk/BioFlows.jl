@@ -14,7 +14,10 @@ function circle_sim(; n::Int=3*2^5, m::Int=2^6, Re::Real=100, U::Real=1)
     radius = m / 8
     center = SVector(m / 2 - 1, m / 2 - 1)
     sdf(x, t) = norm(x .- center) - radius
-    Simulation((n, m), (U, 0), 2radius; ν=U * 2radius / Re, body=AutoBody(sdf))
+    diameter = 2radius
+    # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
+    Simulation((n, m), (U, 0), (Float64(n), Float64(m));
+               ν=U * diameter / Re, body=AutoBody(sdf), L_char=diameter)
 end
 
 """

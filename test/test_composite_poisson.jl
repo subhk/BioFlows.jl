@@ -250,8 +250,9 @@ using BioFlows
         n = 32
         ν = 0.01
 
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), Float64(n/4);
-                                   ν=ν, T=Float64)
+        # Domain size = (n, n) with Δx=1, L_char = n/4
+        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
+                                   ν=ν, T=Float64, L_char=Float64(n/4))
 
         # Create CompositePoisson from simulation's MultiLevelPoisson
         cp = BioFlows.CompositePoisson(sim.pois; max_level=2)
@@ -360,9 +361,10 @@ using BioFlows
             buffer_size=1
         )
 
-        amr = BioFlows.AMRSimulation((n, n), (1.0, 0.0), Float64(n/4);
+        # Domain size = (n, n) with Δx=1, L_char = n/4
+        amr = BioFlows.AMRSimulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
                                       ν=0.01, body=body, amr_config=config,
-                                      T=Float64)
+                                      T=Float64, L_char=Float64(n/4))
 
         # AMR simulation should be created
         @test amr.amr_active == true
@@ -391,9 +393,10 @@ using BioFlows
             buffer_size=1
         )
 
-        amr = BioFlows.AMRSimulation((n, n), (1.0, 0.0), Float64(n/4);
+        # Domain size = (n, n) with Δx=1, L_char = n/4
+        amr = BioFlows.AMRSimulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
                                       ν=0.05, body=body, amr_config=config,
-                                      T=Float64)
+                                      T=Float64, L_char=Float64(n/4))
 
         # Take a few steps using base solver
         for _ in 1:5
@@ -412,8 +415,9 @@ using BioFlows
         n = 32
         ν = 0.01
 
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), Float64(n/4);
-                                   ν=ν, T=Float64)
+        # Domain size = (n, n) with Δx=1, L_char = n/4
+        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
+                                   ν=ν, T=Float64, L_char=Float64(n/4))
 
         # Create composite poisson
         cp = BioFlows.CompositePoisson(sim.pois; max_level=2)

@@ -1,3 +1,29 @@
+# =============================================================================
+# COMPOSITE SOLVER ALGORITHM
+# =============================================================================
+# This file implements the main solve algorithm for the composite AMR system.
+#
+# Algorithm overview:
+# 1. V-cycle on base grid (multigrid captures smooth errors efficiently)
+# 2. For each patch (coarse to fine order):
+#    a. Prolongate parent pressure to patch ghost cells
+#    b. Compute patch residual (defect)
+#    c. Local PCG smoothing on patch
+#    d. Compute flux correction at interfaces
+#    e. Restrict correction to parent level
+# 3. Check convergence on base grid
+# 4. Repeat until converged
+#
+# Key functions:
+# - solver!: Main iterative solve loop
+# - patch_defect_correction!: Process all patches
+# - project!: AMR-aware velocity projection step
+# - enforce_velocity_consistency!: Flux matching at interfaces
+#
+# The projection step (project!) is the main entry point for time-stepping,
+# as it projects the velocity field to be divergence-free.
+# =============================================================================
+
 """
     Composite Solver Algorithm for AMR
 

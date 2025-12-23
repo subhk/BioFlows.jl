@@ -1,3 +1,25 @@
+# =============================================================================
+# COMPOSITE POISSON SOLVER FOR AMR
+# =============================================================================
+# CompositePoisson manages the pressure Poisson equation across multiple grid
+# levels in an AMR simulation. The key challenge is maintaining:
+#
+# 1. Flux conservation: The coarse-fine interface must conserve mass
+# 2. Solution accuracy: The fine grid should improve local accuracy
+# 3. Efficiency: Most work should be on the coarse grid
+#
+# Structure:
+# - base: MultiLevelPoisson for the coarse (base) grid
+# - patches: Dict of PatchPoisson solvers for refined regions
+# - refined_velocity: Velocity field at fine resolution
+#
+# The solver uses defect correction:
+# 1. V-cycle on base grid (captures smooth/global errors)
+# 2. Local smoothing on patches (captures fine-scale errors)
+# 3. Flux correction at interfaces (ensures conservation)
+# 4. Restrict corrections back to base grid
+# =============================================================================
+
 """
     CompositePoisson - Composite Grid Poisson Solver
 
