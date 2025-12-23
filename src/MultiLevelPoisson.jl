@@ -14,6 +14,9 @@
 #   Level 1:          N/2 × M/2 cells
 #   Level 2:          N/4 × M/4 cells
 #   ...continues until grid is too small
+#
+# Note: The solver uses unit spacing internally (Δx=1). For anisotropic grids,
+# the scaling is handled externally in project!().
 # =============================================================================
 
 # =============================================================================
@@ -49,17 +52,13 @@ end
 end
 
 # Create coarse level Poisson from fine level (Galerkin coarsening)
-# For multigrid, coarse grid spacing = 2 * fine grid spacing
 function restrictML(b::Poisson{T,S,V,N}) where {T,S,V,N}
     Nsize,n = size_u(b.L)
     Na = map(i->1+i÷2,Nsize)  # Coarse grid size (2:1 coarsening)
     aL = similar(b.L,(Na...,n)); fill!(aL,0)
     ax = similar(b.x,Na); fill!(ax,0)
     restrictL!(aL,b.L,perdir=b.perdir)  # Restrict coefficients
-    # Coarse Δx = 2 * fine Δx (grid spacing doubles with 2:1 coarsening)
-    # Recover Δx from inv_Δx²: Δx = 1/sqrt(inv_Δx²)
-    coarse_Δx = ntuple(d -> T(2/sqrt(b.inv_Δx²[d])), N)
-    Poisson(ax,aL,copy(ax);Δx=coarse_Δx,perdir=b.perdir)
+    Poisson(ax,aL,copy(ax);perdir=b.perdir)
 end
 
 # Restrict all L coefficients from fine to coarse grid
@@ -86,7 +85,9 @@ prolongate!(a,b) = @inside a[I] = b[down(I)]
 
 Composite type used to solve the pressure Poisson equation with a [geometric multigrid](https://en.wikipedia.org/wiki/Multigrid_method) method.
 The only variable is `levels`, a vector of nested `Poisson` systems.
-Supports anisotropic grids via Δx tuple.
+
+Note: The solver uses unit spacing internally (Δx=1). For anisotropic grids,
+the scaling is handled externally in project!().
 """
 struct MultiLevelPoisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: AbstractPoisson{T,S,V}
     x::S
@@ -96,8 +97,8 @@ struct MultiLevelPoisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: Abstrac
     n :: Vector{Int16}
     perdir :: NTuple # direction of periodic boundary condition
     function MultiLevelPoisson(x::AbstractArray{T,N},L::AbstractArray{T},z::AbstractArray{T};
-                               Δx::NTuple{N}=ntuple(_->one(T),N), maxlevels=10, perdir=()) where {T,N}
-        levels = Poisson{T,typeof(x),typeof(L),N}[Poisson(x,L,z;Δx,perdir)]
+                               maxlevels=10, perdir=()) where {T,N}
+        levels = Poisson{T,typeof(x),typeof(L),N}[Poisson(x,L,z;perdir)]
         while divisible(levels[end]) && length(levels) <= maxlevels
             push!(levels,restrictML(levels[end]))
         end

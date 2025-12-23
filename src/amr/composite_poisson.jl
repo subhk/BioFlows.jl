@@ -86,13 +86,13 @@ function CompositePoisson(base::MultiLevelPoisson{T,S,V,N};
 end
 
 """
-    CompositePoisson(x, L, z; Δx, perdir=(), max_level=3)
+    CompositePoisson(x, L, z; perdir=(), max_level=3)
 
 Create a CompositePoisson from arrays (creates MultiLevelPoisson internally).
 """
 function CompositePoisson(x::AbstractArray{T,N}, L::AbstractArray{T}, z::AbstractArray{T};
-                          Δx::NTuple{N}=ntuple(_->one(T),N), perdir=(), max_level::Int=3) where {T,N}
-    base = MultiLevelPoisson(x, L, z; Δx, perdir)
+                          perdir=(), max_level::Int=3) where {T,N}
+    base = MultiLevelPoisson(x, L, z; perdir)
     CompositePoisson(base; max_level)
 end
 

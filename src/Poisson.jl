@@ -8,8 +8,11 @@
 # The pressure Poisson equation is:
 #     ∇·(β∇p) = σ    where β = L (variable coefficient from BDIM)
 #
-# Discretized on a staggered grid (with anisotropic support), this becomes:
-#     Ax = z    where A includes 1/Δx[d]² scaling per direction
+# Discretized on a staggered grid, this becomes:
+#     Ax = z
+#
+# Note: The solver uses unit spacing internally (Δx=1). For anisotropic grids,
+# the scaling is handled externally in project!().
 # =============================================================================
 
 """
@@ -24,15 +27,12 @@ The resulting linear system is
     Ax = [L+D+L']x = z
 
 where A is symmetric, block-tridiagonal and extremely sparse. Moreover,
-`D[I]=-∑ᵢ(L[I,i]+L'[I,i])/Δx[i]²`. This means matrix storage, multiplication,
+`D[I]=-∑ᵢ(L[I,i]+L'[I,i])`. This means matrix storage, multiplication,
 ect can be easily implemented and optimized without external libraries.
-
-Supports anisotropic grids where Δx[1] ≠ Δx[2] ≠ Δx[3].
 
 # Matrix Structure
 - L: Lower diagonal coefficients (off-diagonal coupling)
-- D: Diagonal coefficients (scaled by 1/Δx²)
-- Δx: Grid spacing tuple for anisotropic grids
+- D: Diagonal coefficients (sum of face coefficients)
 - The matrix is symmetric positive semi-definite (null space = constant)
 
 # Solver Components
@@ -45,7 +45,7 @@ Supports anisotropic grids where Δx[1] ≠ Δx[2] ≠ Δx[3].
 abstract type AbstractPoisson{T,S,V} end
 struct Poisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: AbstractPoisson{T,S,V}
     L :: V   # Lower diagonal: coupling coefficients L[I,d] = β at face (I,d)
-    D :: S   # Diagonal: D[I] = -Σ(L[I,d] + L[I+δd,d])/Δx[d]² for all directions d
+    D :: S   # Diagonal: D[I] = -Σ(L[I,d] + L[I+δd,d]) for all directions d
     iD :: S  # Inverse diagonal: 1/D for Jacobi preconditioning
     x :: S   # Solution vector (pressure field)
     ϵ :: S   # Error/increment for iterative updates
@@ -53,18 +53,15 @@ struct Poisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: AbstractPoisson{T
     z :: S   # Right-hand side (divergence source term)
     n :: Vector{Int16}  # Iteration count history
     perdir :: NTuple    # Periodic boundary directions
-    inv_Δx² :: NTuple{N,T}  # Precomputed 1/Δx[d]² for each direction
     function Poisson(x::AbstractArray{T,N},L::AbstractArray{T},z::AbstractArray{T};
-                     Δx::NTuple{N}=ntuple(_->one(T),N), perdir=()) where {T,N}
+                     perdir=()) where {T,N}
         # Validate array dimensions match
         @assert axes(x) == axes(z) && axes(x) == Base.front(axes(L)) && last(axes(L)) == eachindex(axes(x))
         r = similar(x); fill!(r,0)
         ϵ,D,iD = copy(r),copy(r),copy(r)
-        # Precompute inverse squared grid spacing for each direction
-        inv_Δx² = ntuple(d -> T(1/Δx[d]^2), N)
-        # Compute diagonal from L coefficients with anisotropic scaling
-        set_diag!(D,iD,L,inv_Δx²)
-        new{T,typeof(x),typeof(L),N}(L,D,iD,x,ϵ,r,z,[],perdir,inv_Δx²)
+        # Compute diagonal from L coefficients
+        set_diag!(D,iD,L)
+        new{T,typeof(x),typeof(L),N}(L,D,iD,x,ϵ,r,z,[],perdir)
     end
 end
 
@@ -74,25 +71,22 @@ Base.eps(::Type{D}) where D<:Dual{Tag{G,T}} where {G,T} = eps(T)
 
 # Compute diagonal and inverse diagonal from L coefficients
 # The diagonal ensures row sum = 0 (conservation property)
-# For anisotropic grids: D[I] = -Σ_d (L[I,d] + L[I+δd,d]) / Δx[d]²
-function set_diag!(D,iD,L,inv_Δx²)
-    @inside D[I] = diag(I,L,inv_Δx²)
+function set_diag!(D,iD,L)
+    @inside D[I] = diag(I,L)
     # Safe inverse: return 0 if D is nearly zero (solid cells)
     @inside iD[I] = abs2(D[I])<2eps(eltype(D)) ? zero(eltype(D)) : inv(D[I])
 end
 
 # Recompute diagonal after L changes (e.g., body movement)
-update!(p::Poisson) = set_diag!(p.D,p.iD,p.L,p.inv_Δx²)
+update!(p::Poisson) = set_diag!(p.D,p.iD,p.L)
 
-# Compute diagonal entry at cell I: D[I] = -Σ(L[I,d] + L[I+1,d])/Δx[d]²
-# For anisotropic grids, each direction has its own scaling
-@fastmath @inline function diag(I::CartesianIndex{d},L,inv_Δx²) where {d}
+# Compute diagonal entry at cell I: D[I] = -Σ(L[I,d] + L[I+1,d])
+@fastmath @inline function diag(I::CartesianIndex{d},L) where {d}
     s = zero(eltype(L))
     for i in 1:d
         # L[I,i]: coefficient at left/bottom face
         # L[I+δ,i]: coefficient at right/top face
-        # Scale by 1/Δx[i]² for this direction
-        s -= @inbounds((L[I,i]+L[I+δ(i,I),i]) * inv_Δx²[i])
+        s -= @inbounds(L[I,i]+L[I+δ(i,I),i])
     end
     return s
 end
@@ -102,21 +96,19 @@ end
 
 Efficient function for Poisson matrix-vector multiplication.
 Fills `p.z = p.A x` with 0 in the ghost cells.
-Supports anisotropic grids via inv_Δx² scaling.
 """
 function mult!(p::Poisson,x)
     @assert axes(p.z)==axes(x)
     perBC!(x,p.perdir)
     fill!(p.z,0)
-    @inside p.z[I] = mult(I,p.L,p.D,x,p.inv_Δx²)
+    @inside p.z[I] = mult(I,p.L,p.D,x)
     return p.z
 end
-# Anisotropic mult: includes 1/Δx[d]² scaling per direction
-@fastmath @inline function mult(I::CartesianIndex{d},L,D,x,inv_Δx²) where {d}
+
+@fastmath @inline function mult(I::CartesianIndex{d},L,D,x) where {d}
     s = @inbounds(x[I]*D[I])
     for i in 1:d
-        # Off-diagonal terms scaled by 1/Δx[i]²
-        s += @inbounds((x[I-δ(i,I)]*L[I,i]+x[I+δ(i,I)]*L[I+δ(i,I),i]) * inv_Δx²[i])
+        s += @inbounds(x[I-δ(i,I)]*L[I,i]+x[I+δ(i,I)]*L[I+δ(i,I),i])
     end
     return s
 end
@@ -137,7 +129,7 @@ without the corrections, no solution exists.
 """
 function residual!(p::Poisson)
     perBC!(p.x,p.perdir)
-    @inside p.r[I] = ifelse(p.iD[I]==0,0,p.z[I]-mult(I,p.L,p.D,p.x,p.inv_Δx²))
+    @inside p.r[I] = ifelse(p.iD[I]==0,0,p.z[I]-mult(I,p.L,p.D,p.x))
     s = sum(p.r)/length(inside(p.r))
     abs(s) <= 2eps(eltype(s)) && return
     @inside p.r[I] = p.r[I]-s
@@ -147,7 +139,7 @@ end
 # This maintains the residual without recomputing from scratch
 function increment!(p::Poisson)
     perBC!(p.ϵ,p.perdir)  # Enforce periodic BC on increment
-    @loop (p.r[I] = p.r[I]-mult(I,p.L,p.D,p.ϵ,p.inv_Δx²);  # Update residual
+    @loop (p.r[I] = p.r[I]-mult(I,p.L,p.D,p.ϵ);  # Update residual
            p.x[I] = p.x[I]+p.ϵ[I]) over I ∈ inside(p.x)  # Update solution
 end
 
@@ -188,18 +180,16 @@ using LinearAlgebra: ⋅
 Conjugate-Gradient smoother with Jacobi preditioning. Runs at most `it` iterations,
 but will exit early if the Gram-Schmidt update parameter `|α| < 1%` or `|r D⁻¹ r| < 1e-8`.
 Note: This runs for general backends and is the default smoother.
-Supports anisotropic grids via inv_Δx² scaling.
 """
 function pcg!(p::Poisson{T};it=6) where T
     x,r,ϵ,z = p.x,p.r,p.ϵ,p.z
-    inv_Δx² = p.inv_Δx²
     # Initialize: preconditioned residual and search direction
     @inside z[I] = ϵ[I] = r[I]*p.iD[I]
     rho = r⋅z  # ρ = r·D⁻¹r (preconditioned norm)
     abs(rho)<10eps(T) && return  # Already converged
     for i in 1:it
         perBC!(ϵ,p.perdir)
-        @inside z[I] = mult(I,p.L,p.D,ϵ,inv_Δx²)  # z = Aϵ
+        @inside z[I] = mult(I,p.L,p.D,ϵ)  # z = Aϵ
         alpha = rho/(z⋅ϵ)  # Step size (Rayleigh quotient)
         (abs(alpha)<1e-2 || abs(alpha)>1e2) && return  # Convergence check
         @loop (x[I] += alpha*ϵ[I];  # Update solution

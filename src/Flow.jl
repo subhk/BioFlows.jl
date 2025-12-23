@@ -261,38 +261,18 @@ end
 
 Project velocity onto divergence-free space using pressure Poisson equation.
 
-For dimensional Navier-Stokes with anisotropic grid spacing Δx[d]:
-
-1. Discrete divergence: div(u) = Σ_d (u[I+d,d] - u[I,d]) / Δx[d]
-
-2. Velocity correction in direction d:
-   u[I,d] -= (Δt/Δx[d]) * L[I,d] * (p[I] - p[I-d])
-
-The solver uses dt-scaled pressure for numerical stability.
+Uses the standard discretization with implicit Δx scaling in the Poisson solver.
+The pressure is dt-scaled for numerical stability during the solve.
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
-    Δx = a.Δx
-    # Set source term: z = div(u) where div includes 1/Δx[d] per direction
-    # For anisotropic grids: div = Σ_d (u[I+d,d] - u[I,d]) / Δx[d]
-    @inside b.z[I] = div_aniso(I,a.u,Δx)
+    @inside b.z[I] = div(I,a.u)
     b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
-    # Apply correction: u[d] -= (1/Δx[d]) * L * ∂(dt*p) per direction
     for i ∈ 1:n
-        inv_Δxi = inv(Δx[i])
-        @loop a.u[I,i] -= inv_Δxi*b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
+        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x) over I ∈ inside(b.x)
     end
     b.x ./= dt  # Unscale to recover actual pressure
-end
-
-# Anisotropic divergence: div(u) = Σ_d (u[I+d,d] - u[I,d]) / Δx[d]
-@fastmath @inline function div_aniso(I::CartesianIndex{m},u,Δx) where {m}
-    s = zero(eltype(u))
-    for i in 1:m
-        s += @inbounds(∂(i,I,u) / Δx[i])
-    end
-    return s
 end
 
 """
