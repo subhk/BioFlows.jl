@@ -237,38 +237,57 @@ F_{i,j}^I = F_{i,j}^{conv,I} + F_{i,j}^{diff,I}
 
 ### Upwind Schemes for Convection
 
-BioFlows.jl implements several upwind schemes for reconstructing face values $\phi(u_i)$.
+BioFlows.jl implements several upwind schemes for reconstructing face values. Given the stencil values $u_U$ (upwind), $u_C$ (center), $u_D$ (downwind), the schemes compute the face value $\phi$.
 
-#### QUICK (Quadratic Upstream Interpolation)
+#### QUICK with Median Limiter
 
-The QUICK scheme uses a 3-point quadratic interpolation biased in the upwind direction:
+BioFlows uses a modified QUICK scheme with a median limiter for stability:
 
 ```math
-\phi(u) = \begin{cases}
-\frac{3}{8}u_D + \frac{6}{8}u_C - \frac{1}{8}u_U & \text{if } u_{face} > 0 \\
-\frac{3}{8}u_U + \frac{6}{8}u_C - \frac{1}{8}u_D & \text{if } u_{face} < 0
-\end{cases}
+\phi_{QUICK} = \text{median}\left( \frac{5u_C + 2u_D - u_U}{6}, \, u_C, \, \text{median}(10u_C - 9u_U, \, u_C, \, u_D) \right)
 ```
 
-where $U$=upwind, $C$=center, $D$=downwind relative to face velocity direction.
+The median limiter prevents spurious oscillations near discontinuities while maintaining high accuracy in smooth regions. For smooth monotonic profiles, this reduces to the quadratic interpolation $(5u_C + 2u_D - u_U)/6$.
+
+**Code:** `quick(u,c,d) = median((5c+2d-u)/6, c, median(10c-9u,c,d))`
 
 #### Van Leer (TVD)
 
-The van Leer scheme uses a flux limiter to prevent oscillations near discontinuities:
+The van Leer scheme uses a monotonicity-preserving limiter:
 
 ```math
-\phi(r) = \frac{r + |r|}{1 + |r|}
+\phi_{vanLeer} = \begin{cases}
+u_C & \text{if } u_C \leq \min(u_U, u_D) \text{ or } u_C \geq \max(u_U, u_D) \\
+u_C + (u_D - u_C) \cdot \frac{u_C - u_U}{u_D - u_U} & \text{otherwise}
+\end{cases}
 ```
 
-where $r = (u_C - u_U)/(u_D - u_C)$ is the gradient ratio.
+This ensures the interpolated value lies between neighboring values, preventing oscillations.
+
+**Code:** `vanLeer(u,c,d) = (c≤min(u,d) || c≥max(u,d)) ? c : c+(d-c)*(c-u)/(d-u)`
 
 #### Central Difference (CDS)
 
-For comparison, the central difference scheme provides 2nd-order accuracy but may oscillate:
+The central difference scheme provides 2nd-order accuracy but may oscillate:
 
 ```math
-\phi(u) = \frac{1}{2}(u_L + u_R)
+\phi_{CDS} = \frac{u_C + u_D}{2}
 ```
+
+**Code:** `cds(u,c,d) = (c+d)/2`
+
+#### Stencil Selection
+
+The upwind direction is determined by the face velocity $u_j^{face}$:
+
+```math
+\phi(u_i) = \begin{cases}
+\lambda(u_i^{I-2\delta}, u_i^{I-\delta}, u_i^{I}) & \text{if } u_j^{face} > 0 \\
+\lambda(u_i^{I+\delta}, u_i^{I}, u_i^{I-\delta}) & \text{if } u_j^{face} < 0
+\end{cases}
+```
+
+where $\lambda$ is the chosen scheme (quick, vanLeer, or cds).
 
 ### Conservative Flux Application
 
