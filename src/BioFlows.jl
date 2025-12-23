@@ -106,7 +106,7 @@ export amr_cfl, synchronize_base_and_patches!, interpolate_velocity_to_patches!
 # Simulation container
 abstract type AbstractSimulation end
 """
-    Simulation(dims::NTuple{N}, inletBC, L::NTuple{N}; L_char=nothing, kwargs...)
+    Simulation(dims::NTuple{N}, L::NTuple{N}; inletBC=(1,0,...), kwargs...)
 
 Constructor for a BioFlows simulation solving the dimensional incompressible Navier-Stokes equations:
 
@@ -117,23 +117,22 @@ Constructor for a BioFlows simulation solving the dimensional incompressible Nav
 
 ## Required
 - `dims::NTuple{N,Int}`: Number of grid cells in each direction, e.g., `(nx, nz)` or `(nx, ny, nz)`
-- `inletBC`: Inlet boundary velocity. Either a `Tuple` for constant BCs, or `Function(i,x,t)` for space/time varying
 - `L::NTuple{N}`: Physical domain size in each direction (e.g., `(Lx, Lz)` in meters)
-  - Grid spacing is computed as `Δx = L[1]/dims[1]` (must be uniform)
 
 ## Optional (keyword arguments)
-- `L_char`: Characteristic length scale for dimensionless time and force coefficients
-  - Defaults to `L[1]` if not specified
-  - For cylinder flows, typically use the diameter (2*radius)
-- `U`: Velocity scale for dimensionless time reporting. Required if `inletBC` is a `Function`
-- `Δt=0.25`: Initial time step (seconds)
+- `inletBC`: Inlet boundary velocity (default: unit velocity in x-direction)
+  - `Tuple`: Constant velocity, e.g., `(1.0, 0.0)` for uniform flow
+  - `Function(i,x,t)`: Spatially/temporally varying (requires `U` to be specified)
+- `outletBC=false`: Enable convective outlet BC in direction 1
 - `ν=0.`: Kinematic viscosity (m²/s)
+- `body=NoBody()`: Immersed body geometry
+- `L_char`: Characteristic length for force coefficients (default: `L[1]`)
+- `U`: Velocity scale. Auto-computed from `inletBC` if constant, required if function
+- `Δt=0.25`: Initial time step (seconds)
 - `g=nothing`: Body acceleration function `g(i,x,t)` (m/s²)
 - `ϵ=1`: BDIM kernel width (in grid cells)
-- `perdir=()`: Periodic directions, e.g., `(2,)` for y-periodic
+- `perdir=()`: Periodic directions, e.g., `(2,)` for z-periodic
 - `uλ=nothing`: Initial velocity condition. Tuple or `Function(i,x)`
-- `outletBC=false`: Enable convective outlet BC in direction 1
-- `body=NoBody()`: Immersed body geometry
 - `T=Float32`: Numeric type
 - `mem=Array`: Memory backend (`Array`, `CuArray`, etc.)
 
@@ -141,40 +140,40 @@ Constructor for a BioFlows simulation solving the dimensional incompressible Nav
 
 ## Constant inlet velocity
 ```julia
-# 2D channel: 2m × 1m domain with 256 × 128 cells
-# Uniform inlet velocity (U=1 m/s in x-direction)
-sim = Simulation((256, 128), (1.0, 0.0), (2.0, 1.0); ν=1e-6)
+# 2D channel with uniform inlet
+sim = Simulation((256, 128), (2.0, 1.0); inletBC=(1.0, 0.0), ν=1e-6)
 
-# With immersed cylinder of diameter 0.2m
+# With immersed cylinder
 diameter = 0.2
 cylinder = AutoBody((x,t) -> √(x[1]^2 + x[2]^2) - diameter/2)
-sim = Simulation((256, 128), (1.0, 0.0), (2.0, 1.0); ν=1e-6, body=cylinder, L_char=diameter)
+sim = Simulation((256, 128), (2.0, 1.0);
+                 inletBC = (1.0, 0.0),
+                 ν = 1e-6,
+                 body = cylinder,
+                 L_char = diameter)
 ```
 
 ## Spatially-varying inlet (parabolic profile)
 ```julia
-# Parabolic inlet profile: u(z) = U_max * (1 - (z - H)²/H²)
-# where H is the channel half-height
+# Parabolic inlet: u(z) = U_max * (1 - (z - H)²/H²)
 Lx, Lz = 2.0, 1.0
-H = Lz / 2  # half-height
+H = Lz / 2
 U_max = 1.5
-
-# inletBC(i, x, t): i=component, x=position, t=time
 inletBC(i, x, t) = i == 1 ? U_max * (1 - ((x[2] - H) / H)^2) : 0.0
 
-sim = Simulation((256, 128), inletBC, (Lx, Lz);
-                 U = U_max,      # Required when inletBC is a Function
+sim = Simulation((256, 128), (Lx, Lz);
+                 inletBC = inletBC,
+                 U = U_max,
                  ν = 1e-6,
                  outletBC = true)
 ```
 
 ## Time-varying inlet
 ```julia
-# Oscillating inlet velocity
 U₀, ω = 1.0, 2π
 inletBC(i, x, t) = i == 1 ? U₀ * (1 + 0.1*sin(ω*t)) : 0.0
 
-sim = Simulation((256, 128), inletBC, (2.0, 1.0); U=U₀, ν=1e-6)
+sim = Simulation((256, 128), (2.0, 1.0); inletBC=inletBC, U=U₀, ν=1e-6)
 ```
 
 See files in `examples` folder for more examples.
@@ -219,15 +218,19 @@ mutable struct Simulation <: AbstractSimulation
     body :: AbstractBody
     pois :: AbstractPoisson
 
-    function Simulation(dims::NTuple{N}, inletBC, L::NTuple{N};
-                        L_char=nothing, Δt=0.25, ν=0., g=nothing, U=nothing, ϵ=1, perdir=(),
+    function Simulation(dims::NTuple{N}, L::NTuple{N};
+                        inletBC=nothing, L_char=nothing, Δt=0.25, ν=0., g=nothing, U=nothing, ϵ=1, perdir=(),
                         uλ=nothing, outletBC=false, body::AbstractBody=NoBody(),
                         T=Float32, mem=Array) where N
+        # Default inletBC: unit velocity in x-direction
+        if isnothing(inletBC)
+            inletBC = ntuple(i -> i==1 ? one(T) : zero(T), N)
+        end
         @assert !(isnothing(U) && isa(inletBC,Function)) "`U` (velocity scale) must be specified if boundary conditions `inletBC` is a `Function`"
         isnothing(U) && (U = √sum(abs2,inletBC))
         check_fn(inletBC,N,T,3); check_fn(g,N,T,3); check_fn(uλ,N,T,2)
         # Pass domain size L to Flow for dimensional Δx computation
-        flow = Flow(dims,inletBC;L=L,uλ,Δt,ν,g,T,f=mem,perdir,outletBC)
+        flow = Flow(dims;L=L,inletBC=inletBC,uλ,Δt,ν,g,T,f=mem,perdir,outletBC)
         measure!(flow,body;ϵ)
         # Use L_char for dimensionless time/forces, default to L[1]
         char_length = isnothing(L_char) ? L[1] : L_char
@@ -392,22 +395,23 @@ mutable struct AMRSimulation <: AbstractSimulation
 end
 
 """
-    AMRSimulation(dims, inletBC, L::NTuple{N}; amr_config=AMRConfig(), kwargs...)
+    AMRSimulation(dims, L::NTuple{N}; inletBC=nothing, amr_config=AMRConfig(), kwargs...)
 
 Create an AMR-enabled simulation.
 
 # Arguments
 - `dims`: Grid dimensions
-- `inletBC`: Inlet boundary conditions
 - `L::NTuple{N}`: Physical domain size tuple
+- `inletBC`: Inlet boundary conditions (default: unit velocity in x-direction)
 - `amr_config`: AMR configuration (default: AMRConfig())
 - `kwargs...`: Additional arguments passed to Simulation constructor (including `L_char`)
 """
-function AMRSimulation(dims::NTuple{N}, inletBC, L::NTuple{N};
+function AMRSimulation(dims::NTuple{N}, L::NTuple{N};
+                       inletBC=nothing,
                        amr_config::AMRConfig=AMRConfig(),
                        kwargs...) where N
     # Create base simulation
-    sim = Simulation(dims, inletBC, L; kwargs...)
+    sim = Simulation(dims, L; inletBC=inletBC, kwargs...)
 
     # Create adapter and refined grid using domain size L[1]
     adapter = FlowToGridAdapter(sim.flow, L[1])

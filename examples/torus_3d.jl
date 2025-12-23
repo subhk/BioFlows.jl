@@ -32,7 +32,8 @@ function donut_sim(; n::Int=2^6, ν::Real=0.01, U::Real=1,
     end
     diameter = 2major
     # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
-    Simulation(dims, (U, 0, 0), (Float64(n), Float64(n), Float64(n));
+    Simulation(dims, (Float64(n), Float64(n), Float64(n));
+               inletBC = (U, 0, 0),
                ν = ν,
                body = AutoBody(sdf),
                perdir = (1,),

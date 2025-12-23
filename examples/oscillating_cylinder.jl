@@ -28,7 +28,8 @@ function oscillating_cylinder_sim(; n::Int=3*2^5, m::Int=2^6,
     move(x, t) = x - SVector(zero(t), displacement(t))
     diameter = 2radius
     # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
-    Simulation((n, m), (U, 0), (Float64(n), Float64(m));
+    Simulation((n, m), (Float64(n), Float64(m));
+               inletBC=(U, 0),
                ν=ν,
                body=AutoBody(sdf, move),
                L_char=diameter)

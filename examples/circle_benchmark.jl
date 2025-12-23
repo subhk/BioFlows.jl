@@ -21,8 +21,8 @@ function circle_sim(; n::Int=3*2^5, m::Int=2^6, ν::Real=0.01, U::Real=1)
     sdf(x, t) = norm(x .- center) - radius
     diameter = 2radius
     # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
-    Simulation((n, m), (U, 0), (Float64(n), Float64(m));
-               ν=ν, body=AutoBody(sdf), L_char=diameter)
+    Simulation((n, m), (Float64(n), Float64(m));
+               inletBC=(U, 0), ν=ν, body=AutoBody(sdf), L_char=diameter)
 end
 
 """

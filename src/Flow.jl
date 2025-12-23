@@ -191,18 +191,19 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     outletBC :: Bool # convective outlet BC flag
     perdir :: NTuple # periodic directions tuple
     """
-        Flow(N, inletBC; L, ν=0, Δt=0.25, ...)
+        Flow(N; L, inletBC=nothing, ν=0, Δt=0.25, ...)
 
     Construct a Flow on grid of size `N` with domain size `L`.
 
     # Required Arguments
     - `N::NTuple{D}`: Number of grid cells, e.g., `(nx, nz)` or `(nx, ny, nz)`
-    - `inletBC`: Inlet boundary velocity (m/s). Tuple or `Function(i,x,t)`
     - `L::NTuple{D}`: Physical domain size (m), e.g., `(2.0, 1.0)` for 2m × 1m
       Grid spacing: `Δx[d] = L[d]/N[d]` for each direction d
       Supports anisotropic grids (Δx ≠ Δy ≠ Δz)
 
     # Optional Arguments
+    - `inletBC`: Inlet boundary velocity (m/s). Tuple or `Function(i,x,t)`.
+      Default: unit velocity in x-direction `(1, 0, ...)`.
     - `ν=0.`: Kinematic viscosity (m²/s). Water ≈ 1e-6, air ≈ 1.5e-5
     - `Δt=0.25`: Initial time step (s)
     - `g=nothing`: Body acceleration function `g(i,x,t)` returning m/s²
@@ -215,14 +216,18 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     # Example
     ```julia
     # 2m × 1m domain, 200×100 cells → Δx = 0.01m, Δz = 0.01m (uniform)
-    flow = Flow((200, 100), (1.0, 0.0); L=(2.0, 1.0), ν=1e-6)
+    flow = Flow((200, 100); L=(2.0, 1.0), inletBC=(1.0, 0.0), ν=1e-6)
 
     # Anisotropic: 4m × 1m domain, 200×100 cells → Δx = 0.02m, Δz = 0.01m
-    flow = Flow((200, 100), (1.0, 0.0); L=(4.0, 1.0), ν=1e-6)
+    flow = Flow((200, 100); L=(4.0, 1.0), inletBC=(1.0, 0.0), ν=1e-6)
     ```
     """
-    function Flow(N::NTuple{D}, inletBC; L::NTuple{D}, f=Array, Δt=0.25, ν=0., g=nothing,
+    function Flow(N::NTuple{D}; L::NTuple{D}, inletBC=nothing, f=Array, Δt=0.25, ν=0., g=nothing,
             uλ=nothing, perdir=(), outletBC=false, T=Float32) where D
+        # Default inletBC: unit velocity in x-direction
+        if isnothing(inletBC)
+            inletBC = ntuple(i -> i==1 ? one(T) : zero(T), D)
+        end
         # Compute grid spacing for each direction (supports anisotropic grids)
         Δx = ntuple(d -> T(L[d] / N[d]), D)
         Ng = N .+ 2
