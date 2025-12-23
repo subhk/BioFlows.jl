@@ -183,21 +183,21 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     μ₀:: Vf # zeroth-moment vector (dimensionless)
     μ₁:: Tf # first-moment tensor field (dimensionless)
     # Non-fields
-    uBC :: Union{NTuple{D,Number},Function} # boundary velocity (m/s)
+    inletBC :: Union{NTuple{D,Number},Function} # inlet boundary velocity (m/s)
     Δt:: Vector{T} # time step history (s)
     ν :: T # kinematic viscosity (m²/s)
     Δx :: NTuple{D,T} # grid spacing per direction (m) - can be anisotropic
     g :: Union{Function,Nothing} # acceleration field (m/s²)
-    exitBC :: Bool # convection exit BC flag
+    outletBC :: Bool # convective outlet BC flag
     perdir :: NTuple # periodic directions tuple
     """
-        Flow(N, uBC; L, ν=0, Δt=0.25, ...)
+        Flow(N, inletBC; L, ν=0, Δt=0.25, ...)
 
     Construct a Flow on grid of size `N` with domain size `L`.
 
     # Required Arguments
     - `N::NTuple{D}`: Number of grid cells, e.g., `(nx, nz)` or `(nx, ny, nz)`
-    - `uBC`: Boundary velocity (m/s). Tuple or `Function(i,x,t)`
+    - `inletBC`: Inlet boundary velocity (m/s). Tuple or `Function(i,x,t)`
     - `L::NTuple{D}`: Physical domain size (m), e.g., `(2.0, 1.0)` for 2m × 1m
       Grid spacing: `Δx[d] = L[d]/N[d]` for each direction d
       Supports anisotropic grids (Δx ≠ Δy ≠ Δz)
@@ -208,7 +208,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     - `g=nothing`: Body acceleration function `g(i,x,t)` returning m/s²
     - `uλ=nothing`: Initial velocity. Tuple or `Function(i,x)`
     - `perdir=()`: Periodic directions, e.g., `(2,)` for y-periodic
-    - `exitBC=false`: Convective exit BC in direction 1
+    - `outletBC=false`: Convective outlet BC in direction 1
     - `T=Float32`: Numeric type
     - `f=Array`: Memory backend
 
@@ -221,21 +221,21 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     flow = Flow((200, 100), (1.0, 0.0); L=(4.0, 1.0), ν=1e-6)
     ```
     """
-    function Flow(N::NTuple{D}, uBC; L::NTuple{D}, f=Array, Δt=0.25, ν=0., g=nothing,
-            uλ=nothing, perdir=(), exitBC=false, T=Float32) where D
+    function Flow(N::NTuple{D}, inletBC; L::NTuple{D}, f=Array, Δt=0.25, ν=0., g=nothing,
+            uλ=nothing, perdir=(), outletBC=false, T=Float32) where D
         # Compute grid spacing for each direction (supports anisotropic grids)
         Δx = ntuple(d -> T(L[d] / N[d]), D)
         Ng = N .+ 2
         Nd = (Ng..., D)
-        isnothing(uλ) && (uλ = ic_function(uBC))
+        isnothing(uλ) && (uλ = ic_function(inletBC))
         u = Array{T}(undef, Nd...) |> f
         isa(uλ, Function) ? apply!(uλ, u) : apply!((i,x)->uλ[i], u)
-        BC!(u,uBC,exitBC,perdir); exitBC!(u,u,0.)
+        BC!(u,inletBC,outletBC,perdir); exitBC!(u,u,0.)
         u⁰ = copy(u)
         fv, p, σ = zeros(T, Nd) |> f, zeros(T, Ng) |> f, zeros(T, Ng) |> f
         V, μ₀, μ₁ = zeros(T, Nd) |> f, ones(T, Nd) |> f, zeros(T, Ng..., D, D) |> f
         BC!(μ₀,ntuple(zero, D),false,perdir)
-        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,uBC,T[Δt],T(ν),Δx,g,exitBC,perdir)
+        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,inletBC,T[Δt],T(ν),Δx,g,outletBC,perdir)
     end
 end
 
@@ -305,17 +305,17 @@ Uses predictor-corrector time integration with proper Δx scaling.
     @log "p"
     conv_diff!(a.f,a.u⁰,a.σ,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
     udf!(a,udf,t₀; kwargs...)
-    accelerate!(a.f,t₀,a.g,a.uBC)
-    BDIM!(a); BC!(a.u,a.uBC,a.exitBC,a.perdir,t₁) # BC MUST be at t₁
-    a.exitBC && exitBC!(a.u,a.u⁰,a.Δt[end]) # convective exit
-    project!(a,b); BC!(a.u,a.uBC,a.exitBC,a.perdir,t₁)
+    accelerate!(a.f,t₀,a.g,a.inletBC)
+    BDIM!(a); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁) # BC MUST be at t₁
+    a.outletBC && exitBC!(a.u,a.u⁰,a.Δt[end]) # convective outlet
+    project!(a,b); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
     # corrector u → u¹
     @log "c"
     conv_diff!(a.f,a.u,a.σ,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
     udf!(a,udf,t₁; kwargs...)
-    accelerate!(a.f,t₁,a.g,a.uBC)
-    BDIM!(a); scale_u!(a,0.5); BC!(a.u,a.uBC,a.exitBC,a.perdir,t₁)
-    project!(a,b,0.5); BC!(a.u,a.uBC,a.exitBC,a.perdir,t₁)
+    accelerate!(a.f,t₁,a.g,a.inletBC)
+    BDIM!(a); scale_u!(a,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
+    project!(a,b,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
     push!(a.Δt,CFL(a))
 end
 scale_u!(a,scale) = @loop a.u[Ii] *= scale over Ii ∈ inside_u(size(a.p))
