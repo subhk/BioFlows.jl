@@ -31,7 +31,7 @@ sim = Simulation((nx, nz), (U, 0.0), (Lx, Lz);
                  body = body,
                  L_char = diameter,
                  perdir = (2,),      # Periodic in z
-                 exitBC = true)      # Convective outlet
+                 outletBC = true)     # Convective outlet
 
 # --- Output Writers ---
 # Force coefficients (Cd, Cl) saved to JLD2 file

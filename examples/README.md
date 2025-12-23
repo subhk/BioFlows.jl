@@ -8,7 +8,7 @@ This directory contains example scripts demonstrating BioFlows capabilities.
   and lift coefficients using `pressure_force`.
 - `flow_past_cylinder_2d.jl`: Comprehensive 2D cylinder example with configurable
   domain `(Lx,Lz)`, grid `(nx,nz)`, Reynolds number, fixed time step, boundary
-  controls (`uBC`, `perdir`, `exitBC`), built-in force diagnostics, and optional
+  controls (`inletBC`, `perdir`, `outletBC`), built-in force diagnostics, and optional
   cell-centered velocity/vorticity snapshots to JLD2.
 - `oscillating_cylinder.jl`: Cross-flow oscillation of a cylinder with prescribed
   sinusoidal motion (Strouhal `St = 0.2`). Tracks total force coefficients and
