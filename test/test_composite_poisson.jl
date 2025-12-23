@@ -1,9 +1,7 @@
 using Test
 using BioFlows
 using LinearAlgebra
-
-# Helper functions
-mean(x) = sum(x) / length(x)
+using Statistics: mean
 
 @testset "Composite Poisson Solver" begin
 

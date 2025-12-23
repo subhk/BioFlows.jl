@@ -1,6 +1,7 @@
 using Test
 using BioFlows
 using LinearAlgebra
+using Statistics: mean
 
 # Helper function for correlation - must be defined before testset
 function cor(x, y)
@@ -9,7 +10,6 @@ function cor(x, y)
     den = sqrt(sum((x .- mx).^2) * sum((y .- my).^2))
     return den > 0 ? num / den : 0.0
 end
-mean(x) = sum(x) / length(x)
 
 @testset "Pressure Solver Verification" begin
 
