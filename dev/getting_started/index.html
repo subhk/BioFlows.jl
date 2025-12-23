@@ -10,8 +10,9 @@ Re = 100        # Reynolds number
 U = 1.0         # Inlet velocity
 D = 16.0        # Cylinder diameter (length scale)
 
-# Grid parameters
+# Grid and domain parameters
 nx, nz = 128, 64
+Lx, Lz = Float64(nx), Float64(nz)  # Domain size (Δx = 1)
 
 # Define cylinder geometry
 center_x = nx / 4
@@ -22,9 +23,11 @@ radius = D / 2
 sdf(x, t) = sqrt((x[1] - center_x)^2 + (x[2] - center_z)^2) - radius
 
 # Create simulation
-sim = Simulation((nx, nz), (U, 0), D;
+sim = Simulation((nx, nz), (Lx, Lz);
+                 inletBC = (U, 0.0),
                  ν = U * D / Re,
-                 body = AutoBody(sdf))
+                 body = AutoBody(sdf),
+                 L_char = D)
 
 # Time integration
 final_time = 10.0  # Convective time units
@@ -45,18 +48,18 @@ sdf_circle(x, t) = sqrt(x[1]^2 + x[2]^2) - radius
 sdf_rect(x, t) = max(abs(x[1]) - width/2, abs(x[2]) - height/2)
 
 # Sphere (3D)
-sdf_sphere(x, t) = sqrt(x[1]^2 + x[2]^2 + x[3]^2) - radius</code></pre><h3 id="Boundary-Conditions"><a class="docs-heading-anchor" href="#Boundary-Conditions">Boundary Conditions</a><a id="Boundary-Conditions-1"></a><a class="docs-heading-anchor-permalink" href="#Boundary-Conditions" title="Permalink"></a></h3><p>Specify inlet boundary conditions via <code>inletBC</code>:</p><pre><code class="language-julia hljs"># Constant inlet velocity (uniform flow)
-sim = Simulation(dims, (1.0, 0.0), L; ...)
+sdf_sphere(x, t) = sqrt(x[1]^2 + x[2]^2 + x[3]^2) - radius</code></pre><h3 id="Boundary-Conditions"><a class="docs-heading-anchor" href="#Boundary-Conditions">Boundary Conditions</a><a id="Boundary-Conditions-1"></a><a class="docs-heading-anchor-permalink" href="#Boundary-Conditions" title="Permalink"></a></h3><p>Specify inlet boundary conditions via the <code>inletBC</code> keyword argument:</p><pre><code class="language-julia hljs"># Constant inlet velocity (uniform flow)
+sim = Simulation(dims, L; inletBC=(1.0, 0.0), ...)
 
 # Spatially-varying inlet (parabolic profile in z)
 # Function signature: inletBC(i, x, t) where i=component, x=position, t=time
 H = Lz / 2  # channel half-height
 U_max = 1.5
 inletBC(i, x, t) = i == 1 ? U_max * (1 - ((x[2] - H) / H)^2) : 0.0
-sim = Simulation(dims, inletBC, L; U=U_max, ...)  # Must specify U for functions
+sim = Simulation(dims, L; inletBC=inletBC, U=U_max, ...)  # Must specify U for functions
 
 # Time-varying inlet (oscillating)
 inletBC(i, x, t) = i == 1 ? 1.0 + 0.1*sin(2π*t) : 0.0
-sim = Simulation(dims, inletBC, L; U=1.0, ...)</code></pre><p>Additional boundary options:</p><ul><li><code>perdir=(2,)</code>: Make direction 2 (z) periodic</li><li><code>outletBC=true</code>: Convective outlet in x-direction</li></ul><h2 id="Running-Examples"><a class="docs-heading-anchor" href="#Running-Examples">Running Examples</a><a id="Running-Examples-1"></a><a class="docs-heading-anchor-permalink" href="#Running-Examples" title="Permalink"></a></h2><p>The <code>examples/</code> directory contains ready-to-run scripts:</p><pre><code class="language-bash hljs">julia --project examples/flow_past_cylinder_2d.jl
+sim = Simulation(dims, L; inletBC=inletBC, U=1.0, ...)</code></pre><p>Additional boundary options:</p><ul><li><code>perdir=(2,)</code>: Make direction 2 (z) periodic</li><li><code>outletBC=true</code>: Convective outlet in x-direction</li></ul><h2 id="Running-Examples"><a class="docs-heading-anchor" href="#Running-Examples">Running Examples</a><a id="Running-Examples-1"></a><a class="docs-heading-anchor-permalink" href="#Running-Examples" title="Permalink"></a></h2><p>The <code>examples/</code> directory contains ready-to-run scripts:</p><pre><code class="language-bash hljs">julia --project examples/flow_past_cylinder_2d.jl
 julia --project examples/circle_benchmark.jl
-julia --project examples/oscillating_cylinder.jl</code></pre><p>See <a href="../examples/#Examples">Examples</a> for detailed descriptions.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../numerical_methods/">Numerical Methods »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Tuesday 23 December 2025 14:29">Tuesday 23 December 2025</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+julia --project examples/oscillating_cylinder.jl</code></pre><p>See <a href="../examples/#Examples">Examples</a> for detailed descriptions.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../numerical_methods/">Numerical Methods »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Tuesday 23 December 2025 14:31">Tuesday 23 December 2025</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
