@@ -52,8 +52,8 @@ end
         ν = 0.01
 
         # Domain size = (n, n) with Δx=1, L_char = n/4
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
-                                   ν=ν, T=Float64, L_char=Float64(n/4))
+        sim = BioFlows.Simulation((n, n), (Float64(n), Float64(n));
+                                   inletBC=(1.0, 0.0), ν=ν, T=Float64, L_char=Float64(n/4))
 
         # Simulation uses MultiLevelPoisson
         @test isa(sim.pois, BioFlows.MultiLevelPoisson)
@@ -233,8 +233,8 @@ end
         n = 48
         ν = 0.01
         # Domain size = (n, n) with Δx=1, L_char = n/4
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
-                                   ν=ν, T=Float64, L_char=Float64(n/4))
+        sim = BioFlows.Simulation((n, n), (Float64(n), Float64(n));
+                                   inletBC=(1.0, 0.0), ν=ν, T=Float64, L_char=Float64(n/4))
 
         # Take a momentum step
         BioFlows.mom_step!(sim.flow, sim.pois)
@@ -254,8 +254,8 @@ end
         n = 32
         ν = 0.01
         # Domain size = (n, n) with Δx=1, L_char = n/4
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
-                                   ν=ν, T=Float64, L_char=Float64(n/4))
+        sim = BioFlows.Simulation((n, n), (Float64(n), Float64(n));
+                                   inletBC=(1.0, 0.0), ν=ν, T=Float64, L_char=Float64(n/4))
 
         # CFL should give reasonable time step
         dt = BioFlows.CFL(sim.flow)
@@ -269,8 +269,8 @@ end
         n = 32
         ν = 0.01
         # Domain size = (n, n) with Δx=1, L_char = n/4
-        sim = BioFlows.Simulation((n, n), (1.0, 0.0), (Float64(n), Float64(n));
-                                   ν=ν, T=Float64, L_char=Float64(n/4))
+        sim = BioFlows.Simulation((n, n), (Float64(n), Float64(n));
+                                   inletBC=(1.0, 0.0), ν=ν, T=Float64, L_char=Float64(n/4))
 
         # Take several momentum steps
         for _ in 1:5
