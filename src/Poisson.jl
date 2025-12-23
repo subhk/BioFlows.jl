@@ -102,18 +102,21 @@ end
 
 Efficient function for Poisson matrix-vector multiplication.
 Fills `p.z = p.A x` with 0 in the ghost cells.
+Supports anisotropic grids via inv_Δx² scaling.
 """
 function mult!(p::Poisson,x)
     @assert axes(p.z)==axes(x)
     perBC!(x,p.perdir)
     fill!(p.z,0)
-    @inside p.z[I] = mult(I,p.L,p.D,x)
+    @inside p.z[I] = mult(I,p.L,p.D,x,p.inv_Δx²)
     return p.z
 end
-@fastmath @inline function mult(I::CartesianIndex{d},L,D,x) where {d}
+# Anisotropic mult: includes 1/Δx[d]² scaling per direction
+@fastmath @inline function mult(I::CartesianIndex{d},L,D,x,inv_Δx²) where {d}
     s = @inbounds(x[I]*D[I])
     for i in 1:d
-        s += @inbounds(x[I-δ(i,I)]*L[I,i]+x[I+δ(i,I)]*L[I+δ(i,I),i])
+        # Off-diagonal terms scaled by 1/Δx[i]²
+        s += @inbounds((x[I-δ(i,I)]*L[I,i]+x[I+δ(i,I)]*L[I+δ(i,I),i]) * inv_Δx²[i])
     end
     return s
 end
