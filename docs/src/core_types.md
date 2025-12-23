@@ -11,9 +11,9 @@ Simulation
 ### Constructor
 
 ```julia
-Simulation(dims::NTuple, uBC, L::Number;
-           U=norm(uBC), Δt=0.25, ν=0., ϵ=1, g=nothing,
-           perdir=(), exitBC=false,
+Simulation(dims::NTuple, inletBC, L::Number;
+           U=norm(inletBC), Δt=0.25, ν=0., ϵ=1, g=nothing,
+           perdir=(), outletBC=false,
            body::AbstractBody=NoBody(),
            T=Float32, mem=Array)
 ```
@@ -23,15 +23,15 @@ Simulation(dims::NTuple, uBC, L::Number;
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `dims` | `NTuple{N,Int}` | Grid dimensions `(nx, nz)` or `(nx, ny, nz)` |
-| `uBC` | `Tuple` or `Function` | Boundary velocity |
+| `inletBC` | `Tuple` or `Function` | Inlet boundary velocity |
 | `L` | `Number` | Length scale for non-dimensionalization |
-| `U` | `Number` | Velocity scale (auto-computed if `uBC` is constant) |
+| `U` | `Number` | Velocity scale (auto-computed if `inletBC` is constant) |
 | `Δt` | `Number` | Initial time step (default: 0.25) |
 | `ν` | `Number` | Kinematic viscosity (`Re = U*L/ν`) |
 | `ϵ` | `Number` | BDIM kernel width (default: 1) |
 | `g` | `Function` or `Nothing` | Acceleration field `g(i,x,t)` |
 | `perdir` | `Tuple` | Periodic directions, e.g. `(2,)` |
-| `exitBC` | `Bool` | Convective exit in x-direction |
+| `outletBC` | `Bool` | Convective outlet in x-direction |
 | `body` | `AbstractBody` | Immersed geometry |
 | `T` | `Type` | Float type (`Float32` or `Float64`) |
 | `mem` | `Type` | Array backend (`Array` for CPU) |

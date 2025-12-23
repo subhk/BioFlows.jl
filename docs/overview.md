@@ -37,21 +37,21 @@ Key concepts:
 ### Simulation
 
 ```julia
-Simulation(dims::NTuple, uBC, L::Number;
-           U=norm(uBC), Δt=0.25, ν=0., ϵ=1, g=nothing,
-           perdir=(), exitBC=false,
+Simulation(dims::NTuple, inletBC, L::Number;
+           U=norm(inletBC), Δt=0.25, ν=0., ϵ=1, g=nothing,
+           perdir=(), outletBC=false,
            body::AbstractBody=NoBody(),
            T=Float32, mem=Array)
 ```
 
 - `dims`: Grid dimensions `(nx, nz)` for 2D or `(nx, ny, nz)` for 3D
-- `uBC`: Boundary velocity — `Tuple` for constant, `Function(i,x,t)` for varying
+- `inletBC`: Inlet boundary velocity — `Tuple` for constant, `Function(i,x,t)` for varying
 - `L`: Length scale for non-dimensionalization
-- `U`: Velocity scale (auto-computed from `uBC` if constant)
+- `U`: Velocity scale (auto-computed from `inletBC` if constant)
 - `ν`: Kinematic viscosity (`Re = U*L/ν`)
 - `ϵ`: BDIM kernel width
 - `perdir`: Periodic directions, e.g. `(2,)` for z-periodic
-- `exitBC`: Enable convective exit boundary in x-direction
+- `outletBC`: Enable convective outlet boundary in x-direction
 - `body`: Immersed geometry (`AutoBody`, `NoBody`, etc.)
 - `T`: Float type (`Float32` or `Float64`)
 - `mem`: Array backend (`Array` for CPU, `CuArray` for GPU)

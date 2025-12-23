@@ -106,20 +106,20 @@ sdf_sphere(x, t) = sqrt(x[1]^2 + x[2]^2 + x[3]^2) - radius
 
 ### Boundary Conditions
 
-Specify boundary conditions via `uBC`:
+Specify boundary conditions via `inletBC`:
 
 ```julia
 # Constant inlet velocity
 sim = Simulation(dims, (1.0, 0.0), L; ...)
 
-# Time-varying boundary (function signature: uBC(i, x, t))
-uBC(i, x, t) = i == 1 ? 1.0 + 0.1*sin(t) : 0.0
-sim = Simulation(dims, uBC, L; U=1.0, ...)  # Must specify U for functions
+# Time-varying boundary (function signature: inletBC(i, x, t))
+inletBC(i, x, t) = i == 1 ? 1.0 + 0.1*sin(t) : 0.0
+sim = Simulation(dims, inletBC, L; U=1.0, ...)  # Must specify U for functions
 ```
 
 Additional boundary options:
 - `perdir=(2,)`: Make direction 2 (z) periodic
-- `exitBC=true`: Convective exit in x-direction
+- `outletBC=true`: Convective outlet in x-direction
 
 ## Running Examples
 
