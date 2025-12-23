@@ -181,7 +181,23 @@ For velocity component $u_i$, the semi-discrete momentum equation is:
 \frac{\partial u_i}{\partial t} = -\sum_j \frac{\partial (u_j u_i)}{\partial x_j} + \nu \sum_j \frac{\partial^2 u_i}{\partial x_j^2} - \frac{1}{\rho}\frac{\partial p}{\partial x_i}
 ```
 
-The convection term $\partial(u_j u_i)/\partial x_j$ represents momentum flux in direction $j$, while the diffusion term $\nu \partial^2 u_i/\partial x_j^2$ represents viscous stress.
+The convection term $\partial(u_j u_i)/\partial x_j$ is in **conservative (flux) form**, representing the divergence of momentum flux. This is distinct from the non-conservative form $u_j \partial u_i/\partial x_j$.
+
+### 2D Momentum Equations (Conservative Form)
+
+For 2D flow with coordinates $(x, z)$ and velocities $(u, w)$:
+
+**x-momentum (u):**
+```math
+\frac{\partial u}{\partial t} = -\frac{\partial (uu)}{\partial x} - \frac{\partial (wu)}{\partial z} + \nu\left(\frac{\partial^2 u}{\partial x^2} + \frac{\partial^2 u}{\partial z^2}\right) - \frac{1}{\rho}\frac{\partial p}{\partial x}
+```
+
+**z-momentum (w):**
+```math
+\frac{\partial w}{\partial t} = -\frac{\partial (uw)}{\partial x} - \frac{\partial (ww)}{\partial z} + \nu\left(\frac{\partial^2 w}{\partial x^2} + \frac{\partial^2 w}{\partial z^2}\right) - \frac{1}{\rho}\frac{\partial p}{\partial z}
+```
+
+The terms $\partial(uu)/\partial x$, $\partial(wu)/\partial z$, $\partial(uw)/\partial x$, and $\partial(ww)/\partial z$ are the conservative convective fluxes.
 
 ### Finite Volume Formulation
 
