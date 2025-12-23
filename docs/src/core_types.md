@@ -92,7 +92,7 @@ Flow
 | `u` | `Array{T,D+1}` | Velocity vector field (m/s) |
 | `u⁰` | `Array{T,D+1}` | Previous velocity (for time stepping) |
 | `f` | `Array{T,D+1}` | Force/RHS vector field (m/s²) |
-| `p` | `Array{T,D}` | Pressure scalar field (m²/s²) |
+| `p` | `Array{T,D}` | Pressure scalar field (Pa = kg/(m·s²)) |
 | `σ` | `Array{T,D}` | Divergence scalar field (work array) |
 | `V` | `Array{T,D+1}` | Body velocity vector (BDIM) |
 | `μ₀` | `Array{T,D+1}` | Zeroth moment (BDIM) |
@@ -102,6 +102,7 @@ Flow
 | `store_fluxes` | `Bool` | FVM flux storage enabled |
 | `Δt` | `Vector{T}` | Time step history (s) |
 | `ν` | `T` | Kinematic viscosity (m²/s) |
+| `ρ` | `T` | Fluid density (kg/m³), default 1000 (water) |
 | `Δx` | `NTuple{D,T}` | Grid spacing per direction (m) |
 | `fixed_Δt` | `T` or `Nothing` | Fixed time step (disables CFL) |
 
