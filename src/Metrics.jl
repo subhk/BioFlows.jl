@@ -205,27 +205,48 @@ function pressure_moment(x₀,p,df,body,t=0)
     sum(To,df,dims=ntuple(i->i,ndims(p)))[:] |> Array
 end
 
+# =============================================================================
+# TEMPORAL STATISTICS (MEAN FLOW AND REYNOLDS STRESSES)
+# =============================================================================
+# MeanFlow accumulates running averages of flow quantities for turbulence
+# statistics. Uses exponential moving average for numerical stability:
+#   <f>_new = ε * f + (1-ε) * <f>_old
+#   where ε = Δt / (total_time + Δt)
+#
+# This provides:
+# - Mean velocity: U = <u>
+# - Mean pressure: P = <p>
+# - Reynolds stresses: τᵢⱼ = <uᵢuⱼ> - <uᵢ><uⱼ> (if uu_stats=true)
+# =============================================================================
+
 """
      MeanFlow{T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Mf}
 
 Holds temporal averages of pressure, velocity, and squared-velocity tensor.
 The `Mf` type parameter can be `Nothing` when `uu_stats=false`, or an array type when enabled.
+
+# Fields
+- `P`: Mean pressure field
+- `U`: Mean velocity field
+- `UU`: Mean of uᵢuⱼ (for Reynolds stresses, optional)
+- `t`: Time history vector (first and last entries define averaging window)
+- `uu_stats`: Whether to track velocity correlations
 """
 struct MeanFlow{T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Mf}
-    P :: Sf # pressure scalar field
-    U :: Vf # velocity vector field
-    UU :: Mf # squared-velocity tensor, u⊗u
-    t :: Vector{T} # time steps vector
-    uu_stats :: Bool # flag to compute UU on-the-fly temporal averages
+    P :: Sf   # Mean pressure <p>
+    U :: Vf   # Mean velocity <u>
+    UU :: Mf  # Mean velocity product <uᵢuⱼ> for Reynolds stresses
+    t :: Vector{T}  # Time history [t_start, ..., t_current]
+    uu_stats :: Bool  # Track velocity correlations?
     function MeanFlow(flow::Flow{D,T}; t_init=time(flow), uu_stats=false) where {D,T}
-        mem = typeof(flow.u).name.wrapper
+        mem = typeof(flow.u).name.wrapper  # Preserve array type (CPU/GPU)
         P = zeros(T, size(flow.p)) |> mem
         U = zeros(T, size(flow.u)) |> mem
         UU = uu_stats ? zeros(T, size(flow.p)..., D, D) |> mem : nothing
         new{T,typeof(P),typeof(U),typeof(UU)}(P,U,UU,T[t_init],uu_stats)
     end
     function MeanFlow(N::NTuple{D}; mem=Array, T=Float32, t_init=0, uu_stats=false) where {D}
-        Ng = N .+ 2
+        Ng = N .+ 2  # Include ghost cells
         P = zeros(T, Ng) |> mem
         U = zeros(T, Ng..., D) |> mem
         UU = uu_stats ? zeros(T, Ng..., D, D) |> mem : nothing
@@ -233,8 +254,10 @@ struct MeanFlow{T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Mf}
     end
 end
 
+# Total averaging time
 time(meanflow::MeanFlow) = meanflow.t[end]-meanflow.t[1]
 
+# Reset statistics to zero
 function reset!(meanflow::MeanFlow; t_init=0.0)
     fill!(meanflow.P, 0); fill!(meanflow.U, 0)
     !isnothing(meanflow.UU) && fill!(meanflow.UU, 0)
@@ -242,12 +265,19 @@ function reset!(meanflow::MeanFlow; t_init=0.0)
     push!(meanflow.t, t_init)
 end
 
+# Update running averages with new flow state
+# Uses exponential moving average: <f>_new = ε*f + (1-ε)*<f>_old
 function update!(meanflow::MeanFlow, flow::Flow)
     dt = time(flow) - meanflow.t[end]
+    # Weight for new sample: ε = Δt / (Δt + accumulated_time)
     ε = dt / (dt + time(meanflow) + eps(eltype(flow.p)))
-    length(meanflow.t) == 1 && (ε = 1) # if it's the first update, we just take the instantaneous flow field
+    length(meanflow.t) == 1 && (ε = 1)  # First sample: just copy
+
+    # Update mean pressure and velocity
     @loop meanflow.P[I] = ε * flow.p[I] + (1 - ε) * meanflow.P[I] over I in CartesianIndices(flow.p)
     @loop meanflow.U[Ii] = ε * flow.u[Ii] + (1 - ε) * meanflow.U[Ii] over Ii in CartesianIndices(flow.u)
+
+    # Update velocity correlation tensor <uᵢuⱼ> for Reynolds stresses
     if meanflow.uu_stats
         for i in 1:ndims(flow.p), j in 1:ndims(flow.p)
             @loop meanflow.UU[I,i,j] = ε * (flow.u[I,i] .* flow.u[I,j]) + (1 - ε) * meanflow.UU[I,i,j] over I in CartesianIndices(flow.p)
@@ -256,15 +286,19 @@ function update!(meanflow::MeanFlow, flow::Flow)
     push!(meanflow.t, meanflow.t[end] + dt)
 end
 
+# Compute Reynolds stress tensor: τᵢⱼ = <uᵢuⱼ> - <uᵢ><uⱼ>
 uu!(τ,a::MeanFlow) = for i in 1:ndims(a.P), j in 1:ndims(a.P)
     @loop τ[I,i,j] = a.UU[I,i,j] - a.U[I,i] * a.U[I,j] over I in CartesianIndices(a.P)
 end
+
+# Return new Reynolds stress tensor array
 function uu(a::MeanFlow)
     τ = zeros(eltype(a.UU), size(a.UU)...) |> typeof(a.UU).name.wrapper
     uu!(τ,a)
     return τ
 end
 
+# Copy mean flow back to Flow struct
 function Base.copy!(a::Flow, b::MeanFlow)
     a.u .= b.U
     a.p .= b.P
