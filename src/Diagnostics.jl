@@ -45,6 +45,18 @@ function cell_center_velocity(sim::AbstractSimulation; strip_ghosts::Bool=true)
 end
 
 """
+    cell_center_pressure(sim; strip_ghosts=true)
+
+Return the pressure field at cell centres. Pressure is already cell-centred
+in the staggered grid, so this simply returns the field with optional ghost
+cell stripping.
+"""
+function cell_center_pressure(sim::AbstractSimulation; strip_ghosts::Bool=true)
+    spatial_dims = ndims(sim.flow.p)
+    return strip_ghosts ? _strip_ghosts(sim.flow.p, spatial_dims) : copy(sim.flow.p)
+end
+
+"""
     cell_center_vorticity(sim; strip_ghosts=true)
 
 Return the vorticity at cell centres. For 2D simulations this returns a scalar
