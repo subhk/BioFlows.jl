@@ -1,25 +1,13 @@
 # =============================================================================
 # EULER-BERNOULLI BEAM SOLVER FOR FLEXIBLE BODIES
 # =============================================================================
-# Solves the Euler-Bernoulli beam equation for fluid-structure interaction:
+# Full Finite Element Implementation with Hermite Cubic Shape Functions
 #
+# Solves the Euler-Bernoulli beam equation:
 #   ρₛA ∂²w/∂t² + c ∂w/∂t + EI ∂⁴w/∂x⁴ - T ∂²w/∂x² = q(x,t) + f_active(x,t)
 #
-# where:
-#   ρₛ = beam material density (kg/m³)
-#   A  = cross-sectional area (m²)
-#   c  = damping coefficient (kg/(m·s))
-#   E  = Young's modulus (Pa)
-#   I  = second moment of area (m⁴)
-#   T  = axial tension (N)
-#   w  = transverse displacement (m)
-#   q  = distributed fluid load (N/m)
-#   f_active = active forcing (muscle activation) (N/m)
-#
-# Boundary conditions:
-#   - Clamped: w = 0, w' = 0
-#   - Free: w'' = 0, w''' = 0
-#   - Pinned: w = 0, w'' = 0
+# Each node has 2 DOFs: displacement w and rotation θ = dw/dx
+# Total system size: 2n DOFs for n nodes
 #
 # Time integration: Newmark-beta method (unconditionally stable)
 # =============================================================================
@@ -33,21 +21,16 @@ using SparseArrays
 Boundary condition types for the beam.
 """
 @enum BeamBoundaryCondition begin
-    CLAMPED    # w = 0, w' = 0 (fixed position and slope)
-    FREE       # w'' = 0, w''' = 0 (no moment, no shear)
-    PINNED     # w = 0, w'' = 0 (fixed position, free rotation)
-    PRESCRIBED # w = w_prescribed(t) (time-varying position)
+    CLAMPED    # w = 0, θ = 0 (fixed position and slope)
+    FREE       # M = 0, V = 0 (no moment, no shear)
+    PINNED     # w = 0, M = 0 (fixed position, free rotation)
+    PRESCRIBED # w = w_prescribed(t), θ = θ_prescribed(t)
 end
 
 """
     BeamMaterial
 
 Material properties for the beam.
-
-# Fields
-- `ρ`: Material density (kg/m³)
-- `E`: Young's modulus (Pa)
-- `ν_poisson`: Poisson's ratio (dimensionless)
 """
 struct BeamMaterial{T<:Real}
     ρ::T          # Density (kg/m³)
@@ -55,35 +38,27 @@ struct BeamMaterial{T<:Real}
     ν_poisson::T  # Poisson's ratio
 end
 
-# Default material: flexible silicone rubber
 BeamMaterial(; ρ=1100.0, E=1e6, ν_poisson=0.45) = BeamMaterial(ρ, E, ν_poisson)
 
 """
     BeamGeometry
 
-Geometric properties of the beam (can vary along length).
-
-# Fields
-- `L`: Total beam length (m)
-- `n`: Number of discretization points
-- `thickness`: Thickness function h(s) (m)
-- `width`: Width function b(s) (m)
+Geometric properties of the beam.
 """
 struct BeamGeometry{T<:Real, F1<:Function, F2<:Function}
     L::T              # Total length (m)
-    n::Int            # Number of points
+    n::Int            # Number of nodes
     thickness::F1     # h(s): thickness at position s
     width::F2         # b(s): width at position s
 end
 
-# Default: uniform rectangular cross-section
 function BeamGeometry(L::Real, n::Int; thickness=0.01, width=0.05)
     h_func = thickness isa Function ? thickness : (s -> thickness)
     b_func = width isa Function ? width : (s -> width)
     BeamGeometry(Float64(L), n, h_func, b_func)
 end
 
-# NACA-like fish profile: h(s) = h_max * 4 * (s/L) * (1 - s/L)
+# NACA-like fish profile
 function fish_thickness_profile(L::Real, h_max::Real)
     s -> h_max * 4 * clamp(s/L, 0, 1) * (1 - clamp(s/L, 0, 1))
 end
@@ -91,27 +66,8 @@ end
 """
     EulerBernoulliBeam{T}
 
-Euler-Bernoulli beam structure for FSI simulation.
-
-# Fields
-- `geometry`: Beam geometry (length, discretization, cross-section)
-- `material`: Material properties (density, Young's modulus)
-- `bc_left`: Left boundary condition
-- `bc_right`: Right boundary condition
-- `damping`: Damping coefficient c (kg/(m·s))
-- `tension`: Axial tension T (N)
-
-# State variables (at discretization points)
-- `w`: Transverse displacement (m)
-- `w_dot`: Velocity (m/s)
-- `w_ddot`: Acceleration (m/s²)
-- `q`: Fluid load (N/m)
-- `f_active`: Active forcing (N/m)
-
-# Precomputed matrices
-- `M`: Mass matrix
-- `C`: Damping matrix
-- `K`: Stiffness matrix (bending + tension)
+Euler-Bernoulli beam with full FEM discretization.
+Uses 2 DOFs per node: displacement w and rotation θ.
 """
 mutable struct EulerBernoulliBeam{T<:Real}
     # Geometry and material
@@ -123,58 +79,49 @@ mutable struct EulerBernoulliBeam{T<:Real}
     bc_right::BeamBoundaryCondition
 
     # Physical parameters
-    damping::T        # Damping coefficient c
-    tension::T        # Axial tension T
+    damping::T
+    tension::T
 
     # Discretization
-    s::Vector{T}      # Arc length coordinates
-    Δs::T             # Grid spacing
+    s::Vector{T}      # Node positions
+    Δs::T             # Element length
+    n_nodes::Int      # Number of nodes
+    n_dof::Int        # Total DOFs (2 * n_nodes)
 
-    # State variables
-    w::Vector{T}      # Displacement
-    w_dot::Vector{T}  # Velocity
-    w_ddot::Vector{T} # Acceleration
+    # State variables (size n_dof = 2*n_nodes)
+    # Ordering: [w₁, θ₁, w₂, θ₂, ..., wₙ, θₙ]
+    u::Vector{T}      # Displacement/rotation vector
+    u_dot::Vector{T}  # Velocity vector
+    u_ddot::Vector{T} # Acceleration vector
 
-    # External loads
-    q::Vector{T}      # Fluid pressure load
-    f_active::Vector{T}  # Active forcing (muscle)
+    # External loads (size n_nodes, applied as distributed load on w DOFs)
+    q::Vector{T}          # Fluid pressure load (N/m)
+    f_active::Vector{T}   # Active forcing (N/m)
 
-    # Precomputed properties at each point
+    # Cross-sectional properties at each node
     A::Vector{T}      # Cross-sectional area
     I::Vector{T}      # Second moment of area
-    m::Vector{T}      # Mass per unit length (ρA)
+    m::Vector{T}      # Mass per unit length
     EI::Vector{T}     # Bending stiffness
 
-    # System matrices (sparse)
-    M_mat::SparseMatrixCSC{T, Int}  # Mass matrix
-    C_mat::SparseMatrixCSC{T, Int}  # Damping matrix
-    K_mat::SparseMatrixCSC{T, Int}  # Stiffness matrix
+    # System matrices (sparse, size n_dof × n_dof)
+    M_mat::SparseMatrixCSC{T, Int}
+    C_mat::SparseMatrixCSC{T, Int}
+    K_mat::SparseMatrixCSC{T, Int}
 
-    # Newmark-beta parameters
+    # Constrained DOF mask
+    constrained::Vector{Bool}
+
+    # Newmark parameters
     β::T
     γ::T
-
-    # Time step
     Δt::T
 end
 
 """
     EulerBernoulliBeam(geometry, material; kwargs...)
 
-Create an Euler-Bernoulli beam for FSI simulation.
-
-# Arguments
-- `geometry`: BeamGeometry specifying length and cross-section
-- `material`: BeamMaterial specifying density and stiffness
-
-# Keyword Arguments
-- `bc_left`: Left boundary condition (default: CLAMPED)
-- `bc_right`: Right boundary condition (default: FREE)
-- `damping`: Damping coefficient (default: 0.0)
-- `tension`: Axial tension (default: 0.0)
-- `β`: Newmark-beta parameter (default: 0.25, unconditionally stable)
-- `γ`: Newmark-gamma parameter (default: 0.5, no numerical damping)
-- `Δt`: Time step (default: 1e-4)
+Create an Euler-Bernoulli beam with full FEM discretization.
 """
 function EulerBernoulliBeam(geometry::BeamGeometry{T}, material::BeamMaterial{T};
                             bc_left::BeamBoundaryCondition=CLAMPED,
@@ -188,18 +135,21 @@ function EulerBernoulliBeam(geometry::BeamGeometry{T}, material::BeamMaterial{T}
     n = geometry.n
     L = geometry.L
     Δs = L / (n - 1)
+    n_dof = 2 * n
 
-    # Arc length coordinates
+    # Node positions
     s = collect(range(0, L, length=n))
 
-    # Initialize state
-    w = zeros(T, n)
-    w_dot = zeros(T, n)
-    w_ddot = zeros(T, n)
+    # Initialize state vectors
+    u = zeros(T, n_dof)
+    u_dot = zeros(T, n_dof)
+    u_ddot = zeros(T, n_dof)
+
+    # External loads
     q = zeros(T, n)
     f_active = zeros(T, n)
 
-    # Compute cross-sectional properties at each point
+    # Compute cross-sectional properties
     A_vec = zeros(T, n)
     I_vec = zeros(T, n)
     m_vec = zeros(T, n)
@@ -208,190 +158,187 @@ function EulerBernoulliBeam(geometry::BeamGeometry{T}, material::BeamMaterial{T}
     for i in 1:n
         h = geometry.thickness(s[i])
         b = geometry.width(s[i])
-        A_vec[i] = h * b                    # Rectangular cross-section area
-        I_vec[i] = b * h^3 / 12             # Second moment of area
-        m_vec[i] = material.ρ * A_vec[i]    # Mass per unit length
-        EI_vec[i] = material.E * I_vec[i]   # Bending stiffness
+        A_vec[i] = h * b
+        I_vec[i] = b * h^3 / 12
+        m_vec[i] = material.ρ * A_vec[i]
+        EI_vec[i] = material.E * I_vec[i]
     end
 
     # Build system matrices
-    M_mat = build_mass_matrix(m_vec, Δs, n, bc_left, bc_right)
-    C_mat = build_damping_matrix(T(damping), Δs, n, bc_left, bc_right)
-    K_mat = build_stiffness_matrix(EI_vec, T(tension), Δs, n, bc_left, bc_right)
+    constrained = falses(n_dof)
+    M_mat, C_mat, K_mat = build_system_matrices(
+        m_vec, EI_vec, T(damping), T(tension), Δs, n,
+        bc_left, bc_right, constrained
+    )
 
     EulerBernoulliBeam{T}(
         geometry, material,
         bc_left, bc_right,
         T(damping), T(tension),
-        s, Δs,
-        w, w_dot, w_ddot,
+        s, Δs, n, n_dof,
+        u, u_dot, u_ddot,
         q, f_active,
         A_vec, I_vec, m_vec, EI_vec,
         M_mat, C_mat, K_mat,
+        constrained,
         T(β), T(γ), T(Δt)
     )
 end
 
 """
-    build_mass_matrix(m, Δs, n, bc_left, bc_right)
+    build_system_matrices(m, EI, damping, tension, h, n, bc_left, bc_right, constrained)
 
-Build the mass matrix M for the beam.
-Uses lumped mass approximation: M[i,i] = m[i] * Δs
+Build mass, damping, and stiffness matrices using Hermite FEM.
 """
-function build_mass_matrix(m::Vector{T}, Δs::T, n::Int,
-                           bc_left::BeamBoundaryCondition,
-                           bc_right::BeamBoundaryCondition) where T
-    # Lumped mass matrix (diagonal)
-    diag_vals = m .* Δs
+function build_system_matrices(m::Vector{T}, EI::Vector{T}, damping::T, tension::T,
+                                h::T, n::Int, bc_left::BeamBoundaryCondition,
+                                bc_right::BeamBoundaryCondition,
+                                constrained::Vector{Bool}) where T
 
-    # Adjust for boundary conditions
-    if bc_left == CLAMPED || bc_left == PINNED || bc_left == PRESCRIBED
-        diag_vals[1] = one(T)  # Will be constrained
-    end
-    if bc_right == CLAMPED || bc_right == PINNED || bc_right == PRESCRIBED
-        diag_vals[n] = one(T)  # Will be constrained
-    end
+    n_dof = 2 * n
+    h2 = h^2
+    h3 = h^3
 
-    return spdiagm(0 => diag_vals)
-end
+    # Initialize matrices
+    M = zeros(T, n_dof, n_dof)
+    C = zeros(T, n_dof, n_dof)
+    K = zeros(T, n_dof, n_dof)
 
-"""
-    build_damping_matrix(c, Δs, n, bc_left, bc_right)
+    # Assemble element matrices
+    for e in 1:n-1
+        # Node indices
+        i1, i2 = e, e + 1
 
-Build the damping matrix C for the beam.
-Uses proportional damping: C[i,i] = c * Δs
-"""
-function build_damping_matrix(c::T, Δs::T, n::Int,
-                              bc_left::BeamBoundaryCondition,
-                              bc_right::BeamBoundaryCondition) where T
-    diag_vals = fill(c * Δs, n)
+        # Average properties for element
+        m_e = (m[i1] + m[i2]) / 2
+        EI_e = (EI[i1] + EI[i2]) / 2
 
-    # Adjust for boundary conditions
-    if bc_left == CLAMPED || bc_left == PINNED || bc_left == PRESCRIBED
-        diag_vals[1] = zero(T)
-    end
-    if bc_right == CLAMPED || bc_right == PINNED || bc_right == PRESCRIBED
-        diag_vals[n] = zero(T)
-    end
+        # DOF indices: [w₁, θ₁, w₂, θ₂]
+        dofs = [2*i1-1, 2*i1, 2*i2-1, 2*i2]
 
-    return spdiagm(0 => diag_vals)
-end
+        # Element mass matrix (consistent mass, Hermite)
+        # M_e = (ρA*L/420) * [156,   22L,   54,  -13L;
+        #                      22L,  4L²,  13L,  -3L²;
+        #                      54,   13L,  156,  -22L;
+        #                     -13L, -3L², -22L,  4L²]
+        M_e = (m_e * h / 420) * [
+            156     22h     54     -13h  ;
+            22h     4h2     13h    -3h2  ;
+            54      13h     156    -22h  ;
+            -13h    -3h2    -22h   4h2
+        ]
 
-"""
-    build_stiffness_matrix(EI, T_tension, Δs, n, bc_left, bc_right)
+        # Element stiffness matrix (Hermite beam bending)
+        # K_e = (EI/L³) * [12,   6L,  -12,   6L;
+        #                   6L,  4L²,  -6L,  2L²;
+        #                  -12, -6L,   12,  -6L;
+        #                   6L,  2L², -6L,  4L²]
+        K_e = (EI_e / h3) * [
+            12    6h    -12   6h  ;
+            6h    4h2   -6h   2h2 ;
+            -12   -6h   12    -6h ;
+            6h    2h2   -6h   4h2
+        ]
 
-Build the stiffness matrix K for the beam using FEM bar elements.
-Uses a simple tridiagonal stiffness that is always symmetric and positive definite.
+        # Add tension stiffness (geometric stiffness)
+        # K_g = (T/L) * [1, 0, -1, 0; 0, 0, 0, 0; -1, 0, 1, 0; 0, 0, 0, 0]
+        # But for beam with rotations, use proper geometric stiffness:
+        # K_g = (T/(30L)) * [36,   3L,  -36,   3L;
+        #                     3L,  4L², -3L,  -L²;
+        #                    -36, -3L,   36,  -3L;
+        #                     3L,  -L², -3L,  4L²]
+        if abs(tension) > 1e-12
+            K_g = (tension / (30h)) * [
+                36    3h    -36   3h  ;
+                3h    4h2   -3h   -h2 ;
+                -36   -3h   36    -3h ;
+                3h    -h2   -3h   4h2
+            ]
+            K_e += K_g
+        end
 
-This is a simplified model that captures the essential bending behavior
-for FSI simulations where exact analytical accuracy is less critical than stability.
-"""
-function build_stiffness_matrix(EI::Vector{T}, tension::T, Δs::T, n::Int,
-                                bc_left::BeamBoundaryCondition,
-                                bc_right::BeamBoundaryCondition) where T
+        # Element damping matrix (proportional to mass for simplicity)
+        C_e = damping * M_e / m_e  # Rayleigh damping approximation
 
-    h = Δs
-
-    # Initialize matrix - use simple FEM assembly
-    K = zeros(T, n, n)
-
-    # Use a simple bending stiffness model based on second derivative
-    # K_bend = EI * d²/dx² discretized as symmetric 3-point stencil
-    # This is an approximation but is always stable
-
-    # For bending, use: EI * [1, -2, 1] / h² (second derivative discretization)
-    # Applied twice gives the 4th derivative, but we use this simpler form
-    for i in 2:n-1
-        EI_i = EI[i]
-        k = EI_i / h^2
-
-        K[i, i-1] += k
-        K[i, i]   += -2 * k
-        K[i, i+1] += k
-    end
-
-    # Add tension (also second derivative form)
-    for i in 2:n-1
-        t = tension / h^2
-        K[i, i-1] += -t
-        K[i, i]   += 2 * t
-        K[i, i+1] += -t
-    end
-
-    # Boundary conditions
-    if bc_left == CLAMPED || bc_left == PINNED || bc_left == PRESCRIBED
-        K[1, :] .= zero(T)
-        K[:, 1] .= zero(T)
-        K[1, 1] = one(T)
-    else  # FREE
-        EI_1 = EI[1]
-        k = EI_1 / h^2
-        K[1, 1] = -2 * k + 2 * tension / h^2
-        K[1, 2] = k - tension / h^2
-    end
-
-    if bc_right == CLAMPED || bc_right == PINNED || bc_right == PRESCRIBED
-        K[n, :] .= zero(T)
-        K[:, n] .= zero(T)
-        K[n, n] = one(T)
-    else  # FREE
-        EI_n = EI[n]
-        k = EI_n / h^2
-        K[n, n-1] = k - tension / h^2
-        K[n, n]   = -2 * k + 2 * tension / h^2
-    end
-
-    # Flip signs to make matrix positive definite
-    # The second derivative operator is negative definite, so we negate
-    for i in 1:n
-        for j in 1:n
-            if K[i, i] != one(T) && K[j, j] != one(T)
-                K[i, j] = -K[i, j]
+        # Assemble into global matrices
+        for ii in 1:4
+            for jj in 1:4
+                M[dofs[ii], dofs[jj]] += M_e[ii, jj]
+                C[dofs[ii], dofs[jj]] += C_e[ii, jj]
+                K[dofs[ii], dofs[jj]] += K_e[ii, jj]
             end
         end
     end
 
-    return sparse(K)
+    # Apply boundary conditions
+    apply_boundary_conditions!(M, C, K, n, bc_left, bc_right, constrained)
+
+    return sparse(M), sparse(C), sparse(K)
 end
 
 """
-    apply_stiffness_bc!(K, n, bc_left, bc_right)
+    apply_boundary_conditions!(M, C, K, n, bc_left, bc_right, constrained)
 
-Apply boundary conditions to the stiffness matrix.
+Apply boundary conditions by modifying system matrices.
+Uses penalty method for constrained DOFs.
 """
-function apply_stiffness_bc!(K::SparseMatrixCSC{T}, n::Int,
-                             bc_left::BeamBoundaryCondition,
-                             bc_right::BeamBoundaryCondition) where T
+function apply_boundary_conditions!(M::Matrix{T}, C::Matrix{T}, K::Matrix{T},
+                                     n::Int, bc_left::BeamBoundaryCondition,
+                                     bc_right::BeamBoundaryCondition,
+                                     constrained::Vector{Bool}) where T
+
+    penalty = maximum(abs.(K)) * 1e8
+
     # Left boundary
-    if bc_left == CLAMPED || bc_left == PINNED || bc_left == PRESCRIBED
-        # w[1] = 0: set row to identity
-        K[1, :] .= zero(T)
-        K[1, 1] = one(T)
+    if bc_left == CLAMPED || bc_left == PRESCRIBED
+        # Constrain both w and θ
+        constrained[1] = true  # w₁
+        constrained[2] = true  # θ₁
+    elseif bc_left == PINNED
+        # Constrain only w
+        constrained[1] = true  # w₁
     end
+    # FREE: no constraints
 
     # Right boundary
-    if bc_right == CLAMPED || bc_right == PINNED || bc_right == PRESCRIBED
-        K[n, :] .= zero(T)
-        K[n, n] = one(T)
+    n_dof = 2 * n
+    if bc_right == CLAMPED || bc_right == PRESCRIBED
+        constrained[n_dof-1] = true  # wₙ
+        constrained[n_dof] = true    # θₙ
+    elseif bc_right == PINNED
+        constrained[n_dof-1] = true  # wₙ
+    end
+    # FREE: no constraints
+
+    # Apply penalty to constrained DOFs
+    for i in 1:n_dof
+        if constrained[i]
+            # Zero out row and column
+            M[i, :] .= zero(T)
+            M[:, i] .= zero(T)
+            C[i, :] .= zero(T)
+            C[:, i] .= zero(T)
+            K[i, :] .= zero(T)
+            K[:, i] .= zero(T)
+
+            # Set diagonal
+            M[i, i] = one(T)
+            K[i, i] = penalty
+        end
     end
 end
 
 """
-    step!(beam::EulerBernoulliBeam, Δt=beam.Δt)
+    step!(beam::EulerBernoulliBeam, Δt)
 
 Advance the beam solution by one time step using Newmark-beta method.
-
-The Newmark-beta method updates displacement and velocity as:
-    w_{n+1} = w_n + Δt*ẇ_n + Δt²*[(1/2-β)*ẅ_n + β*ẅ_{n+1}]
-    ẇ_{n+1} = ẇ_n + Δt*[(1-γ)*ẅ_n + γ*ẅ_{n+1}]
-
-With β=0.25 and γ=0.5 (average acceleration), this is unconditionally stable.
 """
 function step!(beam::EulerBernoulliBeam{T}, Δt::T=beam.Δt) where T
     β, γ = beam.β, beam.γ
-    n = beam.geometry.n
+    n_dof = beam.n_dof
+    n = beam.n_nodes
 
-    # Compute effective stiffness matrix: K_eff = K + (γ/(βΔt))*C + (1/(βΔt²))*M
+    # Newmark coefficients
     a0 = one(T) / (β * Δt^2)
     a1 = γ / (β * Δt)
     a2 = one(T) / (β * Δt)
@@ -399,50 +346,150 @@ function step!(beam::EulerBernoulliBeam{T}, Δt::T=beam.Δt) where T
     a4 = γ / β - one(T)
     a5 = Δt * (γ / (2β) - one(T))
 
+    # Effective stiffness
     K_eff = beam.K_mat + a1 * beam.C_mat + a0 * beam.M_mat
 
-    # Compute effective force: F_eff = F + M*(a0*w + a2*ẇ + a3*ẅ) + C*(a1*w + a4*ẇ + a5*ẅ)
-    F = (beam.q + beam.f_active) .* beam.Δs
+    # Build force vector from distributed loads
+    F = zeros(T, n_dof)
+    h = beam.Δs
 
-    # Apply boundary conditions to force
-    apply_force_bc!(F, beam)
+    # Consistent load vector for distributed load q
+    # For each element, the consistent nodal forces from uniform load q are:
+    # F_e = (q*L/2) * [1, L/6, 1, -L/6] for [w₁, θ₁, w₂, θ₂]
+    for e in 1:n-1
+        i1, i2 = e, e + 1
+        q_e = (beam.q[i1] + beam.f_active[i1] + beam.q[i2] + beam.f_active[i2]) / 2
+        dofs = [2*i1-1, 2*i1, 2*i2-1, 2*i2]
 
-    F_eff = F + beam.M_mat * (a0 * beam.w + a2 * beam.w_dot + a3 * beam.w_ddot) +
-                beam.C_mat * (a1 * beam.w + a4 * beam.w_dot + a5 * beam.w_ddot)
+        # Consistent load vector for uniform distributed load
+        F[dofs[1]] += q_e * h / 2
+        F[dofs[2]] += q_e * h^2 / 12
+        F[dofs[3]] += q_e * h / 2
+        F[dofs[4]] += -q_e * h^2 / 12
+    end
+
+    # Zero force at constrained DOFs
+    for i in 1:n_dof
+        if beam.constrained[i]
+            F[i] = zero(T)
+        end
+    end
+
+    # Effective force
+    F_eff = F + beam.M_mat * (a0 * beam.u + a2 * beam.u_dot + a3 * beam.u_ddot) +
+                beam.C_mat * (a1 * beam.u + a4 * beam.u_dot + a5 * beam.u_ddot)
 
     # Solve for new displacement
-    w_new = K_eff \ F_eff
+    u_new = K_eff \ F_eff
 
     # Update acceleration and velocity
-    w_ddot_new = a0 * (w_new - beam.w) - a2 * beam.w_dot - a3 * beam.w_ddot
-    w_dot_new = beam.w_dot + Δt * ((one(T) - γ) * beam.w_ddot + γ * w_ddot_new)
+    u_ddot_new = a0 * (u_new - beam.u) - a2 * beam.u_dot - a3 * beam.u_ddot
+    u_dot_new = beam.u_dot + Δt * ((one(T) - γ) * beam.u_ddot + γ * u_ddot_new)
 
     # Store new values
-    beam.w .= w_new
-    beam.w_dot .= w_dot_new
-    beam.w_ddot .= w_ddot_new
+    beam.u .= u_new
+    beam.u_dot .= u_dot_new
+    beam.u_ddot .= u_ddot_new
 
     return beam
 end
 
 """
-    apply_force_bc!(F, beam)
+    reset!(beam::EulerBernoulliBeam)
 
-Apply boundary conditions to the force vector.
+Reset beam to initial state (zero displacement/velocity).
 """
-function apply_force_bc!(F::Vector{T}, beam::EulerBernoulliBeam{T}) where T
-    n = beam.geometry.n
+function reset!(beam::EulerBernoulliBeam{T}) where T
+    fill!(beam.u, zero(T))
+    fill!(beam.u_dot, zero(T))
+    fill!(beam.u_ddot, zero(T))
+    fill!(beam.q, zero(T))
+    fill!(beam.f_active, zero(T))
+    return beam
+end
 
-    # Left boundary
-    if beam.bc_left == CLAMPED || beam.bc_left == PINNED || beam.bc_left == PRESCRIBED
-        F[1] = zero(T)
-    end
+# =============================================================================
+# ACCESSOR FUNCTIONS - Extract w (displacement) from full state vector
+# =============================================================================
 
-    # Right boundary
-    if beam.bc_right == CLAMPED || beam.bc_right == PINNED || beam.bc_right == PRESCRIBED
-        F[n] = zero(T)
+"""
+    get_displacement(beam) -> Vector
+
+Get the displacement field w(s) at each node.
+"""
+function get_displacement(beam::EulerBernoulliBeam)
+    return beam.u[1:2:end]  # w values are at odd indices
+end
+
+# For compatibility, also expose as beam.w
+function Base.getproperty(beam::EulerBernoulliBeam, sym::Symbol)
+    if sym === :w
+        return beam.u[1:2:end]
+    elseif sym === :w_dot
+        return beam.u_dot[1:2:end]
+    elseif sym === :w_ddot
+        return beam.u_ddot[1:2:end]
+    elseif sym === :θ
+        return beam.u[2:2:end]
+    elseif sym === :θ_dot
+        return beam.u_dot[2:2:end]
+    else
+        return getfield(beam, sym)
     end
 end
+
+"""
+    get_velocity(beam) -> Vector
+
+Get the velocity field ∂w/∂t at each node.
+"""
+get_velocity(beam::EulerBernoulliBeam) = beam.u_dot[1:2:end]
+
+"""
+    get_rotation(beam) -> Vector
+
+Get the rotation field θ = ∂w/∂x at each node.
+"""
+get_rotation(beam::EulerBernoulliBeam) = beam.u[2:2:end]
+
+"""
+    get_curvature(beam) -> Vector
+
+Compute the curvature κ = ∂θ/∂x ≈ ∂²w/∂x² at each node.
+"""
+function get_curvature(beam::EulerBernoulliBeam{T}) where T
+    n = beam.n_nodes
+    θ = get_rotation(beam)
+    κ = zeros(T, n)
+    Δs = beam.Δs
+
+    # Central difference for interior
+    for i in 2:n-1
+        κ[i] = (θ[i+1] - θ[i-1]) / (2 * Δs)
+    end
+
+    # One-sided for boundaries
+    if n >= 2
+        κ[1] = (θ[2] - θ[1]) / Δs
+        κ[n] = (θ[n] - θ[n-1]) / Δs
+    end
+
+    return κ
+end
+
+"""
+    get_bending_moment(beam) -> Vector
+
+Compute the bending moment M = EI * κ at each node.
+"""
+function get_bending_moment(beam::EulerBernoulliBeam{T}) where T
+    κ = get_curvature(beam)
+    return beam.EI .* κ
+end
+
+# =============================================================================
+# LOAD APPLICATION
+# =============================================================================
 
 """
     set_fluid_load!(beam, q_func, t)
@@ -450,18 +497,13 @@ end
 Set the fluid load on the beam from a function q(s, t).
 """
 function set_fluid_load!(beam::EulerBernoulliBeam{T}, q_func::Function, t::Real) where T
-    for i in 1:beam.geometry.n
+    for i in 1:beam.n_nodes
         beam.q[i] = T(q_func(beam.s[i], t))
     end
 end
 
-"""
-    set_fluid_load!(beam, q_values)
-
-Set the fluid load on the beam from an array of values.
-"""
 function set_fluid_load!(beam::EulerBernoulliBeam{T}, q_values::AbstractVector) where T
-    @assert length(q_values) == beam.geometry.n
+    @assert length(q_values) == beam.n_nodes
     beam.q .= q_values
 end
 
@@ -469,121 +511,57 @@ end
     set_active_forcing!(beam, f_func, t)
 
 Set the active forcing (muscle activation) from a function f(s, t).
-
-# Example: Traveling wave muscle activation
-```julia
-f_active(s, t) = A_muscle * sin(k*s - ω*t) * envelope(s)
-set_active_forcing!(beam, f_active, t)
-```
 """
 function set_active_forcing!(beam::EulerBernoulliBeam{T}, f_func::Function, t::Real) where T
-    for i in 1:beam.geometry.n
+    for i in 1:beam.n_nodes
         beam.f_active[i] = T(f_func(beam.s[i], t))
     end
 end
 
-"""
-    set_active_forcing!(beam, f_values)
-
-Set the active forcing from an array of values.
-"""
 function set_active_forcing!(beam::EulerBernoulliBeam{T}, f_values::AbstractVector) where T
-    @assert length(f_values) == beam.geometry.n
+    @assert length(f_values) == beam.n_nodes
     beam.f_active .= f_values
 end
 
 """
-    get_displacement(beam)
+    get_fluid_load(beam) -> Vector
 
-Get the displacement field w(s).
+Get the current fluid load at each node.
 """
-get_displacement(beam::EulerBernoulliBeam) = beam.w
+get_fluid_load(beam::EulerBernoulliBeam) = beam.q
 
-"""
-    get_velocity(beam)
-
-Get the velocity field ∂w/∂t(s).
-"""
-get_velocity(beam::EulerBernoulliBeam) = beam.w_dot
+# =============================================================================
+# ENERGY FUNCTIONS
+# =============================================================================
 
 """
-    get_curvature(beam)
+    kinetic_energy(beam) -> Real
 
-Compute the curvature κ = ∂²w/∂s² at each point.
-"""
-function get_curvature(beam::EulerBernoulliBeam{T}) where T
-    n = beam.geometry.n
-    Δs = beam.Δs
-    κ = zeros(T, n)
-
-    # Central difference for interior points
-    for i in 2:n-1
-        κ[i] = (beam.w[i-1] - 2*beam.w[i] + beam.w[i+1]) / Δs^2
-    end
-
-    # One-sided for boundaries
-    if n >= 3
-        κ[1] = (beam.w[1] - 2*beam.w[2] + beam.w[3]) / Δs^2
-        κ[n] = (beam.w[n-2] - 2*beam.w[n-1] + beam.w[n]) / Δs^2
-    end
-
-    return κ
-end
-
-"""
-    get_bending_moment(beam)
-
-Compute the bending moment M = EI * κ at each point.
-"""
-function get_bending_moment(beam::EulerBernoulliBeam{T}) where T
-    κ = get_curvature(beam)
-    return beam.EI .* κ
-end
-
-"""
-    kinetic_energy(beam)
-
-Compute the kinetic energy of the beam: KE = ∫ (1/2) m ẇ² ds
+Compute the kinetic energy of the beam: KE = ½ u̇ᵀ M u̇
 """
 function kinetic_energy(beam::EulerBernoulliBeam{T}) where T
-    KE = zero(T)
-    for i in 1:beam.geometry.n
-        KE += 0.5 * beam.m[i] * beam.w_dot[i]^2 * beam.Δs
-    end
-    return KE
+    return T(0.5) * dot(beam.u_dot, beam.M_mat * beam.u_dot)
 end
 
 """
-    potential_energy(beam)
+    potential_energy(beam) -> Real
 
-Compute the potential (strain) energy of the beam: PE = ∫ (1/2) EI κ² ds
+Compute the potential (strain) energy of the beam: PE = ½ uᵀ K u
 """
 function potential_energy(beam::EulerBernoulliBeam{T}) where T
-    κ = get_curvature(beam)
-    PE = zero(T)
-    for i in 1:beam.geometry.n
-        PE += 0.5 * beam.EI[i] * κ[i]^2 * beam.Δs
-    end
-    return PE
+    return T(0.5) * dot(beam.u, beam.K_mat * beam.u)
 end
 
 """
-    total_energy(beam)
+    total_energy(beam) -> Real
 
-Compute the total mechanical energy of the beam.
+Compute the total mechanical energy: E = KE + PE
 """
 total_energy(beam::EulerBernoulliBeam) = kinetic_energy(beam) + potential_energy(beam)
 
-"""
-    reset!(beam)
-
-Reset the beam to its initial (undeformed) state.
-"""
-function reset!(beam::EulerBernoulliBeam{T}) where T
-    fill!(beam.w, zero(T))
-    fill!(beam.w_dot, zero(T))
-    fill!(beam.w_ddot, zero(T))
-    fill!(beam.q, zero(T))
-    fill!(beam.f_active, zero(T))
-    return beam
+# =============================================================================
+# Apply stiffness BC - dummy function for compatibility
+# =============================================================================
+function apply_stiffness_bc!(K, n, bc_left, bc_right)
+    # Not used in new implementation
 end
