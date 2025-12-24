@@ -193,7 +193,7 @@ Build mass, damping, and stiffness matrices using Hermite FEM.
 function build_system_matrices(m::Vector{T}, EI::Vector{T}, damping::T, tension::T,
                                 h::T, n::Int, bc_left::BeamBoundaryCondition,
                                 bc_right::BeamBoundaryCondition,
-                                constrained::Vector{Bool}) where T
+                                constrained::AbstractVector{Bool}) where T
 
     n_dof = 2 * n
     h2 = h^2
@@ -285,7 +285,7 @@ Uses penalty method for constrained DOFs.
 function apply_boundary_conditions!(M::Matrix{T}, C::Matrix{T}, K::Matrix{T},
                                      n::Int, bc_left::BeamBoundaryCondition,
                                      bc_right::BeamBoundaryCondition,
-                                     constrained::Vector{Bool}) where T
+                                     constrained::AbstractVector{Bool}) where T
 
     penalty = maximum(abs.(K)) * 1e8
 
