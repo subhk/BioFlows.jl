@@ -296,6 +296,12 @@ Configuration for adaptive mesh refinement.
 - `body_weight`: Weight for body proximity in combined indicator
 - `gradient_weight`: Weight for velocity gradient in combined indicator
 - `vorticity_weight`: Weight for vorticity in combined indicator
+
+## Flexible Body Support (for moving/deforming bodies)
+- `flexible_body`: Enable adaptive regridding for time-varying bodies
+- `indicator_change_threshold`: Regrid when indicator changes by this fraction (0-1)
+- `regrid_on_measure`: Always regrid after body remeasurement (most accurate but expensive)
+- `min_regrid_interval`: Minimum steps between regrids (prevents excessive regridding)
 """
 struct AMRConfig
     max_level::Int
@@ -307,12 +313,35 @@ struct AMRConfig
     body_weight::Float64
     gradient_weight::Float64
     vorticity_weight::Float64
+    # Flexible body support
+    flexible_body::Bool
+    indicator_change_threshold::Float64
+    regrid_on_measure::Bool
+    min_regrid_interval::Int
 end
 
 """
     AMRConfig(; max_level=2, body_distance_threshold=3.0, ...)
 
 Create an AMR configuration with keyword arguments.
+
+# Flexible Body Options
+For moving or deforming bodies (e.g., swimming fish), use these options:
+- `flexible_body=true`: Enable motion-adaptive regridding
+- `indicator_change_threshold=0.1`: Regrid when 10% of cells change refinement status
+- `regrid_on_measure=false`: Set `true` for fastest bodies (expensive but most accurate)
+- `min_regrid_interval=1`: Allow regridding every step if needed
+
+# Example for Swimming Fish
+```julia
+config = AMRConfig(
+    max_level=2,
+    body_distance_threshold=3.0,
+    flexible_body=true,
+    indicator_change_threshold=0.1,
+    min_regrid_interval=2
+)
+```
 """
 function AMRConfig(; max_level::Int=2,
                     body_distance_threshold::Real=3.0,
@@ -322,11 +351,18 @@ function AMRConfig(; max_level::Int=2,
                     buffer_size::Int=1,
                     body_weight::Real=0.5,
                     gradient_weight::Real=0.3,
-                    vorticity_weight::Real=0.2)
+                    vorticity_weight::Real=0.2,
+                    # Flexible body options
+                    flexible_body::Bool=false,
+                    indicator_change_threshold::Real=0.1,
+                    regrid_on_measure::Bool=false,
+                    min_regrid_interval::Int=1)
     AMRConfig(max_level, Float64(body_distance_threshold),
               Float64(velocity_gradient_threshold), Float64(vorticity_threshold),
               regrid_interval, buffer_size,
-              Float64(body_weight), Float64(gradient_weight), Float64(vorticity_weight))
+              Float64(body_weight), Float64(gradient_weight), Float64(vorticity_weight),
+              flexible_body, Float64(indicator_change_threshold),
+              regrid_on_measure, min_regrid_interval)
 end
 
 """
@@ -364,6 +400,8 @@ mutable struct AMRSimulation <: AbstractSimulation
     adapter::FlowToGridAdapter
     last_regrid_step::Int
     amr_active::Bool
+    # Flexible body tracking
+    last_body_indicator::Union{Nothing, AbstractArray}  # Previous body indicator for change detection
 end
 
 """
@@ -392,7 +430,8 @@ function AMRSimulation(dims::NTuple{N}, L::NTuple{N};
     # Create composite Poisson solver wrapping the base MultiLevelPoisson
     composite_pois = CompositePoisson(sim.pois; max_level=amr_config.max_level)
 
-    AMRSimulation(sim, amr_config, refined_grid, composite_pois, adapter, 0, true)
+    # Initialize with nothing for last_body_indicator (will be set on first regrid)
+    AMRSimulation(sim, amr_config, refined_grid, composite_pois, adapter, 0, true, nothing)
 end
 
 # Forward basic properties to underlying simulation
@@ -420,18 +459,59 @@ end
 
 Advance AMR simulation by one time step with automatic regridding.
 Uses CompositePoisson for pressure solve when AMR has refined patches.
+
+For flexible bodies (moving/deforming), the function:
+1. First remeasures the body position (if remeasure=true)
+2. Checks if regridding is needed based on:
+   - Fixed interval (regrid_interval)
+   - Body motion detection (if flexible_body=true)
+   - Always-regrid mode (if regrid_on_measure=true)
+3. Updates patch coefficients after body remeasurement
 """
 function sim_step!(amr::AMRSimulation; remeasure=true, λ=quick, udf=nothing, kwargs...)
     step_count = length(amr.sim.flow.Δt)
+    config = amr.config
+    steps_since_regrid = step_count - amr.last_regrid_step
 
-    # Check if regridding is needed
-    if amr.amr_active && (step_count - amr.last_regrid_step) >= amr.config.regrid_interval
+    # IMPORTANT: Remeasure body FIRST (before regridding check)
+    # This ensures the body position is current when computing refinement indicators
+    if remeasure
+        measure!(amr.sim)
+        # Update composite Poisson coefficients after body remeasurement
+        update!(amr.composite_pois)
+    end
+
+    # Determine if regridding is needed
+    need_regrid = false
+
+    if amr.amr_active
+        # Check minimum interval constraint
+        can_regrid = steps_since_regrid >= config.min_regrid_interval
+
+        if can_regrid
+            # Standard interval-based regridding
+            if steps_since_regrid >= config.regrid_interval
+                need_regrid = true
+            end
+
+            # Flexible body: motion-triggered regridding
+            if config.flexible_body && remeasure
+                if config.regrid_on_measure
+                    # Always regrid after remeasure (most accurate, most expensive)
+                    need_regrid = true
+                else
+                    # Check if body indicator has changed significantly
+                    need_regrid = need_regrid || should_regrid_for_body_motion(amr)
+                end
+            end
+        end
+    end
+
+    # Perform regridding if needed
+    if need_regrid
         amr_regrid!(amr)
         amr.last_regrid_step = step_count
     end
-
-    # Perform simulation step
-    remeasure && measure!(amr.sim)
 
     # Use AMR solver if patches exist, otherwise fall back to base solver
     if amr.amr_active && has_patches(amr.composite_pois)
@@ -439,6 +519,53 @@ function sim_step!(amr::AMRSimulation; remeasure=true, λ=quick, udf=nothing, kw
     else
         mom_step!(amr.sim.flow, amr.sim.pois; λ, udf, kwargs...)
     end
+end
+
+"""
+    should_regrid_for_body_motion(amr::AMRSimulation)
+
+Check if the body has moved enough to warrant regridding.
+Computes the current body proximity indicator and compares with the last one.
+Returns true if the fraction of changed cells exceeds the threshold.
+"""
+function should_regrid_for_body_motion(amr::AMRSimulation)
+    config = amr.config
+    flow = amr.sim.flow
+    body = amr.sim.body
+
+    # Compute current body indicator
+    current_indicator = compute_body_refinement_indicator(flow, body;
+        distance_threshold=config.body_distance_threshold,
+        t=time(amr.sim))
+
+    # If no previous indicator, store current and return false (first step)
+    if isnothing(amr.last_body_indicator)
+        amr.last_body_indicator = copy(current_indicator)
+        return false
+    end
+
+    # Compare indicators: count cells that changed refinement status
+    n_total = length(current_indicator)
+    n_changed = 0
+    for I in eachindex(current_indicator)
+        # A cell "changed" if it went from refined to unrefined or vice versa
+        was_refined = amr.last_body_indicator[I] > 0.5
+        is_refined = current_indicator[I] > 0.5
+        if was_refined != is_refined
+            n_changed += 1
+        end
+    end
+
+    # Compute change fraction
+    change_fraction = n_changed / n_total
+
+    # Update stored indicator if we'll regrid, or if change is significant
+    if change_fraction > config.indicator_change_threshold
+        amr.last_body_indicator = copy(current_indicator)
+        return true
+    end
+
+    return false
 end
 
 """
@@ -460,12 +587,21 @@ end
 
 Perform AMR regridding based on current flow state and body position.
 Updates both the RefinedGrid cell tracking and creates PatchPoisson solvers.
+
+For flexible bodies, this function is called:
+- At regular intervals (regrid_interval)
+- When body motion is detected (if flexible_body=true)
+- After every remeasure (if regrid_on_measure=true)
 """
 function amr_regrid!(amr::AMRSimulation)
     flow = amr.sim.flow
     body = amr.sim.body
     config = amr.config
     t = time(amr.sim)
+
+    # Compute body indicator first (needed for flexible body tracking)
+    body_indicator = compute_body_refinement_indicator(flow, body;
+        distance_threshold=config.body_distance_threshold, t=t)
 
     # Compute combined refinement indicator
     indicator = compute_combined_indicator(flow, body;
@@ -495,6 +631,11 @@ function amr_regrid!(amr::AMRSimulation)
     # Synchronize solution data between base and patches
     if has_patches(amr.composite_pois)
         synchronize_base_and_patches!(flow, amr.composite_pois)
+    end
+
+    # Update last_body_indicator for flexible body tracking
+    if config.flexible_body
+        amr.last_body_indicator = copy(body_indicator)
     end
 
     return amr
@@ -569,14 +710,152 @@ Print detailed AMR status information.
 function amr_info(amr::AMRSimulation)
     println("AMR Status:")
     println("  Active: ", amr.amr_active)
+    println("  Flexible body: ", amr.config.flexible_body)
     println("  Refined cells: ", num_refined_cells(amr.refined_grid))
     println("  Number of patches: ", num_patches(amr.composite_pois))
+    println("  Steps since last regrid: ", length(amr.sim.flow.Δt) - amr.last_regrid_step)
     if has_patches(amr.composite_pois)
         for (anchor, patch) in amr.composite_pois.patches
             println("    Patch at ", anchor, ": level=", patch.level,
                     ", fine dims=", patch.fine_dims)
         end
     end
+end
+
+# =============================================================================
+# FLEXIBLE BODY AMR HELPER FUNCTIONS
+# =============================================================================
+
+"""
+    FlexibleBodyAMRConfig(; kwargs...)
+
+Convenience constructor for AMRConfig optimized for flexible/deforming bodies
+such as swimming fish.
+
+# Default Settings
+- `flexible_body=true`: Enable motion-adaptive regridding
+- `indicator_change_threshold=0.05`: 5% cell change triggers regrid
+- `min_regrid_interval=2`: Allow regridding every 2 steps
+- `regrid_interval=5`: Check regridding at least every 5 steps
+- `body_distance_threshold=4.0`: Larger refinement region for moving bodies
+
+# Example
+```julia
+config = FlexibleBodyAMRConfig(max_level=2)
+sim = AMRSimulation((256, 128), (1.0, 0.5); body=fish, amr_config=config)
+for _ in 1:1000
+    sim_step!(sim; remeasure=true)  # Patches follow the fish automatically
+end
+```
+"""
+function FlexibleBodyAMRConfig(; max_level::Int=2,
+                                 body_distance_threshold::Real=4.0,
+                                 velocity_gradient_threshold::Real=1.0,
+                                 vorticity_threshold::Real=1.0,
+                                 regrid_interval::Int=5,
+                                 buffer_size::Int=2,
+                                 body_weight::Real=0.6,
+                                 gradient_weight::Real=0.2,
+                                 vorticity_weight::Real=0.2,
+                                 indicator_change_threshold::Real=0.05,
+                                 regrid_on_measure::Bool=false,
+                                 min_regrid_interval::Int=2)
+    AMRConfig(;
+        max_level=max_level,
+        body_distance_threshold=body_distance_threshold,
+        velocity_gradient_threshold=velocity_gradient_threshold,
+        vorticity_threshold=vorticity_threshold,
+        regrid_interval=regrid_interval,
+        buffer_size=buffer_size,
+        body_weight=body_weight,
+        gradient_weight=gradient_weight,
+        vorticity_weight=vorticity_weight,
+        flexible_body=true,
+        indicator_change_threshold=indicator_change_threshold,
+        regrid_on_measure=regrid_on_measure,
+        min_regrid_interval=min_regrid_interval
+    )
+end
+
+"""
+    force_regrid!(amr::AMRSimulation)
+
+Force an immediate regridding operation, regardless of step count or motion detection.
+Useful when you've made significant changes to the body or flow field.
+"""
+function force_regrid!(amr::AMRSimulation)
+    amr_regrid!(amr)
+    amr.last_regrid_step = length(amr.sim.flow.Δt)
+    return amr
+end
+
+"""
+    reset_body_tracking!(amr::AMRSimulation)
+
+Reset the body indicator tracking for flexible bodies.
+Call this after making sudden changes to the body position/shape.
+"""
+function reset_body_tracking!(amr::AMRSimulation)
+    amr.last_body_indicator = nothing
+    return amr
+end
+
+"""
+    get_body_motion_stats(amr::AMRSimulation)
+
+Get statistics about body motion for debugging and tuning.
+
+# Returns
+NamedTuple with:
+- `n_refined_cells`: Number of currently refined cells
+- `indicator_stored`: Whether body indicator is being tracked
+- `steps_since_regrid`: Steps since last regridding
+- `n_patches`: Number of active patches
+"""
+function get_body_motion_stats(amr::AMRSimulation)
+    (
+        n_refined_cells = num_refined_cells(amr.refined_grid),
+        indicator_stored = !isnothing(amr.last_body_indicator),
+        steps_since_regrid = length(amr.sim.flow.Δt) - amr.last_regrid_step,
+        n_patches = num_patches(amr.composite_pois),
+        flexible_body_enabled = amr.config.flexible_body
+    )
+end
+
+"""
+    estimate_body_displacement(amr::AMRSimulation)
+
+Estimate how much the body has moved since the last regridding.
+Useful for tuning `indicator_change_threshold`.
+
+Returns the fraction of cells that have changed refinement status.
+"""
+function estimate_body_displacement(amr::AMRSimulation)
+    if !amr.config.flexible_body || isnothing(amr.last_body_indicator)
+        return 0.0
+    end
+
+    flow = amr.sim.flow
+    body = amr.sim.body
+    config = amr.config
+
+    # Compute current body indicator
+    current_indicator = compute_body_refinement_indicator(flow, body;
+        distance_threshold=config.body_distance_threshold,
+        t=time(amr.sim))
+
+    # Count changed cells
+    n_total = length(current_indicator)
+    n_changed = 0
+    for I in eachindex(current_indicator)
+        was_refined = amr.last_body_indicator[I] > 0.5
+        is_refined = current_indicator[I] > 0.5
+        if was_refined != is_refined
+            n_changed += 1
+        end
+    end
+
+    return n_changed / n_total
 end
 
 """
@@ -589,6 +868,9 @@ check_divergence(amr::AMRSimulation; verbose::Bool=false) =
 
 export AMRConfig, AMRSimulation, amr_regrid!, set_amr_active!, get_refinement_indicator
 export amr_info, check_divergence
+# Flexible body AMR exports
+export FlexibleBodyAMRConfig, force_regrid!, reset_body_tracking!
+export get_body_motion_stats, estimate_body_displacement, should_regrid_for_body_motion
 
 # defaults JLD2 and VTK I/O functions
 function load!(sim::AbstractSimulation; kwargs...)
