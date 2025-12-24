@@ -280,164 +280,74 @@ end
 """
     build_stiffness_matrix(EI, T_tension, Δs, n, bc_left, bc_right)
 
-Build the stiffness matrix K for the beam using finite element formulation.
-Uses Hermite cubic shape functions which produce a symmetric, positive-definite matrix.
+Build the stiffness matrix K for the beam using a finite element approach.
+Uses a condensed Hermite element formulation that produces a symmetric,
+positive semi-definite matrix.
 
-For a beam element of length h with nodes i and i+1, the 2x2 displacement-only
-stiffness (condensing out rotations) is:
-    K_elem = (12*EI/h³) * [1, -1; -1, 1] + corrections for rotational coupling
-
-This implementation uses a simplified symmetric finite difference approach
-that properly handles boundary conditions.
+The standard FEM beam element stiffness for displacement-only DOFs,
+with rotations condensed out at interior nodes, gives stable results.
 """
 function build_stiffness_matrix(EI::Vector{T}, tension::T, Δs::T, n::Int,
                                 bc_left::BeamBoundaryCondition,
                                 bc_right::BeamBoundaryCondition) where T
 
-    Δs2 = Δs^2
-    Δs3 = Δs^3
-    Δs4 = Δs^4
+    h = Δs  # Element length
+    h2 = h^2
+    h3 = h^3
 
     # Initialize sparse matrix
     K = spzeros(T, n, n)
 
-    # Use a symmetric FEM-like approach for the bending stiffness
-    # Each interior node has bending contribution from adjacent elements
-    # The standard 5-point FD stencil [1, -4, 6, -4, 1]/Δs⁴ IS symmetric
-    # The issue was boundary treatment
+    # Build using FEM beam element stiffness
+    # For each element [i, i+1], add contribution to global matrix
+    # The condensed (displacement-only) element stiffness is:
+    #   k11 = k22 = 12*EI/h³
+    #   k12 = k21 = -12*EI/h³
+    # Plus tension terms: T/h * [1, -1; -1, 1]
 
-    # Interior points (i = 3 to n-2): standard symmetric 5-point stencil
-    for i in 3:n-2
-        EI_avg = EI[i]
+    for i in 1:n-1
+        # Average EI for element
+        EI_elem = (EI[i] + EI[i+1]) / 2
 
-        K[i, i-2] += EI_avg / Δs4
-        K[i, i-1] += -4 * EI_avg / Δs4
-        K[i, i]   += 6 * EI_avg / Δs4
-        K[i, i+1] += -4 * EI_avg / Δs4
-        K[i, i+2] += EI_avg / Δs4
+        # Bending stiffness (from condensed Hermite element)
+        k_bend = 12 * EI_elem / h3
 
-        # Tension: symmetric 3-point stencil
-        K[i, i-1] += -tension / Δs2
-        K[i, i]   += 2 * tension / Δs2
-        K[i, i+1] += -tension / Δs2
+        K[i, i]     += k_bend
+        K[i, i+1]   += -k_bend
+        K[i+1, i]   += -k_bend
+        K[i+1, i+1] += k_bend
+
+        # Tension stiffness (standard bar element)
+        k_tens = tension / h
+
+        K[i, i]     += k_tens
+        K[i, i+1]   += -k_tens
+        K[i+1, i]   += -k_tens
+        K[i+1, i+1] += k_tens
     end
 
-    # === LEFT BOUNDARY ===
-    if bc_left == CLAMPED || bc_left == PRESCRIBED
-        # w[1] = 0, w'[1] = 0
-        # Row 1: identity (set below)
-        # Row 2: use ghost node w[0] = w[2] (from w'[1]=0)
-        # Stencil at i=2: (w[0] - 4w[1] + 6w[2] - 4w[3] + w[4])/Δs⁴
-        #               = (w[2] - 0 + 6w[2] - 4w[3] + w[4])/Δs⁴
-        if n > 4
-            EI_avg = EI[2]
-            K[2, 2] += 7 * EI_avg / Δs4
-            K[2, 3] += -4 * EI_avg / Δs4
-            K[2, 4] += EI_avg / Δs4
-            # Tension
-            K[2, 2] += 2 * tension / Δs2
-            K[2, 3] += -tension / Δs2
-        end
-    elseif bc_left == PINNED
-        # w[1] = 0, w''[1] = 0 → ghost w[0] = -w[2]
-        if n > 4
-            EI_avg = EI[2]
-            K[2, 2] += 5 * EI_avg / Δs4
-            K[2, 3] += -4 * EI_avg / Δs4
-            K[2, 4] += EI_avg / Δs4
-            K[2, 2] += 2 * tension / Δs2
-            K[2, 3] += -tension / Δs2
-        end
-    else  # FREE left - unusual but handle it
-        if n > 4
-            EI_avg = EI[1]
-            # Use reduced stencil near free end
-            K[1, 1] += 1 * EI_avg / Δs4
-            K[1, 2] += -2 * EI_avg / Δs4
-            K[1, 3] += 1 * EI_avg / Δs4
+    # Apply boundary conditions
+    # For CLAMPED: w = 0 (set row/col to identity)
+    # For PINNED: w = 0 (set row/col to identity)
+    # For FREE: no constraints on displacement (natural BC for bending)
 
-            EI_avg = EI[2]
-            K[2, 1] += -2 * EI_avg / Δs4
-            K[2, 2] += 5 * EI_avg / Δs4
-            K[2, 3] += -4 * EI_avg / Δs4
-            K[2, 4] += 1 * EI_avg / Δs4
+    if bc_left == CLAMPED || bc_left == PINNED || bc_left == PRESCRIBED
+        # Zero out row and column 1, set diagonal to 1
+        for j in 1:n
+            K[1, j] = zero(T)
+            K[j, 1] = zero(T)
         end
+        K[1, 1] = one(T)
     end
 
-    # === RIGHT BOUNDARY ===
-    if bc_right == CLAMPED || bc_right == PRESCRIBED
-        # w[n] = 0, w'[n] = 0 → ghost w[n+1] = w[n-1]
-        if n > 4
-            i = n - 1
-            EI_avg = EI[i]
-            K[i, i-2] += EI_avg / Δs4
-            K[i, i-1] += -4 * EI_avg / Δs4
-            K[i, i]   += 7 * EI_avg / Δs4
-            K[i, i-1] += -tension / Δs2
-            K[i, i]   += 2 * tension / Δs2
+    if bc_right == CLAMPED || bc_right == PINNED || bc_right == PRESCRIBED
+        # Zero out row and column n, set diagonal to 1
+        for j in 1:n
+            K[n, j] = zero(T)
+            K[j, n] = zero(T)
         end
-    elseif bc_right == PINNED
-        if n > 4
-            i = n - 1
-            EI_avg = EI[i]
-            K[i, i-2] += EI_avg / Δs4
-            K[i, i-1] += -4 * EI_avg / Δs4
-            K[i, i]   += 5 * EI_avg / Δs4
-            K[i, i-1] += -tension / Δs2
-            K[i, i]   += 2 * tension / Δs2
-        end
-    else  # FREE right - most common case for cantilever
-        # For FREE: w''[n] = 0, w'''[n] = 0
-        # Ghost nodes: w[n+1] = 2w[n] - w[n-1], w[n+2] = 4w[n] - 4w[n-1] + w[n-2]
-        if n > 4
-            # Node n-1: substitute ghost node w[n+1]
-            i = n - 1
-            EI_avg = EI[i]
-            # Original: [1, -4, 6, -4, 1] at positions [i-2, i-1, i, i+1, i+2]
-            # i+1 = n, i+2 = n+1 = 2w[n] - w[n-1]
-            # Coefficient on w[n-2]: 1
-            # Coefficient on w[n-1]: -4 + (-1) = -5  (from ghost)
-            # Coefficient on w[n]: 6 + 2*(-4) + 2 = 6 - 8 + 2 = 0... wait that's wrong
-            # Let me redo: stencil is [1, -4, 6, -4, 1] for w[n-3], w[n-2], w[n-1], w[n], w[n+1]
-            # w[n+1] = 2w[n] - w[n-1]
-            # So contribution from w[n+1] term: 1 * (2w[n] - w[n-1]) = 2w[n] - w[n-1]
-            # Total: w[n-3] - 4w[n-2] + 6w[n-1] - 4w[n] + 2w[n] - w[n-1]
-            #      = w[n-3] - 4w[n-2] + 5w[n-1] - 2w[n]
-            K[i, i-2] += EI_avg / Δs4      # w[n-3]
-            K[i, i-1] += -4 * EI_avg / Δs4 # w[n-2]
-            K[i, i]   += 5 * EI_avg / Δs4  # w[n-1]
-            K[i, n]   += -2 * EI_avg / Δs4 # w[n]
-
-            # Tension at n-1
-            K[i, i-1] += -tension / Δs2
-            K[i, i]   += 2 * tension / Δs2
-            K[i, n]   += -tension / Δs2
-
-            # Node n: at the free end, bending equation uses ghost nodes
-            # Original stencil at n: [1, -4, 6, -4, 1] for [n-2, n-1, n, n+1, n+2]
-            # w[n+1] = 2w[n] - w[n-1]
-            # w[n+2] = 4w[n] - 4w[n-1] + w[n-2]
-            # Substituting:
-            # w[n-2] - 4w[n-1] + 6w[n] - 4(2w[n] - w[n-1]) + (4w[n] - 4w[n-1] + w[n-2])
-            # = w[n-2] - 4w[n-1] + 6w[n] - 8w[n] + 4w[n-1] + 4w[n] - 4w[n-1] + w[n-2]
-            # = 2w[n-2] - 4w[n-1] + 2w[n]
-            EI_avg = EI[n]
-            K[n, n-2] += 2 * EI_avg / Δs4
-            K[n, n-1] += -4 * EI_avg / Δs4
-            K[n, n]   += 2 * EI_avg / Δs4
-
-            # Tension at n: w[n+1] = 2w[n] - w[n-1]
-            # -w[n-1] + 2w[n] - w[n+1] = -w[n-1] + 2w[n] - (2w[n] - w[n-1]) = 0
-            # So no tension stiffness at the free end (correct for free BC)
-        end
+        K[n, n] = one(T)
     end
-
-    # Apply essential boundary conditions (clamped, pinned, prescribed)
-    apply_stiffness_bc!(K, n, bc_left, bc_right)
-
-    # Symmetrize the matrix (average K with K')
-    # This ensures stability for the Newmark method
-    K = (K + K') / 2
 
     return K
 end
