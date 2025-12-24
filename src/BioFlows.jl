@@ -983,7 +983,7 @@ export traveling_wave_forcing, heave_pitch_forcing
 export get_beam, get_displacement, get_velocity, get_curvature
 export get_bending_moment, kinetic_energy, potential_energy, total_energy
 export set_fluid_load!, set_active_forcing!, get_fluid_load, reset!, step!
-export BeamStateWriter, BeamStateWriterGroup
+export BeamStateWriter, BeamStateWriterGroup, close!
 
 # defaults JLD2 and VTK I/O functions
 function load!(sim::AbstractSimulation; kwargs...)
