@@ -182,18 +182,26 @@ S(I::CartesianIndex{3},u) = @SMatrix [0.5*(∂(i,j,I,u)+∂(j,i,I,u)) for i ∈ 
    viscous_force(sim::Simulation)
 
 Compute the viscous force on an immersed body.
-Returns force in Newtons as a vector [Fx, Fz] in 2D or [Fx, Fy, Fz] in 3D.
+Integrates viscous stress times surface normal over the body:
+    F = -∮ τ·n̂ ds = -∮ 2μS·n̂ ds
 
-The viscous stress τ = 2μS = 2ρνS, so force F = -τ·n̂·dA.
+Returns force in Newtons per unit span (N/m) for 2D, or Newtons (N) for 3D.
+The viscous stress τ = 2μS = 2ρνS where μ = ρν is dynamic viscosity (Pa·s).
+
+For 2D: The line integral requires arc length element ds = Δx.
+For 3D: The surface integral requires area element dA = Δx² (isotropic grid).
 """
 viscous_force(sim) = viscous_force(sim.flow,sim.body)
-viscous_force(flow,body) = viscous_force(flow.u,flow.ν,flow.ρ,flow.f,body,time(flow))
-function viscous_force(u,ν,ρ,df,body,t=0)
+viscous_force(flow,body) = viscous_force(flow.u,flow.ν,flow.ρ,flow.Δx,flow.f,body,time(flow))
+function viscous_force(u,ν,ρ,Δx,df,body,t=0)
+    D = ndims(u) - 1  # Spatial dimensions (u has extra dimension for components)
     Tu = eltype(u); To = promote_type(Float64,Tu)
     μ = ρ * ν  # dynamic viscosity (Pa·s)
     df .= zero(Tu)
-    @loop df[I,:] .= -2μ*S(I,u)*nds(body,loc(0,I,Tu),t) over I ∈ inside_u(u)
-    sum(To,df,dims=ntuple(i->i,ndims(u)-1))[:] |> Array
+    # Arc length element (2D) or area element (3D): Δx^(D-1)
+    ds = prod(Δx)^((D-1)/D)  # Δx for 2D, Δx² for 3D (assuming isotropic)
+    @loop df[I,:] .= -2μ*S(I,u)*nds(body,loc(0,I,Tu),t)*ds over I ∈ inside_u(u)
+    sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
 
 """
@@ -208,14 +216,20 @@ using LinearAlgebra: cross
     pressure_moment(x₀,sim::Simulation)
 
 Computes the pressure moment on an immersed body relative to point x₀.
+Integrates: M = ∮ (r - x₀) × (p n̂) ds
+
+Returns moment in N·m/m (2D) or N·m (3D).
 """
 pressure_moment(x₀,sim) = pressure_moment(x₀,sim.flow,sim.body)
-pressure_moment(x₀,flow,body) = pressure_moment(x₀,flow.p,flow.f,body,time(flow))
-function pressure_moment(x₀,p,df,body,t=0)
+pressure_moment(x₀,flow,body) = pressure_moment(x₀,flow.p,flow.Δx,flow.f,body,time(flow))
+function pressure_moment(x₀,p,Δx,df,body,t=0)
+    D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
-    @loop df[I,:] .= p[I]*cross(loc(0,I,Tp)-x₀,nds(body,loc(0,I,Tp),t)) over I ∈ inside(p)
-    sum(To,df,dims=ntuple(i->i,ndims(p)))[:] |> Array
+    # Arc length element (2D) or area element (3D)
+    ds = prod(Δx)^((D-1)/D)
+    @loop df[I,:] .= p[I]*cross(loc(0,I,Tp)-x₀,nds(body,loc(0,I,Tp),t))*ds over I ∈ inside(p)
+    sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
 
 # =============================================================================
