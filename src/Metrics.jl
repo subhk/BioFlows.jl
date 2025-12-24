@@ -148,20 +148,27 @@ end
     pressure_force(sim::Simulation)
 
 Compute the pressure force on an immersed body.
-Integrates pressure times surface normal over the body using BDIM weighting.
-Returns force in Newtons as a vector [Fx, Fz] in 2D or [Fx, Fy, Fz] in 3D.
+Integrates pressure times surface normal over the body using BDIM weighting:
+    F = ∮ p n̂ ds
 
-The pressure field `p` is in Pa (kg/(m·s²)), so the result is in N.
+Returns force in Newtons per unit span (N/m) for 2D, or Newtons (N) for 3D.
+The pressure field `p` is in Pa (kg/(m·s²)).
+
+For 2D: The line integral requires arc length element ds = Δx.
+For 3D: The surface integral requires area element dA = Δx² (isotropic grid).
 """
 pressure_force(sim) = pressure_force(sim.flow,sim.body)
-pressure_force(flow,body) = pressure_force(flow.p,flow.f,body,time(flow))
-function pressure_force(p,df,body,t=0)
+pressure_force(flow,body) = pressure_force(flow.p,flow.Δx,flow.f,body,time(flow))
+function pressure_force(p,Δx,df,body,t=0)
+    D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
-    # Compute contribution at each cell: F = Σ p * n̂ * dA (p in Pa, F in N)
-    @loop df[I,:] .= p[I]*nds(body,loc(0,I,Tp),t) over I ∈ inside(p)
+    # Arc length element (2D) or area element (3D): Δx^(D-1)
+    ds = prod(Δx)^((D-1)/D)  # Δx for 2D, Δx² for 3D (assuming isotropic)
+    # Compute contribution at each cell: F = Σ p * n̂ * ds
+    @loop df[I,:] .= p[I]*nds(body,loc(0,I,Tp),t)*ds over I ∈ inside(p)
     # Sum over all spatial dimensions to get total force vector
-    sum(To,df,dims=ntuple(i->i,ndims(p)))[:] |> Array
+    sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
 
 """
