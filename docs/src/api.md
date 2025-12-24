@@ -56,6 +56,52 @@ See [Adaptive Mesh Refinement](@ref) for details.
 | `amr_cfl(flow, cp)` | Compute CFL considering refined patches |
 | `synchronize_base_and_patches!(flow, cp)` | Sync data between base and patches |
 
+## Fluid-Structure Interaction (FSI)
+
+See [Numerical Methods](@ref) for details.
+
+### FSI Types
+
+| Type | Description |
+|------|-------------|
+| `BeamMaterial` | Material properties (ρ, E, ν) |
+| `BeamGeometry` | Beam geometry (L, n, thickness, width) |
+| `EulerBernoulliBeam` | Hermite FEM beam solver |
+| `BeamBoundaryCondition` | Boundary condition enum |
+
+### Boundary Conditions
+
+| Constant | Description |
+|----------|-------------|
+| `CLAMPED` | Fixed position and slope (w=0, θ=0) |
+| `FREE` | No constraints |
+| `PINNED` | Fixed position only (w=0) |
+| `PRESCRIBED` | Time-varying position |
+
+### Beam Functions
+
+| Function | Description |
+|----------|-------------|
+| `step!(beam, dt)` | Advance beam by one time step |
+| `reset!(beam)` | Reset beam to zero state |
+| `kinetic_energy(beam)` | Compute kinetic energy |
+| `potential_energy(beam)` | Compute potential energy |
+| `total_energy(beam)` | Compute total mechanical energy |
+| `get_curvature(beam)` | Get curvature field κ(s) |
+| `get_bending_moment(beam)` | Get bending moment M(s) |
+| `get_displacement(beam)` | Get displacement field w(s) |
+| `get_velocity(beam)` | Get velocity field ∂w/∂t |
+| `get_rotation(beam)` | Get rotation field θ(s) |
+| `set_active_forcing!(beam, f, t)` | Apply active muscle forcing |
+
+### Forcing Functions
+
+| Function | Description |
+|----------|-------------|
+| `traveling_wave_forcing(; kwargs...)` | Create traveling wave muscle activation |
+| `heave_pitch_forcing(; kwargs...)` | Create heave/pitch leading-edge motion |
+| `fish_thickness_profile(L, h_max)` | NACA-like fish body thickness |
+
 ## Force Diagnostics
 
 See [Diagnostics](@ref) for details.
@@ -140,4 +186,11 @@ L₂, BC!, @inside, inside, δ, apply!, loc, @log, set_backend, backend
 
 # Statistics
 MeanFlow, update!, uu!, uu
+
+# FSI (Fluid-Structure Interaction)
+BeamMaterial, BeamGeometry, EulerBernoulliBeam, BeamBoundaryCondition
+CLAMPED, FREE, PINNED, PRESCRIBED
+step!, reset!, kinetic_energy, potential_energy, total_energy
+get_curvature, get_bending_moment, get_displacement, get_velocity, get_rotation
+set_active_forcing!, traveling_wave_forcing, heave_pitch_forcing, fish_thickness_profile
 ```
