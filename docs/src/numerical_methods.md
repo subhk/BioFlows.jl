@@ -1081,6 +1081,204 @@ for step in 1:1000
 end
 ```
 
+### Beam State Output
+
+BioFlows provides `BeamStateWriter` for saving flexible body positions to JLD2 files with configurable save rates. Each beam/flag can have its own separate output file.
+
+#### BeamStateWriter
+
+The `BeamStateWriter` records beam state at specified time intervals:
+
+```julia
+BeamStateWriter(filename::String; interval::Real=0.01, overwrite::Bool=true)
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `filename` | Output JLD2 file path | Required |
+| `interval` | Time interval between saves | 0.01 |
+| `overwrite` | Overwrite existing file | true |
+
+**Saved Data:**
+
+| Field | Description | Shape |
+|-------|-------------|-------|
+| `displacement` | Transverse displacement $w(s)$ | $(n, n_{snap})$ |
+| `rotation` | Rotation angle $\theta(s) = \partial w/\partial s$ | $(n, n_{snap})$ |
+| `velocity` | Velocity $\dot{w}(s)$ | $(n, n_{snap})$ |
+| `curvature` | Curvature $\kappa(s) = \partial\theta/\partial s$ | $(n, n_{snap})$ |
+| `moment` | Bending moment $M(s) = EI\kappa$ | $(n, n_{snap})$ |
+| `kinetic_energy` | Kinetic energy time series | $(n_{snap},)$ |
+| `potential_energy` | Potential energy time series | $(n_{snap},)$ |
+
+#### Single Beam Output
+
+```julia
+using BioFlows
+
+# Create beam
+material = BeamMaterial(ρ=1100.0, E=1e6)
+geometry = BeamGeometry(0.2, 51; thickness=0.01, width=0.05)
+beam = EulerBernoulliBeam(geometry, material;
+                          bc_left=CLAMPED, bc_right=FREE)
+
+# Create writer with 0.01 time unit interval
+writer = BeamStateWriter("flag_simulation.jld2"; interval=0.01)
+
+# Simulation loop
+dt = 1e-4
+for step in 1:10000
+    t = step * dt
+    fill!(beam.q, 50.0)  # Apply load
+    step!(beam, dt)
+    file_save!(writer, beam, t)
+end
+
+# IMPORTANT: Must close writer to save data to file
+close!(writer, beam)
+```
+
+#### Multiple Beams (Separate Files)
+
+For simulations with multiple flexible bodies, use `BeamStateWriterGroup` to create one file per beam:
+
+```julia
+using BioFlows
+
+# Create multiple beams with different properties
+n_flags = 5
+beams = [
+    EulerBernoulliBeam(
+        BeamGeometry(0.2, 51; thickness=0.01, width=0.05),
+        BeamMaterial(ρ=1100.0, E=1e6 * i);  # Varying stiffness
+        bc_left=CLAMPED, bc_right=FREE
+    ) for i in 1:n_flags
+]
+
+# Create writer group - generates flag_1.jld2, flag_2.jld2, etc.
+writers = BeamStateWriterGroup("flag", n_flags; interval=0.01)
+
+# Simulation loop
+dt = 1e-4
+for step in 1:10000
+    t = step * dt
+    for beam in beams
+        step!(beam, dt)
+    end
+    file_save!(writers, beams, t)  # Save all beams at once
+end
+
+# Close all writers
+close!(writers, beams)
+```
+
+#### JLD2 File Structure
+
+The output JLD2 file has the following hierarchical structure:
+
+```
+beam_state.jld2
+├── metadata/
+│   ├── n_snapshots      # Total number of saved snapshots
+│   ├── interval         # Time interval between saves
+│   ├── n_nodes          # Number of beam nodes
+│   └── length           # Beam length L
+├── coordinates/
+│   └── s                # Arc-length coordinates [0, L]
+├── material/
+│   ├── density          # Material density ρ
+│   └── youngs_modulus   # Young's modulus E
+├── time                 # Time array [t₁, t₂, ..., tₙ]
+├── kinetic_energy       # KE time series
+├── potential_energy     # PE time series
+├── fields/              # Matrices (n_nodes × n_snapshots)
+│   ├── displacement     # w(s, t)
+│   ├── rotation         # θ(s, t)
+│   ├── velocity         # ẇ(s, t)
+│   └── curvature        # κ(s, t)
+└── snapshots/           # Individual snapshot groups
+    ├── 1/
+    │   ├── time
+    │   ├── displacement
+    │   ├── rotation
+    │   ├── velocity
+    │   ├── curvature
+    │   └── moment
+    ├── 2/
+    │   └── ...
+    └── ...
+```
+
+#### Reading Beam State Data
+
+```julia
+using JLD2
+
+jldopen("flag_simulation.jld2", "r") do file
+    # Read metadata
+    n_snapshots = file["metadata/n_snapshots"]
+    n_nodes = file["metadata/n_nodes"]
+    L = file["metadata/length"]
+    println("Loaded $n_snapshots snapshots, $n_nodes nodes, L=$L m")
+
+    # Read coordinates
+    s = file["coordinates/s"]
+
+    # Read time series
+    t = file["time"]
+    KE = file["kinetic_energy"]
+    PE = file["potential_energy"]
+
+    # Read field matrices (efficient for analysis)
+    w = file["fields/displacement"]  # Shape: (n_nodes, n_snapshots)
+    θ = file["fields/rotation"]
+    κ = file["fields/curvature"]
+
+    # Compute tip displacement over time
+    w_tip = w[end, :]
+    println("Max tip displacement: $(maximum(abs.(w_tip)) * 1000) mm")
+
+    # Read individual snapshot
+    w_50 = file["snapshots/50/displacement"]
+    M_50 = file["snapshots/50/moment"]
+end
+```
+
+#### Post-Processing Example
+
+```julia
+using JLD2
+using Plots
+
+# Load data
+data = load("flag_simulation.jld2")
+t = data["time"]
+s = data["coordinates/s"]
+w = data["fields/displacement"]
+KE = data["kinetic_energy"]
+PE = data["potential_energy"]
+
+# Plot 1: Energy over time
+p1 = plot(t, KE, label="Kinetic", xlabel="Time (s)", ylabel="Energy (J)")
+plot!(p1, t, PE, label="Potential")
+plot!(p1, t, KE .+ PE, label="Total", linestyle=:dash)
+
+# Plot 2: Beam shape at different times
+p2 = plot(xlabel="Arc length s (m)", ylabel="Displacement w (m)")
+for i in [1, 10, 50, 100]
+    plot!(p2, s, w[:, i], label="t=$(round(t[i], digits=3))")
+end
+
+# Plot 3: Tip displacement over time
+p3 = plot(t, w[end, :] * 1000,
+          xlabel="Time (s)", ylabel="Tip displacement (mm)",
+          legend=false)
+
+# Combine plots
+plot(p1, p2, p3, layout=(3, 1), size=(600, 800))
+savefig("beam_analysis.png")
+```
+
 ## Boundary Conditions
 
 BioFlows.jl supports three types of boundary conditions for the domain boundaries (not to be confused with immersed body boundaries handled by BDIM).

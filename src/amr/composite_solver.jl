@@ -200,13 +200,15 @@ end
     correct_velocity!(flow, p, L, scale)
 
 Correct velocity using pressure gradient: u -= scale * L * ∇p
+Uses forward difference to match standard project! convention.
 """
 function correct_velocity!(flow::Flow{D,T}, p::AbstractArray{T},
                            L::AbstractArray{T}, scale::T) where {D,T}
     for I in inside(p)
         for d in 1:D
             δd = δ(d, I)  # Unit offset in direction d
-            flow.u[I, d] -= scale * L[I, d] * (p[I] - p[I-δd])
+            # FORWARD difference: p[I+1] - p[I]
+            flow.u[I, d] -= scale * L[I, d] * (p[I+δd] - p[I])
         end
     end
 end
@@ -215,6 +217,7 @@ end
     correct_refined_velocity!(vel_patch, pois_patch, scale)
 
 Correct refined velocity using fine pressure gradient.
+Uses forward difference to match standard project! convention.
 """
 function correct_refined_velocity!(vel_patch::RefinedVelocityPatch{T,2},
                                    pois_patch::PatchPoisson{T},
@@ -223,10 +226,10 @@ function correct_refined_velocity!(vel_patch::RefinedVelocityPatch{T,2},
 
     for I in inside(pois_patch)
         fi, fj = I.I
-        # x-velocity correction
-        vel_patch.u[fi, fj, 1] -= scale * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
-        # z-velocity correction
-        vel_patch.u[fi, fj, 2] -= scale * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
+        # x-velocity correction - FORWARD difference
+        vel_patch.u[fi, fj, 1] -= scale * L[fi, fj, 1] * (p[fi+1, fj] - p[fi, fj])
+        # z-velocity correction - FORWARD difference
+        vel_patch.u[fi, fj, 2] -= scale * L[fi, fj, 2] * (p[fi, fj+1] - p[fi, fj])
     end
 end
 

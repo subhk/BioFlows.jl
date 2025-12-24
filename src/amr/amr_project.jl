@@ -149,15 +149,17 @@ end
 
 Correct base velocity using pressure gradient.
 Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * ∇p
-This matches the standard project! convention.
+This matches the standard project! convention which uses forward difference.
 """
 function correct_base_velocity!(flow::Flow{D,T}, p::AbstractArray{T},
                                 L::AbstractArray{T}, inv_ρ::T) where {D,T}
     for I in inside(p)
         for d in 1:D
             δd = δ(d, I)  # Unit offset in direction d
-            # u -= (L/ρ) * ∂p/∂x = inv_ρ * L * (p[I] - p[I-1])
-            flow.u[I, d] -= inv_ρ * L[I, d] * (p[I] - p[I-δd])
+            # u -= (L/ρ) * ∂p/∂x = inv_ρ * L * (p[I+1] - p[I]) - FORWARD difference
+            # This matches standard project!: a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)/ρ
+            # where ∂(i,I,x) = x[I+δ(i,I)] - x[I]
+            flow.u[I, d] -= inv_ρ * L[I, d] * (p[I+δd] - p[I])
         end
     end
 end
@@ -167,6 +169,7 @@ end
 
 Correct velocity on all refined patches.
 Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * ∇p
+Uses forward difference to match standard project! convention.
 """
 function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T) where T
     for (anchor, patch) in cp.patches
@@ -177,10 +180,10 @@ function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T) where
 
         for I in inside(patch)
             fi, fj = I.I
-            # x-velocity correction: u -= (L/ρ) * ∂p/∂x
-            vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
-            # z-velocity correction: w -= (L/ρ) * ∂p/∂z
-            vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
+            # x-velocity correction: u -= (L/ρ) * ∂p/∂x - FORWARD difference
+            vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi+1, fj] - p[fi, fj])
+            # z-velocity correction: w -= (L/ρ) * ∂p/∂z - FORWARD difference
+            vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj+1] - p[fi, fj])
         end
     end
 end
