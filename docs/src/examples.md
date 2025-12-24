@@ -387,6 +387,134 @@ for step in 1:500
 end
 ```
 
+## Fluid-Structure Interaction (FSI)
+
+### Flexible Beam (Euler-Bernoulli)
+
+**File:** `test_fsi.jl`
+
+The Euler-Bernoulli beam solver uses Hermite finite elements for accurate structural dynamics:
+
+```julia
+using BioFlows
+
+# Material properties
+material = BeamMaterial(ρ=1100.0, E=1e6, ν_poisson=0.45)
+
+# Geometry: 0.2m beam with 51 nodes
+geometry = BeamGeometry(0.2, 51; thickness=0.01, width=0.05)
+
+# Create beam with clamped-free boundary conditions
+beam = EulerBernoulliBeam(geometry, material;
+                          bc_left=CLAMPED,
+                          bc_right=FREE,
+                          damping=0.1)
+
+# Apply uniform load
+fill!(beam.q, 10.0)  # 10 N/m
+
+# Time step the beam
+for i in 1:100
+    step!(beam, 1e-4)
+end
+
+# Check results
+println("Max displacement: ", maximum(abs.(beam.w)) * 1000, " mm")
+println("Kinetic energy: ", kinetic_energy(beam), " J")
+println("Potential energy: ", potential_energy(beam), " J")
+```
+
+### Active Swimming with Traveling Wave
+
+```julia
+using BioFlows
+
+# Create fish-like beam
+L = 0.2  # Fish length
+material = BeamMaterial(ρ=1050.0, E=5e5)
+h_func = fish_thickness_profile(L, 0.02)  # Max thickness 0.02m
+geometry = BeamGeometry(L, 51; thickness=h_func, width=0.02)
+
+beam = EulerBernoulliBeam(geometry, material;
+                          bc_left=CLAMPED, bc_right=FREE,
+                          damping=0.5)
+
+# Create traveling wave muscle activation (carangiform)
+f_wave = traveling_wave_forcing(
+    amplitude=100.0,
+    frequency=2.0,
+    wavelength=1.0,
+    envelope=:carangiform,
+    L=L
+)
+
+# Simulate swimming
+dt = 1e-4
+for i in 1:5000
+    t = i * dt
+    set_active_forcing!(beam, f_wave, t)
+    step!(beam, dt)
+end
+
+# Get deformation
+κ = get_curvature(beam)
+M = get_bending_moment(beam)
+println("Max curvature: ", maximum(abs.(κ)), " 1/m")
+println("Max moment: ", maximum(abs.(M)), " N·m")
+```
+
+### Beam Properties
+
+Access displacement and rotation fields:
+
+```julia
+# Displacement (w) and rotation (θ) at each node
+w = beam.w        # Returns view into state vector
+θ = beam.θ        # Rotation = ∂w/∂x
+w_dot = beam.w_dot  # Velocity
+
+# Set initial conditions (views allow in-place modification)
+for i in 1:beam.geometry.n
+    s = beam.s[i]
+    beam.w[i] = 0.001 * (s/L)^2  # Parabolic shape
+    beam.θ[i] = 0.002 * s/L      # Corresponding rotation
+end
+
+# Reset to zero
+reset!(beam)
+```
+
+### Static Analysis (Point Loads)
+
+For static problems, solve K*u = F directly:
+
+```julia
+using LinearAlgebra
+
+# Create beam
+beam = EulerBernoulliBeam(geometry, material;
+                          bc_left=CLAMPED, bc_right=FREE)
+
+# Apply point load at tip
+n_dof = 2 * beam.geometry.n
+F = zeros(n_dof)
+tip_dof = n_dof - 1  # Tip displacement DOF
+F[tip_dof] = 5.0     # 5 N point load
+
+# Static solve
+K = Matrix(beam.K_mat)
+u = K \ F
+
+# Tip deflection
+w_tip = u[tip_dof]
+println("Tip deflection: ", w_tip * 1000, " mm")
+
+# Analytical: w = PL³/(3EI)
+E, I, L = material.E, beam.I_vec[1], beam.geometry.L
+w_analytical = 5.0 * L^3 / (3 * E * I)
+println("Analytical: ", w_analytical * 1000, " mm")
+```
+
 ## GPU Execution
 
 Run on NVIDIA GPU:

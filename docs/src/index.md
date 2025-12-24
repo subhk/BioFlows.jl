@@ -11,6 +11,7 @@ grids using the Boundary Data Immersion Method (BDIM).
 - Immersed boundary method via BDIM (Boundary Data Immersion Method)
 - Implicit geometry definition through signed distance functions
 - Adaptive Mesh Refinement (AMR) near bodies and flow features
+- **Fluid-Structure Interaction (FSI)** via Euler-Bernoulli beam with Hermite FEM
 - CPU and GPU execution via KernelAbstractions.jl
 - MPI support for distributed computing
 - Built-in diagnostics: forces, vorticity, cell-centered fields
