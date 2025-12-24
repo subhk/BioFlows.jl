@@ -220,9 +220,15 @@ function amr_mom_step!(flow::Flow{D,T}, cp::CompositePoisson{T};
     # Predictor step - compute forcing from u⁰
     conv_diff!(flow.f, flow.u⁰, flow.σ, λ; ν=flow.ν, Δx=flow.Δx, perdir=flow.perdir)
 
+    # Apply body acceleration (gravity, etc.)
+    accelerate!(flow.f, t₀, flow.g, flow.inletBC)
+
     # Apply BDIM (body info is in flow.μ₀ and flow.V)
     BDIM!(flow)
     BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
+
+    # Apply convective outlet BC if enabled
+    flow.outletBC && exitBC!(flow.u, flow.u⁰, flow.Δt[end])
 
     # Project to divergence-free
     amr_project!(flow, cp)
@@ -230,6 +236,9 @@ function amr_mom_step!(flow::Flow{D,T}, cp::CompositePoisson{T};
 
     # Corrector step - compute forcing from predicted u
     conv_diff!(flow.f, flow.u, flow.σ, λ; ν=flow.ν, Δx=flow.Δx, perdir=flow.perdir)
+
+    # Apply body acceleration
+    accelerate!(flow.f, t₁, flow.g, flow.inletBC)
 
     BDIM!(flow)
     scale_u!(flow, T(0.5))  # Average predictor and corrector
