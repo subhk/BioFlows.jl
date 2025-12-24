@@ -59,6 +59,10 @@ function amr_project!(flow::Flow{D,T}, cp::CompositePoisson{T}, w::Real=1) where
 
     # 2. Scale pressure initial guess for warm start (like standard project!)
     cp.base.x .*= dt
+    # Also scale patch pressures for consistency
+    for (_, patch) in cp.patches
+        patch.x .*= dt
+    end
 
     # 3. Set divergence on refined patches (using same ρ scaling)
     set_all_patch_divergence!(cp, flow.u, ρ)
@@ -80,6 +84,10 @@ function amr_project!(flow::Flow{D,T}, cp::CompositePoisson{T}, w::Real=1) where
 
     # 9. Unscale pressure for storage (like standard project!)
     cp.base.x ./= dt
+    # Also unscale patch pressures
+    for (_, patch) in cp.patches
+        patch.x ./= dt
+    end
 
     # 10. Store pressure for output
     flow.p .= cp.base.x
