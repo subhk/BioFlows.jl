@@ -41,10 +41,17 @@ Clears existing patches and creates new ones.
 - `cp`: CompositePoisson to populate with patches
 - `rg`: RefinedGrid with cell refinement markers
 - `μ₀`: Base grid coefficient array (flow.μ₀)
+
+# Note
+For flexible bodies, the μ₀ reference is stored in cp.μ₀_ref so that
+patch coefficients can be re-interpolated when the body moves.
 """
 function create_patches!(cp::CompositePoisson{T}, rg::RefinedGrid, μ₀::AbstractArray) where T
     # Clear existing patches
     clear_patches!(cp)
+
+    # Store reference to μ₀ for flexible body coefficient updates
+    set_μ₀_reference!(cp, μ₀)
 
     if is_2d(rg.base_grid)
         create_patches_2d!(cp, rg, μ₀)

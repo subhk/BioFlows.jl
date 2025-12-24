@@ -57,6 +57,10 @@ mutable struct CompositePoisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: 
     x::S
     L::V
     z::S
+
+    # Reference to coarse μ₀ for flexible body coefficient updates
+    # This allows patches to re-interpolate coefficients when the body moves
+    μ₀_ref::Union{Nothing, AbstractArray}
 end
 
 """
@@ -81,7 +85,8 @@ function CompositePoisson(base::MultiLevelPoisson{T,S,V,N};
         base.perdir,
         base.x,
         base.L,
-        base.z
+        base.z,
+        nothing  # μ₀_ref will be set when patches are created
     )
 end
 
@@ -99,7 +104,7 @@ end
 # AbstractPoisson interface compatibility
 Base.getproperty(cp::CompositePoisson, s::Symbol) = begin
     if s in (:base, :patches, :patches_3d, :refined_velocity, :refinement_ratio,
-             :max_level, :n, :perdir, :x, :L, :z)
+             :max_level, :n, :perdir, :x, :L, :z, :μ₀_ref)
         getfield(cp, s)
     else
         getfield(cp, s)
@@ -194,12 +199,38 @@ end
     update!(cp::CompositePoisson)
 
 Update all solver components after coefficient changes.
+
+For flexible bodies, this re-interpolates patch coefficients from the updated
+coarse μ₀ to ensure patches correctly reflect the current body position.
 """
 function update!(cp::CompositePoisson)
     update!(cp.base)
-    for (_, patch) in cp.patches
-        update_coefficients!(patch)
+
+    # Re-interpolate patch coefficients from updated μ₀ (critical for flexible bodies!)
+    if !isnothing(cp.μ₀_ref) && has_patches(cp)
+        for (anchor, patch) in cp.patches
+            # Re-initialize L from updated μ₀
+            ratio = refinement_ratio(patch)
+            initialize_patch_coefficients!(patch.L, cp.μ₀_ref, anchor, patch.coarse_extent, ratio)
+            # Then recompute diagonal
+            update_coefficients!(patch)
+        end
+    else
+        # Fallback: just update diagonal (less accurate for moving bodies)
+        for (_, patch) in cp.patches
+            update_coefficients!(patch)
+        end
     end
+end
+
+"""
+    set_μ₀_reference!(cp::CompositePoisson, μ₀::AbstractArray)
+
+Set the reference to the coarse μ₀ array for flexible body coefficient updates.
+This should be called when creating patches or when the μ₀ reference changes.
+"""
+function set_μ₀_reference!(cp::CompositePoisson, μ₀::AbstractArray)
+    cp.μ₀_ref = μ₀
 end
 
 """
