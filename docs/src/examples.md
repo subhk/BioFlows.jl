@@ -484,6 +484,92 @@ end
 reset!(beam)
 ```
 
+### Saving Beam State to Files
+
+Save flexible body positions to JLD2 files with configurable save rates:
+
+```julia
+using BioFlows
+
+# Create beam
+material = BeamMaterial(ρ=1100.0, E=1e6)
+geometry = BeamGeometry(0.2, 51; thickness=0.01, width=0.05)
+beam = EulerBernoulliBeam(geometry, material; bc_left=CLAMPED, bc_right=FREE)
+
+# Create writer - saves every 0.01 time units
+writer = BeamStateWriter("flag_1.jld2"; interval=0.01)
+
+# Simulation loop
+dt = 1e-4
+for step in 1:10000
+    t = step * dt
+    fill!(beam.q, 50.0)  # Apply load
+    step!(beam, dt)
+    file_save!(writer, beam, t)
+end
+
+# IMPORTANT: Close writer to save data to file
+close!(writer, beam)
+```
+
+### Multiple Flags (Separate Files)
+
+For multiple flexible bodies, each gets its own file:
+
+```julia
+# Create 5 flags with different properties
+n_flags = 5
+beams = [
+    EulerBernoulliBeam(
+        BeamGeometry(0.2, 51; thickness=0.01, width=0.05),
+        BeamMaterial(ρ=1100.0, E=1e6 * i);  # Different stiffness
+        bc_left=CLAMPED, bc_right=FREE
+    ) for i in 1:n_flags
+]
+
+# Create writer group - creates flag_1.jld2, flag_2.jld2, etc.
+writers = BeamStateWriterGroup("flag", n_flags; interval=0.01)
+
+# Simulation loop
+for step in 1:10000
+    t = step * dt
+    for beam in beams
+        step!(beam, dt)
+    end
+    file_save!(writers, beams, t)  # Save all beams
+end
+
+# Close all writers
+close!(writers, beams)
+```
+
+### Reading Beam State Files
+
+```julia
+using JLD2
+
+jldopen("flag_1.jld2", "r") do file
+    # Metadata
+    n_snapshots = file["metadata/n_snapshots"]
+    n_nodes = file["metadata/n_nodes"]
+    L = file["metadata/length"]
+
+    # Time series
+    t = file["time"]
+    KE = file["kinetic_energy"]
+    PE = file["potential_energy"]
+
+    # Field matrices (n_nodes × n_snapshots)
+    w = file["fields/displacement"]
+    θ = file["fields/rotation"]
+    κ = file["fields/curvature"]
+
+    # Individual snapshots
+    w_10 = file["snapshots/10/displacement"]
+    θ_10 = file["snapshots/10/rotation"]
+end
+```
+
 ### Static Analysis (Point Loads)
 
 For static problems, solve K*u = F directly:

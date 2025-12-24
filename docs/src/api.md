@@ -102,6 +102,15 @@ See [Numerical Methods](@ref) for details.
 | `heave_pitch_forcing(; kwargs...)` | Create heave/pitch leading-edge motion |
 | `fish_thickness_profile(L, h_max)` | NACA-like fish body thickness |
 
+### Beam State Output
+
+| Type/Function | Description |
+|---------------|-------------|
+| `BeamStateWriter(filename; interval)` | Writer for single beam state to JLD2 |
+| `BeamStateWriterGroup(prefix, n; interval)` | Writers for multiple beams |
+| `file_save!(writer, beam, t)` | Record beam state if interval elapsed |
+| `close!(writer, beam)` | Finalize and write data to file |
+
 ## Force Diagnostics
 
 See [Diagnostics](@ref) for details.
