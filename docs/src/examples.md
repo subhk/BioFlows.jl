@@ -235,6 +235,158 @@ jldopen("center_fields.jld2", "r") do file
 end
 ```
 
+## Swimming Fish (Flexible Body)
+
+**File:** `examples/swimming_fish.jl`
+
+Flexible swimming fish with traveling wave motion:
+
+```julia
+using BioFlows
+include("examples/swimming_fish.jl")
+
+# Single carangiform swimmer (tail-dominated, like tuna)
+sim, history = run_swimming_fish(
+    steps = 500,
+    nx = 256, nz = 128,
+    fish_length = 0.2,
+    amplitude = 0.1,           # Tail amplitude
+    frequency = 1.0,           # Hz
+    amplitude_envelope = :carangiform
+)
+
+# Get force statistics
+stats = summarize_force_history(history; discard=0.2)
+println("Mean Cd: ", stats.drag_mean)
+println("Mean Cl: ", stats.lift_mean)
+```
+
+### Swimming Modes
+
+```julia
+# Anguilliform (eel-like, whole-body motion)
+sim = swimming_fish_sim(
+    amplitude_envelope = :anguilliform,
+    head_amplitude = 0.05,
+    wavelength = 0.8
+)
+
+# Subcarangiform (trout-like)
+sim = swimming_fish_sim(
+    amplitude_envelope = :subcarangiform
+)
+```
+
+### Leading Edge Motion
+
+```julia
+# Fish with heave motion at head
+sim = swimming_fish_sim(
+    heave_amplitude = 0.05,
+    heave_phase = 0.0
+)
+
+# Fish with pitch motion at head
+sim = swimming_fish_sim(
+    pitch_amplitude = 0.15,   # radians
+    pitch_phase = π/2         # 90° phase lead
+)
+
+# Combined heave + pitch
+sim = swimming_fish_sim(
+    heave_amplitude = 0.03,
+    pitch_amplitude = 0.1
+)
+```
+
+### Command Line
+
+```bash
+julia --project examples/swimming_fish.jl
+```
+
+## Fish School
+
+**File:** `examples/swimming_fish.jl`
+
+Multiple swimming fish with configurable formations:
+
+```julia
+using BioFlows
+include("examples/swimming_fish.jl")
+
+# Staggered formation with 3 fish
+sim, history, configs = run_fish_school(
+    steps = 500,
+    n_fish = 3,
+    formation = :staggered,
+    phase_offset = π/3,        # Phase difference between fish
+    spacing = 0.15             # Lateral spacing
+)
+```
+
+### Formations
+
+```julia
+# Inline (tandem)
+sim, _ = fish_school_sim(n_fish=4, formation=:inline)
+
+# Side by side
+sim, _ = fish_school_sim(n_fish=3, formation=:side_by_side)
+
+# Diamond (4+ fish)
+sim, _ = fish_school_sim(n_fish=4, formation=:diamond)
+```
+
+### Synchronized vs Wave Motion
+
+```julia
+# Synchronized (all same phase)
+sim, _ = synchronized_school_sim(n_fish=3)
+
+# Wave-like phase progression
+sim, _ = wave_school_sim(n_fish=5, phase_offset=π/4)
+```
+
+## Swimming Fish with AMR
+
+**File:** `examples/swimming_fish.jl`
+
+Adaptive mesh refinement for swimming fish:
+
+```julia
+using BioFlows
+include("examples/swimming_fish.jl")
+
+# Single fish with AMR
+sim = swimming_fish_amr_sim(
+    nx = 256, nz = 128,
+    amplitude_envelope = :carangiform,
+    amr_max_level = 2
+)
+
+for step in 1:500
+    sim_step!(sim; remeasure=true)
+end
+
+amr_info(sim)
+```
+
+### Fish School with AMR
+
+```julia
+# Multiple fish with AMR
+sim, configs = fish_school_amr_sim(
+    n_fish = 3,
+    formation = :staggered,
+    amr_max_level = 2
+)
+
+for step in 1:500
+    sim_step!(sim; remeasure=true)
+end
+```
+
 ## GPU Execution
 
 Run on NVIDIA GPU:

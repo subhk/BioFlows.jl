@@ -545,9 +545,13 @@ The pressure Poisson equation is solved using a **geometric multigrid** method w
 
 The multigrid solver operates on a hierarchy of progressively coarser grids, enabling efficient solution of the elliptic pressure equation.
 
-## Immersed Boundary Method
+## Immersed Boundary Method (BDIM)
 
-BioFlows.jl implements the **Boundary Data Immersion Method (BDIM)** for handling complex geometries. Bodies are defined implicitly through signed distance functions (SDFs):
+BioFlows.jl implements the **Boundary Data Immersion Method (BDIM)** for handling complex geometries, including moving and deforming bodies. This section provides the complete mathematical formulation.
+
+### Signed Distance Function (SDF)
+
+Bodies are defined implicitly through signed distance functions:
 
 ```math
 \phi(\mathbf{x}, t) < 0 \quad \text{inside body}
@@ -559,11 +563,313 @@ BioFlows.jl implements the **Boundary Data Immersion Method (BDIM)** for handlin
 \phi(\mathbf{x}, t) > 0 \quad \text{in fluid}
 ```
 
-The SDF is used to:
-1. Identify solid and fluid regions
-2. Interpolate boundary conditions
-3. Compute surface normals: $\mathbf{n} = \nabla\phi / |\nabla\phi|$
-4. Calculate hydrodynamic forces on immersed bodies
+The SDF provides:
+- **Distance to surface**: $d = \phi(\mathbf{x}, t)$
+- **Surface normal**: $\mathbf{n} = \nabla\phi / |\nabla\phi|$
+- **Curvature**: $\kappa = \nabla \cdot \mathbf{n}$
+
+### BDIM Kernel Functions
+
+The BDIM uses a smooth kernel to transition from fluid to solid over a band of width $2\epsilon$ centered at the body surface. The kernel is a raised cosine:
+
+```math
+K(\xi) = \frac{1}{2} + \frac{1}{2}\cos(\pi\xi), \quad \xi \in [-1, 1]
+```
+
+where $\xi = d/\epsilon$ is the normalized distance.
+
+#### Zeroth Moment (Volume Fraction)
+
+The volume fraction $\mu_0$ represents how much of a cell is fluid:
+
+```math
+\mu_0(d, \epsilon) = \int_{-1}^{d/\epsilon} K(s) \, ds = \frac{1}{2} + \frac{d}{2\epsilon} + \frac{1}{2\pi}\sin\left(\frac{\pi d}{\epsilon}\right)
+```
+
+Properties:
+- $\mu_0 = 0$ when $d \leq -\epsilon$ (fully inside solid)
+- $\mu_0 = 1$ when $d \geq +\epsilon$ (fully in fluid)
+- $\mu_0 = 0.5$ at $d = 0$ (on surface)
+
+#### First Moment (Gradient Correction)
+
+The first moment $\mu_1$ provides gradient information for boundary layer resolution:
+
+```math
+\mu_1(d, \epsilon) = \epsilon \int_{-1}^{d/\epsilon} s \cdot K(s) \, ds = \epsilon \left[ \frac{1}{4}\left(1 - \frac{d^2}{\epsilon^2}\right) - \frac{1}{2\pi^2}\left(\frac{d}{\epsilon}\sin\frac{\pi d}{\epsilon} + \frac{1 + \cos\frac{\pi d}{\epsilon}}{\pi}\right) \right]
+```
+
+### BDIM Velocity Update
+
+The BDIM enforces no-slip/no-penetration at immersed boundaries by blending the fluid velocity $\mathbf{u}^*$ with the body velocity $\mathbf{V}$:
+
+```math
+\mathbf{u} = \mu_0 \cdot \mathbf{f} + \mathbf{V} + \boldsymbol{\mu}_1 \cdot \nabla \mathbf{f}
+```
+
+where the correction field is:
+
+```math
+\mathbf{f} = \mathbf{u}^0 + \Delta t \cdot \mathbf{RHS} - \mathbf{V}
+```
+
+and:
+- $\mathbf{u}^0$ = velocity at previous time step
+- $\mathbf{RHS}$ = convection + diffusion terms
+- $\mathbf{V}$ = body velocity at each point
+- $\boldsymbol{\mu}_1 = \mu_1 \cdot \mathbf{n}$ = directional first moment
+
+This formulation:
+1. Smoothly transitions from fluid velocity to body velocity
+2. Maintains proper boundary layer behavior
+3. Conserves momentum at the interface
+
+### Reference
+
+Maertens, A.P. and Weymouth, G.D. (2015). "Accurate Cartesian-grid simulations of near-body flows at intermediate Reynolds numbers." *Computer Methods in Applied Mechanics and Engineering*, 283, 106-129. doi:[10.1016/j.cma.2014.09.007](https://doi.org/10.1016/j.cma.2014.09.007)
+
+## Flexible Body Kinematics
+
+BioFlows supports time-varying body geometries through two mechanisms:
+1. **Coordinate mapping** for rigid body motion (translation, rotation)
+2. **Time-dependent SDF** for flexible/deforming bodies
+
+### Coordinate Mapping (Rigid Motion)
+
+For rigid bodies, the SDF shape is fixed but the body moves via a coordinate mapping $\mathbf{m}(\mathbf{x}, t)$:
+
+```math
+\phi(\mathbf{x}, t) = \phi_0(\mathbf{m}(\mathbf{x}, t))
+```
+
+where $\phi_0$ is the reference SDF and $\mathbf{m}$ maps world coordinates to body-fixed coordinates.
+
+#### Body Velocity from Mapping
+
+The body velocity is computed from the coordinate mapping using:
+
+```math
+\mathbf{V} = -\mathbf{J}^{-1} \cdot \frac{\partial \mathbf{m}}{\partial t}
+```
+
+where $\mathbf{J} = \partial \mathbf{m} / \partial \mathbf{x}$ is the Jacobian of the mapping.
+
+**Derivation**: For a material point $\boldsymbol{\xi} = \mathbf{m}(\mathbf{x}, t)$ fixed in the body frame, we have $D\boldsymbol{\xi}/Dt = 0$. Using the chain rule:
+
+```math
+\frac{\partial \mathbf{m}}{\partial t} + \mathbf{J} \cdot \dot{\mathbf{x}} = 0
+```
+
+Solving for the velocity $\dot{\mathbf{x}} = \mathbf{V}$:
+
+```math
+\mathbf{V} = -\mathbf{J}^{-1} \cdot \frac{\partial \mathbf{m}}{\partial t}
+```
+
+#### Examples
+
+**Oscillating Cylinder** (vertical sinusoidal motion):
+
+```math
+\mathbf{m}(\mathbf{x}, t) = \mathbf{x} - \begin{pmatrix} 0 \\ A\sin(\omega t) \end{pmatrix}
+```
+
+Body velocity:
+
+```math
+\mathbf{V} = \begin{pmatrix} 0 \\ A\omega\cos(\omega t) \end{pmatrix}
+```
+
+**Rotating Body** (angular velocity $\Omega$):
+
+```math
+\mathbf{m}(\mathbf{x}, t) = \mathbf{R}(-\Omega t) \cdot (\mathbf{x} - \mathbf{x}_c)
+```
+
+where $\mathbf{R}(\theta)$ is the rotation matrix and $\mathbf{x}_c$ is the center of rotation.
+
+### Time-Dependent SDF (Flexible Bodies)
+
+For flexible bodies where the shape itself changes over time, the SDF is directly time-dependent:
+
+```math
+\phi = \phi(\mathbf{x}, t)
+```
+
+The surface normal is computed as:
+
+```math
+\mathbf{n} = \frac{\nabla \phi}{|\nabla \phi|}
+```
+
+For **pseudo-SDFs** (implicit functions where $|\nabla \phi| \neq 1$), the distance is corrected:
+
+```math
+d = \frac{\phi}{|\nabla \phi|}
+```
+
+## Swimming Fish Kinematics
+
+BioFlows implements flexible swimming bodies using traveling wave motion. The fish body is defined by a time-varying SDF based on the centerline displacement.
+
+### Body Centerline
+
+The fish centerline follows a traveling wave with optional leading edge motion:
+
+```math
+y(s, t) = y_{head}(t) + y_{pitch}(s, t) + y_{wave}(s, t)
+```
+
+where $s \in [0, L]$ is the arc length from head to tail.
+
+#### 1. Leading Edge Heave
+
+Sinusoidal vertical oscillation at the head:
+
+```math
+y_{head}(t) = h_{heave} \sin(\omega t + \phi_{heave})
+```
+
+- $h_{heave}$ = heave amplitude
+- $\omega = 2\pi f$ = angular frequency
+- $\phi_{heave}$ = phase offset
+
+#### 2. Leading Edge Pitch
+
+Angular oscillation at the head pivot:
+
+```math
+y_{pitch}(s, t) = s \cdot \sin(\theta(t))
+```
+
+where the pitch angle is:
+
+```math
+\theta(t) = \theta_{max} \sin(\omega t + \phi_{pitch})
+```
+
+- $\theta_{max}$ = maximum pitch angle (radians)
+- $\phi_{pitch}$ = pitch phase (typically $\pi/2$ for optimal thrust)
+
+#### 3. Traveling Wave
+
+Body undulation with position-dependent amplitude:
+
+```math
+y_{wave}(s, t) = A(s) \sin(ks - \omega t + \phi)
+```
+
+- $k = 2\pi/\lambda$ = wave number
+- $\lambda$ = wavelength (relative to body length)
+- $A(s)$ = amplitude envelope
+- $\phi$ = phase offset
+
+### Amplitude Envelopes
+
+Different swimming modes have characteristic amplitude distributions:
+
+#### Carangiform (Tail-Dominated)
+
+Typical of tuna, mackerel — stiff body with tail propulsion:
+
+```math
+A(s) = A_{tail} \left(\frac{s}{L}\right)^2
+```
+
+#### Anguilliform (Whole-Body)
+
+Typical of eels, lampreys — entire body participates:
+
+```math
+A(s) = A_{head} + (A_{tail} - A_{head}) \frac{s}{L}
+```
+
+#### Subcarangiform (Intermediate)
+
+Typical of trout, carp — between carangiform and anguilliform:
+
+```math
+A(s) = A_{tail} \left(\frac{s}{L}\right)^{1.5}
+```
+
+### Fish Body SDF
+
+The fish body is modeled as a NACA-like profile with the centerline as its axis:
+
+```math
+\phi(\mathbf{x}, t) = |z - z_{body}(x, t)| - h(s)
+```
+
+where:
+- $z_{body}(x, t) = z_{center} + y(s, t)$ is the centerline position
+- $h(s) = h_{max} \cdot 4 \frac{s}{L}\left(1 - \frac{s}{L}\right)$ is the local half-thickness (NACA profile)
+- $s = x - x_{head}$ is the position along the body
+
+### Complete Kinematics
+
+Combining all components, the centerline displacement is:
+
+```math
+y(s, t) = h_{heave}\sin(\omega t + \phi_{heave}) + s\sin\left(\theta_{max}\sin(\omega t + \phi_{pitch})\right) + A(s)\sin(ks - \omega t + \phi)
+```
+
+The body velocity at each point is obtained by taking the time derivative:
+
+```math
+\frac{\partial y}{\partial t} = h_{heave}\omega\cos(\omega t + \phi_{heave}) + s\theta_{max}\omega\cos(\omega t + \phi_{pitch})\cos(\theta(t)) - A(s)\omega\cos(ks - \omega t + \phi)
+```
+
+### Strouhal Number
+
+The Strouhal number characterizes the swimming efficiency:
+
+```math
+St = \frac{f \cdot A_{tail}}{U}
+```
+
+where:
+- $f$ = oscillation frequency
+- $A_{tail}$ = tail amplitude
+- $U$ = swimming velocity
+
+Optimal propulsion typically occurs at $St \approx 0.2 - 0.4$.
+
+### Reynolds Number
+
+The Reynolds number based on fish length:
+
+```math
+Re = \frac{U \cdot L}{\nu}
+```
+
+where:
+- $U$ = characteristic velocity (inflow or swimming speed)
+- $L$ = fish body length
+- $\nu$ = kinematic viscosity
+
+## Fish School Kinematics
+
+For multiple fish, each fish has its own phase offset:
+
+```math
+y_i(s, t) = y_{head,i}(t) + y_{pitch,i}(s, t) + A(s)\sin(ks - \omega t + \phi_i)
+```
+
+The combined SDF for the school uses the union operation:
+
+```math
+\phi_{school}(\mathbf{x}, t) = \min_i \phi_i(\mathbf{x}, t)
+```
+
+### Phase Relationships
+
+Different phase relationships create different schooling behaviors:
+
+| Pattern | Phase Offset | Description |
+|---------|--------------|-------------|
+| Synchronized | $\phi_i = 0$ | All fish in phase |
+| Wave | $\phi_i = i \cdot \Delta\phi$ | Progressive phase delay |
+| Alternating | $\phi_i = (i \mod 2) \cdot \pi$ | Adjacent fish anti-phase |
 
 ## Boundary Conditions
 
