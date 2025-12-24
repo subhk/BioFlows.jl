@@ -264,7 +264,10 @@ function mark_cells_for_refinement(indicator::AbstractArray{T,N};
     thresh = T(threshold)
 
     for I in CartesianIndices(indicator)
-        if indicator[I] > thresh
+        # Use >= to include cells at exactly the threshold
+        # This is important because body-only cells with default weights
+        # will have exactly 0.5 indicator value (0.5 weight × 1.0 indicator)
+        if indicator[I] >= thresh
             push!(cells, I)
         end
     end
