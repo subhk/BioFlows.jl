@@ -211,8 +211,9 @@ function amr_mom_step!(flow::Flow{D,T}, cp::CompositePoisson{T};
 
     amr_project!(flow, cp, 0.5)
 
-    # Update time step
-    push!(flow.Δt, CFL(flow))
+    # Update time step - IMPORTANT: use amr_cfl to account for refined patches
+    # Refined patches have finer grid spacing, requiring smaller time steps for stability
+    push!(flow.Δt, amr_cfl(flow, cp))
 end
 
 """
