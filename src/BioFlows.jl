@@ -706,23 +706,45 @@ function measure!(amr::AMRSimulation, t=sum(amr.sim.flow.Δt))
 end
 
 """
-    amr_info(amr::AMRSimulation)
+    amr_info(amr::AMRSimulation; verbose=true)
 
-Print detailed AMR status information.
+Get AMR status information. Optionally prints detailed status.
+
+# Returns
+NamedTuple with:
+- `active`: Whether AMR is active
+- `flexible_body`: Whether flexible body mode is enabled
+- `refined_cells`: Number of refined cells
+- `num_patches`: Number of active patches
+- `steps_since_regrid`: Steps since last regridding
 """
-function amr_info(amr::AMRSimulation)
-    println("AMR Status:")
-    println("  Active: ", amr.amr_active)
-    println("  Flexible body: ", amr.config.flexible_body)
-    println("  Refined cells: ", num_refined_cells(amr.refined_grid))
-    println("  Number of patches: ", num_patches(amr.composite_pois))
-    println("  Steps since last regrid: ", length(amr.sim.flow.Δt) - amr.last_regrid_step)
-    if has_patches(amr.composite_pois)
-        for (anchor, patch) in amr.composite_pois.patches
-            println("    Patch at ", anchor, ": level=", patch.level,
-                    ", fine dims=", patch.fine_dims)
+function amr_info(amr::AMRSimulation; verbose::Bool=true)
+    n_refined = num_refined_cells(amr.refined_grid)
+    n_patches = num_patches(amr.composite_pois)
+    steps_since = length(amr.sim.flow.Δt) - amr.last_regrid_step
+
+    if verbose
+        println("AMR Status:")
+        println("  Active: ", amr.amr_active)
+        println("  Flexible body: ", amr.config.flexible_body)
+        println("  Refined cells: ", n_refined)
+        println("  Number of patches: ", n_patches)
+        println("  Steps since last regrid: ", steps_since)
+        if has_patches(amr.composite_pois)
+            for (anchor, patch) in amr.composite_pois.patches
+                println("    Patch at ", anchor, ": level=", patch.level,
+                        ", fine dims=", patch.fine_dims)
+            end
         end
     end
+
+    return (
+        active = amr.amr_active,
+        flexible_body = amr.config.flexible_body,
+        refined_cells = n_refined,
+        num_patches = n_patches,
+        steps_since_regrid = steps_since
+    )
 end
 
 # =============================================================================
