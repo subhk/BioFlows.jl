@@ -186,7 +186,10 @@ S(I::CartesianIndex{3},u) = @SMatrix [0.5*(∂(i,j,I,u)+∂(j,i,I,u)) for i ∈ 
 
 Compute the viscous force on an immersed body.
 Integrates viscous stress times surface normal over the body:
-    F = -∮ τ·n̂ ds = -∮ 2μS·n̂ ds
+    F = +∮ τ·n̂ ds = +∮ 2μS·n̂ ds
+
+The positive sign comes from the Cauchy stress decomposition:
+    σ = -p·I + τ  →  F = ∮ σ·n̂ ds = -∮ p n̂ ds + ∮ τ·n̂ ds
 
 Returns force in Newtons per unit span (N/m) for 2D, or Newtons (N) for 3D.
 The viscous stress τ = 2μS = 2ρνS where μ = ρν is dynamic viscosity (Pa·s).
@@ -203,7 +206,8 @@ function viscous_force(u,ν,ρ,Δx,df,body,t=0)
     df .= zero(Tu)
     # Arc length element (2D) or area element (3D): Δx^(D-1)
     ds = prod(Δx)^((D-1)/D)  # Δx for 2D, Δx² for 3D (assuming isotropic)
-    @loop df[I,:] .= -2μ*S(I,u)*nds(body,loc(0,I,Tu),t)*ds over I ∈ inside_u(u)
+    # F = +∮ 2μS·n̂ ds (viscous traction on body from fluid)
+    @loop df[I,:] .= 2μ*S(I,u)*nds(body,loc(0,I,Tu),t)*ds over I ∈ inside_u(u)
     sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
 

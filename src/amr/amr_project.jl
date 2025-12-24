@@ -267,23 +267,22 @@ end
     amr_cfl(flow, cp)
 
 Compute CFL time step considering refined patches.
+The time step is limited by the finest grid level.
 """
 function amr_cfl(flow::Flow{D,T}, cp::CompositePoisson{T}) where {D,T}
     # Base CFL
-    dt = CFL(flow)
+    dt_base = CFL(flow)
 
-    # Consider refined patches (finer grid = smaller dt)
+    # Find the maximum refinement ratio across all patches
+    # CFL condition: dt ∝ Δx, so finer grids need smaller dt
+    max_ratio = one(T)
     for (anchor, patch) in cp.patches
-        vel_patch = get_patch(cp.refined_velocity, anchor)
-        vel_patch === nothing && continue
-
-        ratio = refinement_ratio(patch)
-        # Fine grid spacing is 1/ratio of coarse
-        # CFL scales linearly with grid spacing
-        dt = min(dt, dt / ratio)
+        ratio = T(refinement_ratio(patch))
+        max_ratio = max(max_ratio, ratio)
     end
 
-    return dt
+    # Time step is limited by finest grid: dt = dt_base / max_ratio
+    return dt_base / max_ratio
 end
 
 """
