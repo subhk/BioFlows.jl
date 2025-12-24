@@ -165,7 +165,7 @@ end
 
 Correct velocity on all refined patches.
 Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * ∇p
-Uses forward difference to match standard project! convention.
+Uses the same formula as standard project!.
 """
 function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T) where T
     for (anchor, patch) in cp.patches
@@ -174,11 +174,13 @@ function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T) where
 
         p, L = patch.x, patch.L
 
+        # Use the same formula as standard project!
+        # ∂(d,I,p) = p[I+δ(d,I)] - p[I]
         for I in inside(patch)
             fi, fj = I.I
-            # x-velocity correction: u -= (L/ρ) * ∂p/∂x - FORWARD difference
+            # x-velocity correction
             vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi+1, fj] - p[fi, fj])
-            # z-velocity correction: w -= (L/ρ) * ∂p/∂z - FORWARD difference
+            # z-velocity correction
             vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj+1] - p[fi, fj])
         end
     end
