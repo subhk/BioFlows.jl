@@ -38,6 +38,10 @@ at both base and refined levels.
 AMR-aware projection step using composite Poisson solver.
 Projects velocity to divergence-free state at all refinement levels.
 
+Matches the standard project! convention:
+- Poisson equation: L·p = ρ·div(u)
+- Velocity correction: u -= (L/ρ)·∇p
+
 # Arguments
 - `flow`: Flow object (base grid velocity and fields)
 - `cp`: CompositePoisson solver (manages base + patches)
@@ -45,42 +49,49 @@ Projects velocity to divergence-free state at all refinement levels.
 """
 function amr_project!(flow::Flow{D,T}, cp::CompositePoisson{T}, w::Real=1) where {D,T}
     dt = T(w * flow.Δt[end])
-    inv_dt = inv(dt)
+    ρ = flow.ρ
+    inv_ρ = inv(ρ)
 
-    # 1. Set divergence source on base grid
-    @inside flow.σ[I] = div(I, flow.u) * inv_dt
+    # 1. Set divergence source on base grid: RHS = ρ * div(u)
+    # This matches the standard project! convention
+    @inside flow.σ[I] = ρ * div(I, flow.u)
     cp.base.z .= flow.σ
 
-    # 2. Set divergence on refined patches
-    set_all_patch_divergence!(cp, flow.u, dt)
+    # 2. Scale pressure initial guess for warm start (like standard project!)
+    cp.base.x .*= dt
 
-    # 3. Interpolate velocity to refined patches (before solve)
+    # 3. Set divergence on refined patches (using same ρ scaling)
+    set_all_patch_divergence!(cp, flow.u, ρ)
+
+    # 4. Interpolate velocity to refined patches (before solve)
     interpolate_velocity_to_patches!(cp.refined_velocity, flow.u)
 
-    # 4. Solve composite Poisson system
+    # 5. Solve composite Poisson system
     solver!(cp)
 
-    # 5. Correct base grid velocity: u -= dt * L * ∇p
-    correct_base_velocity!(flow, cp.base.x, cp.base.L, dt)
+    # 6. Correct base grid velocity: u -= (L/ρ) * ∇p
+    correct_base_velocity!(flow, cp.base.x, cp.base.L, inv_ρ)
 
-    # 6. Correct refined velocity on patches
-    correct_all_refined_velocity!(cp, dt)
+    # 7. Correct refined velocity on patches
+    correct_all_refined_velocity!(cp, inv_ρ)
 
-    # 7. Enforce interface consistency (flux matching)
+    # 8. Enforce interface consistency (flux matching)
     enforce_all_interface_consistency!(flow.u, cp)
 
-    # 8. Store pressure for output
+    # 9. Unscale pressure for storage (like standard project!)
+    cp.base.x ./= dt
+
+    # 10. Store pressure for output
     flow.p .= cp.base.x
 end
 
 """
-    set_all_patch_divergence!(cp, u_coarse, dt)
+    set_all_patch_divergence!(cp, u_coarse, ρ)
 
 Set divergence source term on all patches.
+RHS = ρ * div(u) to match standard projection convention.
 """
-function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractArray{T}, dt::T) where T
-    inv_dt = inv(dt)
-
+function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractArray{T}, ρ::T) where T
     for (anchor, patch) in cp.patches
         ratio = refinement_ratio(patch)
         ai, aj = anchor
@@ -101,7 +112,8 @@ function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractAr
             div_c = (u_coarse[ic, jc, 1] - u_coarse[ic-1, jc, 1]) +
                     (u_coarse[ic, jc, 2] - u_coarse[ic, jc-1, 2])
 
-            patch.z[I] = div_c * inv_dt
+            # RHS = ρ * div(u) to match standard convention
+            patch.z[I] = ρ * div_c
         end
     end
 end
@@ -133,29 +145,30 @@ function interpolate_velocity_to_patches!(refined_velocity::RefinedVelocityField
 end
 
 """
-    correct_base_velocity!(flow, p, L, dt)
+    correct_base_velocity!(flow, p, L, inv_ρ)
 
 Correct base velocity using pressure gradient.
+Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * ∇p
+This matches the standard project! convention.
 """
 function correct_base_velocity!(flow::Flow{D,T}, p::AbstractArray{T},
-                                L::AbstractArray{T}, dt::T) where {D,T}
-    scale = inv(dt)
+                                L::AbstractArray{T}, inv_ρ::T) where {D,T}
     for I in inside(p)
         for d in 1:D
             δd = δ(d, I)  # Unit offset in direction d
-            flow.u[I, d] -= scale * L[I, d] * (p[I] - p[I-δd])
+            # u -= (L/ρ) * ∂p/∂x = inv_ρ * L * (p[I] - p[I-1])
+            flow.u[I, d] -= inv_ρ * L[I, d] * (p[I] - p[I-δd])
         end
     end
 end
 
 """
-    correct_all_refined_velocity!(cp, dt)
+    correct_all_refined_velocity!(cp, inv_ρ)
 
 Correct velocity on all refined patches.
+Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * ∇p
 """
-function correct_all_refined_velocity!(cp::CompositePoisson{T}, dt::T) where T
-    scale = inv(dt)
-
+function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T) where T
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
@@ -164,10 +177,10 @@ function correct_all_refined_velocity!(cp::CompositePoisson{T}, dt::T) where T
 
         for I in inside(patch)
             fi, fj = I.I
-            # x-velocity correction
-            vel_patch.u[fi, fj, 1] -= scale * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
-            # z-velocity correction
-            vel_patch.u[fi, fj, 2] -= scale * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
+            # x-velocity correction: u -= (L/ρ) * ∂p/∂x
+            vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
+            # z-velocity correction: w -= (L/ρ) * ∂p/∂z
+            vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
         end
     end
 end
@@ -186,6 +199,7 @@ end
     amr_mom_step!(flow::Flow, cp::CompositePoisson; λ=quick)
 
 AMR-aware momentum step using predictor-corrector scheme.
+Closely follows the standard mom_step! algorithm with proper Δx scaling.
 The body is already incorporated into flow.μ₀ and flow.V via measure!().
 
 # Arguments
@@ -195,25 +209,41 @@ The body is already incorporated into flow.μ₀ and flow.V via measure!().
 """
 function amr_mom_step!(flow::Flow{D,T}, cp::CompositePoisson{T};
                        λ=quick) where {D,T}
-    # Predictor step
-    conv_diff!(flow.f, flow.u, flow.σ, λ; ν=flow.ν)
+    # Save current velocity for predictor-corrector (like standard mom_step!)
+    flow.u⁰ .= flow.u
+    scale_u!(flow, zero(T))  # Zero out u for predictor start
+
+    t₁ = sum(flow.Δt)
+    t₀ = t₁ - flow.Δt[end]
+
+    # Predictor step - compute forcing from u⁰
+    conv_diff!(flow.f, flow.u⁰, flow.σ, λ; ν=flow.ν, Δx=flow.Δx, perdir=flow.perdir)
 
     # Apply BDIM (body info is in flow.μ₀ and flow.V)
     BDIM!(flow)
+    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
 
     # Project to divergence-free
     amr_project!(flow, cp)
+    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
 
-    # Corrector step
-    conv_diff!(flow.f, flow.u, flow.σ, λ; ν=flow.ν)
+    # Corrector step - compute forcing from predicted u
+    conv_diff!(flow.f, flow.u, flow.σ, λ; ν=flow.ν, Δx=flow.Δx, perdir=flow.perdir)
 
     BDIM!(flow)
+    scale_u!(flow, T(0.5))  # Average predictor and corrector
+    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
 
     amr_project!(flow, cp, 0.5)
+    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
 
-    # Update time step - IMPORTANT: use amr_cfl to account for refined patches
-    # Refined patches have finer grid spacing, requiring smaller time steps for stability
+    # Update time step - use amr_cfl to account for refined patches
     push!(flow.Δt, amr_cfl(flow, cp))
+end
+
+# Helper to scale velocity field (matches Flow.jl scale_u!)
+@inline function scale_u!(flow::Flow, scale)
+    @loop flow.u[Ii] *= scale over Ii ∈ inside_u(size(flow.p))
 end
 
 """

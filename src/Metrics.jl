@@ -155,10 +155,13 @@ The negative sign is because pressure exerts force inward on the body,
 opposite to the outward normal n̂.
 
 Returns force in Newtons per unit span (N/m) for 2D, or Newtons (N) for 3D.
-The pressure field `p` is in Pa (kg/(m·s²)).
 
-For 2D: The line integral requires arc length element ds = Δx.
-For 3D: The surface integral requires area element dA = Δx² (isotropic grid).
+Note: The Poisson solver uses unit spacing internally, so the stored pressure
+is `p_stored = p_physical / Δx`. The force integral accounts for this:
+    F = -Σ p_stored * n̂ * K(d) * Δx²  (for 2D)
+    F = -Σ p_stored * n̂ * K(d) * Δx³  (for 3D)
+
+This gives F = -Σ p_physical * n̂ * K(d) * Δx = -∮ p_physical * n̂ * ds.
 """
 pressure_force(sim) = pressure_force(sim.flow,sim.body)
 pressure_force(flow,body) = pressure_force(flow.p,flow.Δx,flow.f,body,time(flow))
@@ -166,10 +169,13 @@ function pressure_force(p,Δx,df,body,t=0)
     D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
-    # Arc length element (2D) or area element (3D): Δx^(D-1)
-    ds = prod(Δx)^((D-1)/D)  # Δx for 2D, Δx² for 3D (assuming isotropic)
-    # Compute contribution at each cell: F = -Σ p * n̂ * ds (negative because pressure acts inward)
-    @loop df[I,:] .= -p[I]*nds(body,loc(0,I,Tp),t)*ds over I ∈ inside(p)
+    # The stored pressure is scaled by 1/Δx from the unit-spacing Poisson solver.
+    # To get physical pressure: p_physical = p_stored * Δx
+    # Surface element: ds = Δx for 2D, Δx² for 3D
+    # Combined scale factor: Δx * ds = Δx² for 2D, Δx³ for 3D = prod(Δx)
+    scale = prod(Δx)  # Δx² for 2D (isotropic), Δx³ for 3D
+    # Compute contribution at each cell: F = -Σ p * n̂ * scale (negative because pressure acts inward)
+    @loop df[I,:] .= -p[I]*nds(body,loc(0,I,Tp),t)*scale over I ∈ inside(p)
     # Sum over all spatial dimensions to get total force vector
     sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
@@ -194,8 +200,11 @@ The positive sign comes from the Cauchy stress decomposition:
 Returns force in Newtons per unit span (N/m) for 2D, or Newtons (N) for 3D.
 The viscous stress τ = 2μS = 2ρνS where μ = ρν is dynamic viscosity (Pa·s).
 
-For 2D: The line integral requires arc length element ds = Δx.
-For 3D: The surface integral requires area element dA = Δx² (isotropic grid).
+Note: The strain rate S is computed using unit-spacing derivatives, so
+`S_stored = S_physical * Δx`. The force integral accounts for this:
+    F = +Σ 2μ * S_stored * n̂ * K(d)  (no ds factor needed)
+
+This gives F = +Σ 2μ * S_physical * Δx * n̂ * K(d) = +∮ 2μ * S_physical * n̂ * ds.
 """
 viscous_force(sim) = viscous_force(sim.flow,sim.body)
 viscous_force(flow,body) = viscous_force(flow.u,flow.ν,flow.ρ,flow.Δx,flow.f,body,time(flow))
@@ -204,10 +213,14 @@ function viscous_force(u,ν,ρ,Δx,df,body,t=0)
     Tu = eltype(u); To = promote_type(Float64,Tu)
     μ = ρ * ν  # dynamic viscosity (Pa·s)
     df .= zero(Tu)
-    # Arc length element (2D) or area element (3D): Δx^(D-1)
-    ds = prod(Δx)^((D-1)/D)  # Δx for 2D, Δx² for 3D (assuming isotropic)
+    # The stored strain rate S uses unit-spacing derivatives: S_stored = S_physical * Δx
+    # To get physical strain rate: S_physical = S_stored / Δx
+    # Surface element: ds = Δx for 2D, Δx² for 3D
+    # Combined: (S_stored / Δx) * ds = S_stored for 2D, S_stored * Δx for 3D
+    # For isotropic grid: scale = Δx^(D-2) = 1 for 2D, Δx for 3D
+    scale = prod(Δx)^((D-2)/D)  # 1 for 2D, Δx for 3D (isotropic)
     # F = +∮ 2μS·n̂ ds (viscous traction on body from fluid)
-    @loop df[I,:] .= 2μ*S(I,u)*nds(body,loc(0,I,Tu),t)*ds over I ∈ inside_u(u)
+    @loop df[I,:] .= 2μ*S(I,u)*nds(body,loc(0,I,Tu),t)*scale over I ∈ inside_u(u)
     sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
 
