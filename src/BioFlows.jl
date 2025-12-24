@@ -430,6 +430,9 @@ function AMRSimulation(dims::NTuple{N}, L::NTuple{N};
     # Create composite Poisson solver wrapping the base MultiLevelPoisson
     composite_pois = CompositePoisson(sim.pois; max_level=amr_config.max_level)
 
+    # Set μ₀ reference for flexible body coefficient updates
+    set_μ₀_reference!(composite_pois, sim.flow.μ₀)
+
     # Initialize with nothing for last_body_indicator (will be set on first regrid)
     AMRSimulation(sim, amr_config, refined_grid, composite_pois, adapter, 0, true, nothing)
 end
@@ -778,6 +781,73 @@ function FlexibleBodyAMRConfig(; max_level::Int=2,
 end
 
 """
+    RigidBodyAMRConfig(; kwargs...)
+
+Convenience constructor for AMRConfig optimized for rigid moving bodies
+such as oscillating cylinders, rotating ellipses, or translating objects.
+
+Rigid bodies move without deformation, so the motion pattern is typically
+more predictable than flexible bodies. This configuration uses slightly
+less aggressive regridding than FlexibleBodyAMRConfig.
+
+# Default Settings
+- `flexible_body=true`: Enable motion-adaptive regridding
+- `indicator_change_threshold=0.08`: 8% cell change triggers regrid
+- `min_regrid_interval=3`: Allow regridding every 3 steps
+- `regrid_interval=8`: Check regridding at least every 8 steps
+- `body_distance_threshold=3.0`: Standard refinement region
+
+# Supported Motion Types
+- Translation (e.g., oscillating cylinder)
+- Rotation (e.g., rotating ellipse)
+- Combined translation + rotation
+- Prescribed motion paths
+
+# Example
+```julia
+# Oscillating cylinder with AMR
+sdf(x, t) = norm(x .- center) - radius
+map(x, t) = x .- [0, A*sin(ω*t)]  # Vertical oscillation
+body = AutoBody(sdf, map)
+
+config = RigidBodyAMRConfig(max_level=2)
+sim = AMRSimulation((128, 128), (L, L); body=body, amr_config=config)
+
+for _ in 1:1000
+    sim_step!(sim; remeasure=true)  # Patches follow the cylinder
+end
+```
+"""
+function RigidBodyAMRConfig(; max_level::Int=2,
+                              body_distance_threshold::Real=3.0,
+                              velocity_gradient_threshold::Real=1.0,
+                              vorticity_threshold::Real=1.0,
+                              regrid_interval::Int=8,
+                              buffer_size::Int=2,
+                              body_weight::Real=0.5,
+                              gradient_weight::Real=0.3,
+                              vorticity_weight::Real=0.2,
+                              indicator_change_threshold::Real=0.08,
+                              regrid_on_measure::Bool=false,
+                              min_regrid_interval::Int=3)
+    AMRConfig(;
+        max_level=max_level,
+        body_distance_threshold=body_distance_threshold,
+        velocity_gradient_threshold=velocity_gradient_threshold,
+        vorticity_threshold=vorticity_threshold,
+        regrid_interval=regrid_interval,
+        buffer_size=buffer_size,
+        body_weight=body_weight,
+        gradient_weight=gradient_weight,
+        vorticity_weight=vorticity_weight,
+        flexible_body=true,  # Uses same mechanism as flexible bodies
+        indicator_change_threshold=indicator_change_threshold,
+        regrid_on_measure=regrid_on_measure,
+        min_regrid_interval=min_regrid_interval
+    )
+end
+
+"""
     force_regrid!(amr::AMRSimulation)
 
 Force an immediate regridding operation, regardless of step count or motion detection.
@@ -868,8 +938,9 @@ check_divergence(amr::AMRSimulation; verbose::Bool=false) =
 
 export AMRConfig, AMRSimulation, amr_regrid!, set_amr_active!, get_refinement_indicator
 export amr_info, check_divergence
-# Flexible body AMR exports
-export FlexibleBodyAMRConfig, force_regrid!, reset_body_tracking!
+# Moving body AMR exports (flexible and rigid bodies)
+export FlexibleBodyAMRConfig, RigidBodyAMRConfig
+export force_regrid!, reset_body_tracking!
 export get_body_motion_stats, estimate_body_displacement, should_regrid_for_body_motion
 
 # defaults JLD2 and VTK I/O functions
