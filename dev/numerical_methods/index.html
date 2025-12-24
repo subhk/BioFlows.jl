@@ -246,7 +246,141 @@ for step in 1:1000
     KE = kinetic_energy(get_beam(sim))
     PE = potential_energy(get_beam(sim))
     println(&quot;Step $step: KE=$KE, PE=$PE&quot;)
-end</code></pre><h2 id="Boundary-Conditions-3"><a class="docs-heading-anchor" href="#Boundary-Conditions-3">Boundary Conditions</a><a class="docs-heading-anchor-permalink" href="#Boundary-Conditions-3" title="Permalink"></a></h2><p>BioFlows.jl supports three types of boundary conditions for the domain boundaries (not to be confused with immersed body boundaries handled by BDIM).</p><h3 id="Domain-Boundary-Overview"><a class="docs-heading-anchor" href="#Domain-Boundary-Overview">Domain Boundary Overview</a><a id="Domain-Boundary-Overview-1"></a><a class="docs-heading-anchor-permalink" href="#Domain-Boundary-Overview" title="Permalink"></a></h3><pre><code class="nohighlight hljs">                    Top boundary (j = nz)
+end</code></pre><h3 id="Beam-State-Output"><a class="docs-heading-anchor" href="#Beam-State-Output">Beam State Output</a><a id="Beam-State-Output-1"></a><a class="docs-heading-anchor-permalink" href="#Beam-State-Output" title="Permalink"></a></h3><p>BioFlows provides <code>BeamStateWriter</code> for saving flexible body positions to JLD2 files with configurable save rates. Each beam/flag can have its own separate output file.</p><h4 id="BeamStateWriter"><a class="docs-heading-anchor" href="#BeamStateWriter">BeamStateWriter</a><a id="BeamStateWriter-1"></a><a class="docs-heading-anchor-permalink" href="#BeamStateWriter" title="Permalink"></a></h4><p>The <code>BeamStateWriter</code> records beam state at specified time intervals:</p><pre><code class="language-julia hljs">BeamStateWriter(filename::String; interval::Real=0.01, overwrite::Bool=true)</code></pre><table><tr><th style="text-align: right">Parameter</th><th style="text-align: right">Description</th><th style="text-align: right">Default</th></tr><tr><td style="text-align: right"><code>filename</code></td><td style="text-align: right">Output JLD2 file path</td><td style="text-align: right">Required</td></tr><tr><td style="text-align: right"><code>interval</code></td><td style="text-align: right">Time interval between saves</td><td style="text-align: right">0.01</td></tr><tr><td style="text-align: right"><code>overwrite</code></td><td style="text-align: right">Overwrite existing file</td><td style="text-align: right">true</td></tr></table><p><strong>Saved Data:</strong></p><table><tr><th style="text-align: right">Field</th><th style="text-align: right">Description</th><th style="text-align: right">Shape</th></tr><tr><td style="text-align: right"><code>displacement</code></td><td style="text-align: right">Transverse displacement <span>$w(s)$</span></td><td style="text-align: right"><span>$(n, n_{snap})$</span></td></tr><tr><td style="text-align: right"><code>rotation</code></td><td style="text-align: right">Rotation angle <span>$\theta(s) = \partial w/\partial s$</span></td><td style="text-align: right"><span>$(n, n_{snap})$</span></td></tr><tr><td style="text-align: right"><code>velocity</code></td><td style="text-align: right">Velocity <span>$\dot{w}(s)$</span></td><td style="text-align: right"><span>$(n, n_{snap})$</span></td></tr><tr><td style="text-align: right"><code>curvature</code></td><td style="text-align: right">Curvature <span>$\kappa(s) = \partial\theta/\partial s$</span></td><td style="text-align: right"><span>$(n, n_{snap})$</span></td></tr><tr><td style="text-align: right"><code>moment</code></td><td style="text-align: right">Bending moment <span>$M(s) = EI\kappa$</span></td><td style="text-align: right"><span>$(n, n_{snap})$</span></td></tr><tr><td style="text-align: right"><code>kinetic_energy</code></td><td style="text-align: right">Kinetic energy time series</td><td style="text-align: right"><span>$(n_{snap},)$</span></td></tr><tr><td style="text-align: right"><code>potential_energy</code></td><td style="text-align: right">Potential energy time series</td><td style="text-align: right"><span>$(n_{snap},)$</span></td></tr></table><h4 id="Single-Beam-Output"><a class="docs-heading-anchor" href="#Single-Beam-Output">Single Beam Output</a><a id="Single-Beam-Output-1"></a><a class="docs-heading-anchor-permalink" href="#Single-Beam-Output" title="Permalink"></a></h4><pre><code class="language-julia hljs">using BioFlows
+
+# Create beam
+material = BeamMaterial(ρ=1100.0, E=1e6)
+geometry = BeamGeometry(0.2, 51; thickness=0.01, width=0.05)
+beam = EulerBernoulliBeam(geometry, material;
+                          bc_left=CLAMPED, bc_right=FREE)
+
+# Create writer with 0.01 time unit interval
+writer = BeamStateWriter(&quot;flag_simulation.jld2&quot;; interval=0.01)
+
+# Simulation loop
+dt = 1e-4
+for step in 1:10000
+    t = step * dt
+    fill!(beam.q, 50.0)  # Apply load
+    step!(beam, dt)
+    file_save!(writer, beam, t)
+end
+
+# IMPORTANT: Must close writer to save data to file
+close!(writer, beam)</code></pre><h4 id="Multiple-Beams-(Separate-Files)"><a class="docs-heading-anchor" href="#Multiple-Beams-(Separate-Files)">Multiple Beams (Separate Files)</a><a id="Multiple-Beams-(Separate-Files)-1"></a><a class="docs-heading-anchor-permalink" href="#Multiple-Beams-(Separate-Files)" title="Permalink"></a></h4><p>For simulations with multiple flexible bodies, use <code>BeamStateWriterGroup</code> to create one file per beam:</p><pre><code class="language-julia hljs">using BioFlows
+
+# Create multiple beams with different properties
+n_flags = 5
+beams = [
+    EulerBernoulliBeam(
+        BeamGeometry(0.2, 51; thickness=0.01, width=0.05),
+        BeamMaterial(ρ=1100.0, E=1e6 * i);  # Varying stiffness
+        bc_left=CLAMPED, bc_right=FREE
+    ) for i in 1:n_flags
+]
+
+# Create writer group - generates flag_1.jld2, flag_2.jld2, etc.
+writers = BeamStateWriterGroup(&quot;flag&quot;, n_flags; interval=0.01)
+
+# Simulation loop
+dt = 1e-4
+for step in 1:10000
+    t = step * dt
+    for beam in beams
+        step!(beam, dt)
+    end
+    file_save!(writers, beams, t)  # Save all beams at once
+end
+
+# Close all writers
+close!(writers, beams)</code></pre><h4 id="JLD2-File-Structure"><a class="docs-heading-anchor" href="#JLD2-File-Structure">JLD2 File Structure</a><a id="JLD2-File-Structure-1"></a><a class="docs-heading-anchor-permalink" href="#JLD2-File-Structure" title="Permalink"></a></h4><p>The output JLD2 file has the following hierarchical structure:</p><pre><code class="nohighlight hljs">beam_state.jld2
+├── metadata/
+│   ├── n_snapshots      # Total number of saved snapshots
+│   ├── interval         # Time interval between saves
+│   ├── n_nodes          # Number of beam nodes
+│   └── length           # Beam length L
+├── coordinates/
+│   └── s                # Arc-length coordinates [0, L]
+├── material/
+│   ├── density          # Material density ρ
+│   └── youngs_modulus   # Young&#39;s modulus E
+├── time                 # Time array [t₁, t₂, ..., tₙ]
+├── kinetic_energy       # KE time series
+├── potential_energy     # PE time series
+├── fields/              # Matrices (n_nodes × n_snapshots)
+│   ├── displacement     # w(s, t)
+│   ├── rotation         # θ(s, t)
+│   ├── velocity         # ẇ(s, t)
+│   └── curvature        # κ(s, t)
+└── snapshots/           # Individual snapshot groups
+    ├── 1/
+    │   ├── time
+    │   ├── displacement
+    │   ├── rotation
+    │   ├── velocity
+    │   ├── curvature
+    │   └── moment
+    ├── 2/
+    │   └── ...
+    └── ...</code></pre><h4 id="Reading-Beam-State-Data"><a class="docs-heading-anchor" href="#Reading-Beam-State-Data">Reading Beam State Data</a><a id="Reading-Beam-State-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-Beam-State-Data" title="Permalink"></a></h4><pre><code class="language-julia hljs">using JLD2
+
+jldopen(&quot;flag_simulation.jld2&quot;, &quot;r&quot;) do file
+    # Read metadata
+    n_snapshots = file[&quot;metadata/n_snapshots&quot;]
+    n_nodes = file[&quot;metadata/n_nodes&quot;]
+    L = file[&quot;metadata/length&quot;]
+    println(&quot;Loaded $n_snapshots snapshots, $n_nodes nodes, L=$L m&quot;)
+
+    # Read coordinates
+    s = file[&quot;coordinates/s&quot;]
+
+    # Read time series
+    t = file[&quot;time&quot;]
+    KE = file[&quot;kinetic_energy&quot;]
+    PE = file[&quot;potential_energy&quot;]
+
+    # Read field matrices (efficient for analysis)
+    w = file[&quot;fields/displacement&quot;]  # Shape: (n_nodes, n_snapshots)
+    θ = file[&quot;fields/rotation&quot;]
+    κ = file[&quot;fields/curvature&quot;]
+
+    # Compute tip displacement over time
+    w_tip = w[end, :]
+    println(&quot;Max tip displacement: $(maximum(abs.(w_tip)) * 1000) mm&quot;)
+
+    # Read individual snapshot
+    w_50 = file[&quot;snapshots/50/displacement&quot;]
+    M_50 = file[&quot;snapshots/50/moment&quot;]
+end</code></pre><h4 id="Post-Processing-Example"><a class="docs-heading-anchor" href="#Post-Processing-Example">Post-Processing Example</a><a id="Post-Processing-Example-1"></a><a class="docs-heading-anchor-permalink" href="#Post-Processing-Example" title="Permalink"></a></h4><pre><code class="language-julia hljs">using JLD2
+using Plots
+
+# Load data
+data = load(&quot;flag_simulation.jld2&quot;)
+t = data[&quot;time&quot;]
+s = data[&quot;coordinates/s&quot;]
+w = data[&quot;fields/displacement&quot;]
+KE = data[&quot;kinetic_energy&quot;]
+PE = data[&quot;potential_energy&quot;]
+
+# Plot 1: Energy over time
+p1 = plot(t, KE, label=&quot;Kinetic&quot;, xlabel=&quot;Time (s)&quot;, ylabel=&quot;Energy (J)&quot;)
+plot!(p1, t, PE, label=&quot;Potential&quot;)
+plot!(p1, t, KE .+ PE, label=&quot;Total&quot;, linestyle=:dash)
+
+# Plot 2: Beam shape at different times
+p2 = plot(xlabel=&quot;Arc length s (m)&quot;, ylabel=&quot;Displacement w (m)&quot;)
+for i in [1, 10, 50, 100]
+    plot!(p2, s, w[:, i], label=&quot;t=$(round(t[i], digits=3))&quot;)
+end
+
+# Plot 3: Tip displacement over time
+p3 = plot(t, w[end, :] * 1000,
+          xlabel=&quot;Time (s)&quot;, ylabel=&quot;Tip displacement (mm)&quot;,
+          legend=false)
+
+# Combine plots
+plot(p1, p2, p3, layout=(3, 1), size=(600, 800))
+savefig(&quot;beam_analysis.png&quot;)</code></pre><h2 id="Boundary-Conditions-3"><a class="docs-heading-anchor" href="#Boundary-Conditions-3">Boundary Conditions</a><a class="docs-heading-anchor-permalink" href="#Boundary-Conditions-3" title="Permalink"></a></h2><p>BioFlows.jl supports three types of boundary conditions for the domain boundaries (not to be confused with immersed body boundaries handled by BDIM).</p><h3 id="Domain-Boundary-Overview"><a class="docs-heading-anchor" href="#Domain-Boundary-Overview">Domain Boundary Overview</a><a id="Domain-Boundary-Overview-1"></a><a class="docs-heading-anchor-permalink" href="#Domain-Boundary-Overview" title="Permalink"></a></h3><pre><code class="nohighlight hljs">                    Top boundary (j = nz)
                     ─────────────────────
                     │                   │
                     │                   │
@@ -290,4 +424,4 @@ sim = Simulation((nx, nz), (Lx, Lz);
                  inletBC = (U, 0.0),
                  perdir = (1,))  # Periodic in x (streamwise)</code></pre><h4 id="Closed-Cavity"><a class="docs-heading-anchor" href="#Closed-Cavity">Closed Cavity</a><a id="Closed-Cavity-1"></a><a class="docs-heading-anchor-permalink" href="#Closed-Cavity" title="Permalink"></a></h4><pre><code class="language-julia hljs"># Lid-driven cavity: no outlet, no periodic
 sim = Simulation((nx, nz), (Lx, Lz);
-                 inletBC = (U, 0.0))  # Top wall moves at U</code></pre><h2 id="References"><a class="docs-heading-anchor" href="#References">References</a><a id="References-1"></a><a class="docs-heading-anchor-permalink" href="#References" title="Permalink"></a></h2><ol><li><p>Harlow, F.H. and Welch, J.E. (1965). &quot;Numerical calculation of time-dependent viscous incompressible flow of fluid with free surface.&quot; <em>Physics of Fluids</em>, 8(12), 2182-2189.</p></li><li><p>Weymouth, G.D. and Yue, D.K.P. (2011). &quot;Boundary data immersion method for Cartesian-grid simulations of fluid-body interaction problems.&quot; <em>Journal of Computational Physics</em>, 230(16), 6233-6247.</p></li><li><p>Orlanski, I. (1976). &quot;A simple boundary condition for unbounded hyperbolic flows.&quot; <em>Journal of Computational Physics</em>, 21(3), 251-269.</p></li><li><p>Leonard, B.P. (1979). &quot;A stable and accurate convective modelling procedure based on quadratic upstream interpolation.&quot; <em>Computer Methods in Applied Mechanics and Engineering</em>, 19(1), 59-98. (QUICK scheme)</p></li><li><p>Van Leer, B. (1979). &quot;Towards the ultimate conservative difference scheme. V. A second-order sequel to Godunov&#39;s method.&quot; <em>Journal of Computational Physics</em>, 32(1), 101-136. (Van Leer limiter)</p></li><li><p>Versteeg, H.K. and Malalasekera, W. (2007). <em>An Introduction to Computational Fluid Dynamics: The Finite Volume Method</em>. Pearson Education.</p></li></ol></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../getting_started/">« Getting Started</a><a class="docs-footer-nextpage" href="../core_types/">Core Types »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Wednesday 24 December 2025 20:52">Wednesday 24 December 2025</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+                 inletBC = (U, 0.0))  # Top wall moves at U</code></pre><h2 id="References"><a class="docs-heading-anchor" href="#References">References</a><a id="References-1"></a><a class="docs-heading-anchor-permalink" href="#References" title="Permalink"></a></h2><ol><li><p>Harlow, F.H. and Welch, J.E. (1965). &quot;Numerical calculation of time-dependent viscous incompressible flow of fluid with free surface.&quot; <em>Physics of Fluids</em>, 8(12), 2182-2189.</p></li><li><p>Weymouth, G.D. and Yue, D.K.P. (2011). &quot;Boundary data immersion method for Cartesian-grid simulations of fluid-body interaction problems.&quot; <em>Journal of Computational Physics</em>, 230(16), 6233-6247.</p></li><li><p>Orlanski, I. (1976). &quot;A simple boundary condition for unbounded hyperbolic flows.&quot; <em>Journal of Computational Physics</em>, 21(3), 251-269.</p></li><li><p>Leonard, B.P. (1979). &quot;A stable and accurate convective modelling procedure based on quadratic upstream interpolation.&quot; <em>Computer Methods in Applied Mechanics and Engineering</em>, 19(1), 59-98. (QUICK scheme)</p></li><li><p>Van Leer, B. (1979). &quot;Towards the ultimate conservative difference scheme. V. A second-order sequel to Godunov&#39;s method.&quot; <em>Journal of Computational Physics</em>, 32(1), 101-136. (Van Leer limiter)</p></li><li><p>Versteeg, H.K. and Malalasekera, W. (2007). <em>An Introduction to Computational Fluid Dynamics: The Finite Volume Method</em>. Pearson Education.</p></li></ol></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../getting_started/">« Getting Started</a><a class="docs-footer-nextpage" href="../core_types/">Core Types »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Wednesday 24 December 2025 20:55">Wednesday 24 December 2025</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
