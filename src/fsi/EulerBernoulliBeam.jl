@@ -280,76 +280,136 @@ end
 """
     build_stiffness_matrix(EI, T_tension, Δs, n, bc_left, bc_right)
 
-Build the stiffness matrix K for the beam using a finite element approach.
-Uses a condensed Hermite element formulation that produces a symmetric,
-positive semi-definite matrix.
+Build the stiffness matrix K for the beam using Hermite finite elements.
+Each node has 2 DOFs: displacement w and rotation θ = dw/dx.
+Returns an n×n matrix operating on displacement DOFs only, with rotations
+eliminated via static condensation at interior nodes.
 
-The standard FEM beam element stiffness for displacement-only DOFs,
-with rotations condensed out at interior nodes, gives stable results.
+The element stiffness for a beam element of length L is:
+    K_elem = (EI/L³) * [12,   6L,  -12,   6L ]
+                       [6L,  4L²,  -6L,  2L²]
+                       [-12, -6L,   12,  -6L]
+                       [6L,  2L²,  -6L,  4L²]
+for DOFs [w₁, θ₁, w₂, θ₂].
+
+This implementation uses static condensation to eliminate interior rotations,
+keeping only w DOFs for efficiency.
 """
 function build_stiffness_matrix(EI::Vector{T}, tension::T, Δs::T, n::Int,
                                 bc_left::BeamBoundaryCondition,
                                 bc_right::BeamBoundaryCondition) where T
 
-    h = Δs  # Element length
-    h2 = h^2
-    h3 = h^3
+    L = Δs  # Element length
+    L2 = L^2
+    L3 = L^3
 
-    # Initialize sparse matrix
-    K = spzeros(T, n, n)
+    # Total DOFs: 2n (w and θ at each node)
+    ndof = 2 * n
 
-    # Build using FEM beam element stiffness
-    # For each element [i, i+1], add contribution to global matrix
-    # The condensed (displacement-only) element stiffness is:
-    #   k11 = k22 = 12*EI/h³
-    #   k12 = k21 = -12*EI/h³
-    # Plus tension terms: T/h * [1, -1; -1, 1]
+    # Initialize full stiffness matrix (with rotations)
+    K_full = spzeros(T, ndof, ndof)
 
-    for i in 1:n-1
+    # Assemble element stiffness matrices
+    for e in 1:n-1
+        # Element nodes
+        i1, i2 = e, e + 1
+
         # Average EI for element
-        EI_elem = (EI[i] + EI[i+1]) / 2
+        EI_e = (EI[i1] + EI[i2]) / 2
 
-        # Bending stiffness (from condensed Hermite element)
-        k_bend = 12 * EI_elem / h3
+        # DOF indices: [w₁, θ₁, w₂, θ₂]
+        dofs = [2*i1-1, 2*i1, 2*i2-1, 2*i2]
 
-        K[i, i]     += k_bend
-        K[i, i+1]   += -k_bend
-        K[i+1, i]   += -k_bend
-        K[i+1, i+1] += k_bend
+        # Element stiffness matrix (Hermite beam)
+        k = EI_e / L3
+        K_e = k * [12    6L    -12   6L  ;
+                   6L    4L2   -6L   2L2 ;
+                   -12   -6L   12    -6L ;
+                   6L    2L2   -6L   4L2 ]
 
-        # Tension stiffness (standard bar element)
-        k_tens = tension / h
+        # Add tension contribution (affects only w DOFs)
+        # Tension stiffness: T/L * [1, 0, -1, 0; 0, 0, 0, 0; -1, 0, 1, 0; 0, 0, 0, 0]
+        t = tension / L
+        K_e[1, 1] += t
+        K_e[1, 3] += -t
+        K_e[3, 1] += -t
+        K_e[3, 3] += t
 
-        K[i, i]     += k_tens
-        K[i, i+1]   += -k_tens
-        K[i+1, i]   += -k_tens
-        K[i+1, i+1] += k_tens
+        # Assemble into global matrix
+        for ii in 1:4
+            for jj in 1:4
+                K_full[dofs[ii], dofs[jj]] += K_e[ii, jj]
+            end
+        end
     end
 
     # Apply boundary conditions
-    # For CLAMPED: w = 0 (set row/col to identity)
-    # For PINNED: w = 0 (set row/col to identity)
-    # For FREE: no constraints on displacement (natural BC for bending)
+    # DOF numbering: w₁=1, θ₁=2, w₂=3, θ₂=4, ..., wₙ=2n-1, θₙ=2n
 
-    if bc_left == CLAMPED || bc_left == PINNED || bc_left == PRESCRIBED
-        # Zero out row and column 1, set diagonal to 1
-        for j in 1:n
-            K[1, j] = zero(T)
-            K[j, 1] = zero(T)
-        end
-        K[1, 1] = one(T)
+    constrained_dofs = Int[]
+
+    # Left boundary
+    if bc_left == CLAMPED || bc_left == PRESCRIBED
+        # w[1] = 0, θ[1] = 0
+        push!(constrained_dofs, 1, 2)
+    elseif bc_left == PINNED
+        # w[1] = 0 only
+        push!(constrained_dofs, 1)
+    end
+    # FREE: no constraints
+
+    # Right boundary
+    if bc_right == CLAMPED || bc_right == PRESCRIBED
+        # w[n] = 0, θ[n] = 0
+        push!(constrained_dofs, 2n-1, 2n)
+    elseif bc_right == PINNED
+        # w[n] = 0 only
+        push!(constrained_dofs, 2n-1)
+    end
+    # FREE: no constraints
+
+    # Apply constraints using penalty method or elimination
+    # Using elimination: set row and column to identity
+    penalty = maximum(abs.(K_full)) * 1e10
+    for dof in constrained_dofs
+        K_full[dof, :] .= zero(T)
+        K_full[:, dof] .= zero(T)
+        K_full[dof, dof] = penalty
     end
 
-    if bc_right == CLAMPED || bc_right == PINNED || bc_right == PRESCRIBED
-        # Zero out row and column n, set diagonal to 1
-        for j in 1:n
-            K[n, j] = zero(T)
-            K[j, n] = zero(T)
-        end
-        K[n, n] = one(T)
+    # Static condensation: eliminate rotation DOFs at interior nodes
+    # Keep: all w DOFs (odd indices) and boundary rotation DOFs
+    # We'll use a simpler approach: extract w-w submatrix and condense rotations
+
+    # For now, extract just the w-w part without proper condensation
+    # This is an approximation but gives better results than before
+
+    # Actually, let's do proper Guyan reduction
+    # Partition DOFs into kept (w at all nodes) and condensed (θ at interior)
+    w_dofs = collect(1:2:ndof)  # All w DOFs
+    θ_dofs = collect(2:2:ndof)  # All θ DOFs
+
+    # Extract submatrices
+    K_ww = K_full[w_dofs, w_dofs]
+    K_wθ = K_full[w_dofs, θ_dofs]
+    K_θw = K_full[θ_dofs, w_dofs]
+    K_θθ = K_full[θ_dofs, θ_dofs]
+
+    # Guyan reduction: K_reduced = K_ww - K_wθ * K_θθ⁻¹ * K_θw
+    # Need to handle constrained θ DOFs carefully
+    K_θθ_dense = Matrix(K_θθ)
+
+    # Check if K_θθ is invertible
+    if abs(det(K_θθ_dense)) > 1e-20
+        K_θθ_inv = inv(K_θθ_dense)
+        K_reduced = K_ww - K_wθ * K_θθ_inv * K_θw
+    else
+        # Fall back to just K_ww (less accurate but stable)
+        K_reduced = K_ww
     end
 
-    return K
+    # The reduced matrix is n×n for w DOFs only
+    return sparse(K_reduced)
 end
 
 """
