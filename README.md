@@ -125,42 +125,6 @@ for step in 1:100
 end
 ```
 
-## Module Structure
-
-```
-src/
-├── BioFlows.jl          # Main module with Simulation & AMRSimulation
-├── Flow.jl              # Flow solver (velocity, pressure, mom_step!)
-├── Poisson.jl           # Pressure Poisson solver
-├── MultiLevelPoisson.jl # Multigrid pressure solver
-├── Body.jl              # Abstract body types
-├── AutoBody.jl          # Implicit geometry via SDF
-├── Diagnostics.jl       # Force computation, vorticity
-├── Output.jl            # CenterFieldWriter for JLD2
-├── Metrics.jl           # Mean flow statistics
-├── util.jl              # Macros, boundary conditions
-└── amr/                 # Adaptive mesh refinement
-    ├── amr_types.jl
-    ├── bioflows_amr_adapter.jl
-    └── body_refinement_indicator.jl
-```
-
-## Documentation
-
-See `docs/overview.md` for comprehensive documentation including:
-- Core types: `Simulation`, `Flow`, `AutoBody`
-- AMR system: `AMRSimulation`, `AMRConfig`
-- Diagnostics API
-- Output options
-
-Online documentation: https://subhk.github.io/BioFlows.jl
-
-## Testing
-
-```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
-
 ## Contributing
 
 1. Fork and branch from `main`
@@ -170,6 +134,3 @@ julia --project -e 'using Pkg; Pkg.test()'
 
 Bug reports and feature requests welcome via [GitHub Issues](https://github.com/subhk/BioFlows.jl/issues).
 
-## License
-
-MIT License - see LICENSE file for details.
