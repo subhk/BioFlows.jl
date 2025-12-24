@@ -708,168 +708,284 @@ For **pseudo-SDFs** (implicit functions where $|\nabla \phi| \neq 1$), the dista
 d = \frac{\phi}{|\nabla \phi|}
 ```
 
-## Swimming Fish Kinematics
+## Fluid-Structure Interaction (FSI)
 
-BioFlows implements flexible swimming bodies using traveling wave motion. The fish body is defined by a time-varying SDF based on the centerline displacement.
+BioFlows implements true fluid-structure interaction using the **Euler-Bernoulli beam equation** coupled with the incompressible Navier-Stokes equations. This allows simulation of passive flexible bodies whose deformation is computed from fluid forces, not prescribed.
 
-### Body Centerline
+### Euler-Bernoulli Beam Equation
 
-The fish centerline follows a traveling wave with optional leading edge motion:
-
-```math
-y(s, t) = y_{head}(t) + y_{pitch}(s, t) + y_{wave}(s, t)
-```
-
-where $s \in [0, L]$ is the arc length from head to tail.
-
-#### 1. Leading Edge Heave
-
-Sinusoidal vertical oscillation at the head:
+The governing equation for a flexible beam is:
 
 ```math
-y_{head}(t) = h_{heave} \sin(\omega t + \phi_{heave})
+\rho_s A \frac{\partial^2 w}{\partial t^2} + c \frac{\partial w}{\partial t} + EI \frac{\partial^4 w}{\partial x^4} - T \frac{\partial^2 w}{\partial x^2} = q(x, t) + f_{active}(x, t)
 ```
 
-- $h_{heave}$ = heave amplitude
-- $\omega = 2\pi f$ = angular frequency
-- $\phi_{heave}$ = phase offset
+where:
 
-#### 2. Leading Edge Pitch
+| Symbol | Description | Units |
+|--------|-------------|-------|
+| $\rho_s$ | Beam material density | kg/m³ |
+| $A$ | Cross-sectional area | m² |
+| $c$ | Damping coefficient | kg/(m·s) |
+| $E$ | Young's modulus | Pa |
+| $I$ | Second moment of area | m⁴ |
+| $T$ | Axial tension | N |
+| $w(x, t)$ | Transverse displacement | m |
+| $q(x, t)$ | Distributed fluid load | N/m |
+| $f_{active}(x, t)$ | Active forcing (muscle) | N/m |
 
-Angular oscillation at the head pivot:
+### Physical Interpretation
+
+Each term represents a physical effect:
+
+1. **Inertia**: $\rho_s A \, \partial^2 w/\partial t^2$ — mass times acceleration
+2. **Damping**: $c \, \partial w/\partial t$ — viscous resistance to motion
+3. **Bending**: $EI \, \partial^4 w/\partial x^4$ — resistance to curvature
+4. **Tension**: $-T \, \partial^2 w/\partial x^2$ — stiffening from axial load
+5. **Fluid load**: $q(x, t)$ — pressure forces from surrounding fluid
+6. **Active forcing**: $f_{active}(x, t)$ — muscle activation for swimming
+
+### Boundary Conditions
+
+The beam supports several boundary condition types:
+
+| Type | Conditions | Physical Meaning |
+|------|------------|------------------|
+| **Clamped** | $w = 0, \, w' = 0$ | Fixed position and slope |
+| **Free** | $w'' = 0, \, w''' = 0$ | No moment, no shear |
+| **Pinned** | $w = 0, \, w'' = 0$ | Fixed position, free rotation |
+| **Prescribed** | $w = w_p(t)$ | Time-varying position |
+
+For a fish-like body:
+- **Head (left)**: Clamped or prescribed motion
+- **Tail (right)**: Free
+
+### Two-Way Coupling
+
+The FSI coupling is bidirectional:
+
+#### 1. Fluid → Structure
+
+The fluid exerts pressure forces on the beam:
 
 ```math
-y_{pitch}(s, t) = s \cdot \sin(\theta(t))
+q(s) = \oint p(\mathbf{x}) \, \mathbf{n} \cdot \mathbf{e}_z \, d\ell \approx \Delta p(s) \cdot b(s)
 ```
 
-where the pitch angle is:
+where:
+- $\Delta p = p_{below} - p_{above}$ is the pressure difference across the body
+- $b(s)$ is the local body width
 
-```math
-\theta(t) = \theta_{max} \sin(\omega t + \phi_{pitch})
-```
+#### 2. Structure → Fluid
 
-- $\theta_{max}$ = maximum pitch angle (radians)
-- $\phi_{pitch}$ = pitch phase (typically $\pi/2$ for optimal thrust)
-
-#### 3. Traveling Wave
-
-Body undulation with position-dependent amplitude:
-
-```math
-y_{wave}(s, t) = A(s) \sin(ks - \omega t + \phi)
-```
-
-- $k = 2\pi/\lambda$ = wave number
-- $\lambda$ = wavelength (relative to body length)
-- $A(s)$ = amplitude envelope
-- $\phi$ = phase offset
-
-### Amplitude Envelopes
-
-Different swimming modes have characteristic amplitude distributions:
-
-#### Carangiform (Tail-Dominated)
-
-Typical of tuna, mackerel — stiff body with tail propulsion:
-
-```math
-A(s) = A_{tail} \left(\frac{s}{L}\right)^2
-```
-
-#### Anguilliform (Whole-Body)
-
-Typical of eels, lampreys — entire body participates:
-
-```math
-A(s) = A_{head} + (A_{tail} - A_{head}) \frac{s}{L}
-```
-
-#### Subcarangiform (Intermediate)
-
-Typical of trout, carp — between carangiform and anguilliform:
-
-```math
-A(s) = A_{tail} \left(\frac{s}{L}\right)^{1.5}
-```
-
-### Fish Body SDF
-
-The fish body is modeled as a NACA-like profile with the centerline as its axis:
+The beam deformation updates the body geometry:
 
 ```math
 \phi(\mathbf{x}, t) = |z - z_{body}(x, t)| - h(s)
 ```
 
+where $z_{body}(x, t) = z_{center} + w(s, t)$ is the deformed centerline.
+
+### Numerical Discretization
+
+#### Spatial Discretization
+
+The fourth-order derivative uses a 5-point stencil:
+
+```math
+\frac{\partial^4 w}{\partial x^4}\bigg|_i \approx \frac{w_{i-2} - 4w_{i-1} + 6w_i - 4w_{i+1} + w_{i+2}}{\Delta x^4}
+```
+
+The second-order derivative uses a 3-point stencil:
+
+```math
+\frac{\partial^2 w}{\partial x^2}\bigg|_i \approx \frac{w_{i-1} - 2w_i + w_{i+1}}{\Delta x^2}
+```
+
+#### Time Integration (Newmark-Beta)
+
+The Newmark-beta method provides unconditionally stable time integration:
+
+```math
+w_{n+1} = w_n + \Delta t \, \dot{w}_n + \Delta t^2 \left[ \left(\frac{1}{2} - \beta\right) \ddot{w}_n + \beta \, \ddot{w}_{n+1} \right]
+```
+
+```math
+\dot{w}_{n+1} = \dot{w}_n + \Delta t \left[ (1 - \gamma) \ddot{w}_n + \gamma \, \ddot{w}_{n+1} \right]
+```
+
+With $\beta = 0.25$ and $\gamma = 0.5$ (average acceleration), this is unconditionally stable for any time step.
+
+### Active Forcing for Swimming
+
+#### Traveling Wave Muscle Activation
+
+To simulate active swimming, apply a traveling wave force:
+
+```math
+f_{active}(s, t) = A_{muscle}(s) \sin(ks - \omega t)
+```
+
+where the amplitude envelope $A_{muscle}(s)$ follows the swimming mode:
+
+| Mode | Envelope | Description |
+|------|----------|-------------|
+| Carangiform | $A(s) = A_0 (s/L)^2$ | Tail-dominated |
+| Anguilliform | $A(s) = A_0 (0.3 + 0.7 s/L)$ | Whole-body |
+| Subcarangiform | $A(s) = A_0 (s/L)^{1.5}$ | Intermediate |
+
+#### Heave + Pitch Forcing
+
+For leading-edge oscillation:
+
+```math
+f_{active}(s, t) = f_{heave}(s, t) + f_{pitch}(s, t)
+```
+
 where:
-- $z_{body}(x, t) = z_{center} + y(s, t)$ is the centerline position
-- $h(s) = h_{max} \cdot 4 \frac{s}{L}\left(1 - \frac{s}{L}\right)$ is the local half-thickness (NACA profile)
-- $s = x - x_{head}$ is the position along the body
+- $f_{heave} = A_{heave} \exp(-(s/L)^2/0.01) \sin(\omega t + \phi_{heave})$ — concentrated at head
+- $f_{pitch} = A_{pitch} (s/L) \exp(-(s/L)^2/0.1) \sin(\omega t + \phi_{pitch})$ — moment at head
 
-### Complete Kinematics
+### Fish Body Geometry
 
-Combining all components, the centerline displacement is:
-
-```math
-y(s, t) = h_{heave}\sin(\omega t + \phi_{heave}) + s\sin\left(\theta_{max}\sin(\omega t + \phi_{pitch})\right) + A(s)\sin(ks - \omega t + \phi)
-```
-
-The body velocity at each point is obtained by taking the time derivative:
+The fish body uses a NACA-like thickness profile:
 
 ```math
-\frac{\partial y}{\partial t} = h_{heave}\omega\cos(\omega t + \phi_{heave}) + s\theta_{max}\omega\cos(\omega t + \phi_{pitch})\cos(\theta(t)) - A(s)\omega\cos(ks - \omega t + \phi)
+h(s) = h_{max} \cdot 4 \frac{s}{L} \left(1 - \frac{s}{L}\right)
 ```
 
-### Strouhal Number
+This gives:
+- Zero thickness at head ($s=0$) and tail ($s=L$)
+- Maximum thickness at mid-body ($s=L/2$)
 
-The Strouhal number characterizes the swimming efficiency:
+### Dimensionless Parameters
+
+#### Strouhal Number
 
 ```math
 St = \frac{f \cdot A_{tail}}{U}
 ```
 
-where:
-- $f$ = oscillation frequency
-- $A_{tail}$ = tail amplitude
-- $U$ = swimming velocity
+Optimal swimming: $St \approx 0.2 - 0.4$
 
-Optimal propulsion typically occurs at $St \approx 0.2 - 0.4$.
-
-### Reynolds Number
-
-The Reynolds number based on fish length:
+#### Reynolds Number
 
 ```math
 Re = \frac{U \cdot L}{\nu}
 ```
 
-where:
-- $U$ = characteristic velocity (inflow or swimming speed)
-- $L$ = fish body length
-- $\nu$ = kinematic viscosity
-
-## Fish School Kinematics
-
-For multiple fish, each fish has its own phase offset:
+#### Cauchy Number (Flexibility)
 
 ```math
-y_i(s, t) = y_{head,i}(t) + y_{pitch,i}(s, t) + A(s)\sin(ks - \omega t + \phi_i)
+Ca = \frac{\rho_f U^2 L^3}{EI}
 ```
 
-The combined SDF for the school uses the union operation:
+- $Ca \ll 1$: Rigid body (bending dominates)
+- $Ca \gg 1$: Highly flexible (fluid forces dominate)
+
+#### Mass Ratio
 
 ```math
-\phi_{school}(\mathbf{x}, t) = \min_i \phi_i(\mathbf{x}, t)
+m^* = \frac{\rho_s}{\rho_f}
 ```
 
-### Phase Relationships
+- $m^* \ll 1$: Light structure (strong FSI effects)
+- $m^* \gg 1$: Heavy structure (weak FSI effects)
 
-Different phase relationships create different schooling behaviors:
+### FSI Coupling Algorithm
 
-| Pattern | Phase Offset | Description |
-|---------|--------------|-------------|
-| Synchronized | $\phi_i = 0$ | All fish in phase |
-| Wave | $\phi_i = i \cdot \Delta\phi$ | Progressive phase delay |
-| Alternating | $\phi_i = (i \mod 2) \cdot \pi$ | Adjacent fish anti-phase |
+```
+Algorithm: Two-Way FSI Coupling
+───────────────────────────────────────────────
+Input: Flow state uⁿ, pⁿ; Beam state wⁿ, ẇⁿ
+Output: Flow state uⁿ⁺¹, pⁿ⁺¹; Beam state wⁿ⁺¹, ẇⁿ⁺¹
+
+1. FLUID STEP:
+   a. Update body SDF from wⁿ
+   b. Measure body (compute μ₀, μ₁, V)
+   c. Advance flow: mom_step!(flow, poisson)
+   d. Output: uⁿ⁺¹, pⁿ⁺¹
+
+2. STRUCTURE STEP:
+   For iter = 1 to max_iterations:
+     a. Compute fluid load: q ← integrate(pⁿ⁺¹)
+     b. Set active forcing: f_active ← muscle(s, t)
+     c. Advance beam: Newmark-beta step
+     d. Under-relax: w ← ω·w_new + (1-ω)·w_old
+     e. Check convergence: |w - w_old| < tol ?
+   Output: wⁿ⁺¹, ẇⁿ⁺¹
+
+3. Update time: t ← t + Δt
+```
+
+### Example: Passive Flag in Flow
+
+```julia
+using BioFlows
+
+# Material: flexible rubber sheet
+material = BeamMaterial(ρ=1100.0, E=1e6)
+
+# Geometry: thin flag
+geometry = BeamGeometry(L=0.2, n=51; thickness=0.002, width=0.1)
+
+# Beam: clamped at leading edge, free at trailing edge
+beam = EulerBernoulliBeam(geometry, material;
+                          bc_left=CLAMPED, bc_right=FREE,
+                          damping=0.1)
+
+# Create FSI simulation
+sim = FSISimulation((256, 128), (1.0, 0.5);
+                    beam=beam,
+                    x_head=0.2, z_center=0.25,
+                    ν=0.001, ρ=1000.0,
+                    inletBC=(1.0, 0.0))
+
+# Run simulation
+for step in 1:1000
+    sim_step!(sim)
+end
+```
+
+### Example: Active Swimming Fish
+
+```julia
+using BioFlows
+
+# Material: fish tissue
+material = BeamMaterial(ρ=1050.0, E=5e5)
+
+# Geometry: fish-like profile
+L = 0.2  # Fish length
+h_func = fish_thickness_profile(L, 0.02)
+geometry = BeamGeometry(L, 51; thickness=h_func, width=0.02)
+
+# Active forcing: carangiform swimming
+f_active = traveling_wave_forcing(
+    amplitude=100.0,    # N/m
+    frequency=2.0,      # Hz
+    wavelength=1.0,     # Body lengths
+    envelope=:carangiform,
+    L=L
+)
+
+# Create FSI simulation with muscle activation
+sim = FSISimulation((256, 128), (1.0, 0.5);
+                    beam=beam,
+                    active_forcing=f_active,
+                    x_head=0.2, z_center=0.25,
+                    ν=0.001, ρ=1000.0)
+
+# Run simulation
+for step in 1:1000
+    sim_step!(sim)
+
+    # Monitor energy
+    KE = kinetic_energy(get_beam(sim))
+    PE = potential_energy(get_beam(sim))
+    println("Step $step: KE=$KE, PE=$PE")
+end
+```
 
 ## Boundary Conditions
 

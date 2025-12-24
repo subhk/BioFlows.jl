@@ -965,6 +965,25 @@ export FlexibleBodyAMRConfig, RigidBodyAMRConfig
 export force_regrid!, reset_body_tracking!
 export get_body_motion_stats, estimate_body_displacement, should_regrid_for_body_motion
 
+# =============================================================================
+# FLUID-STRUCTURE INTERACTION (FSI) MODULE
+# =============================================================================
+# Euler-Bernoulli beam coupled with incompressible Navier-Stokes
+# =============================================================================
+
+_silent_include("fsi/EulerBernoulliBeam.jl")
+_silent_include("fsi/FluidStructureCoupling.jl")
+
+# FSI exports
+export BeamBoundaryCondition, CLAMPED, FREE, PINNED, PRESCRIBED
+export BeamMaterial, BeamGeometry, EulerBernoulliBeam
+export fish_thickness_profile
+export FlexibleBodyFSI, FSISimulation
+export traveling_wave_forcing, heave_pitch_forcing
+export get_beam, get_displacement, get_velocity, get_curvature
+export get_bending_moment, kinetic_energy, potential_energy, total_energy
+export set_fluid_load!, set_active_forcing!, get_fluid_load
+
 # defaults JLD2 and VTK I/O functions
 function load!(sim::AbstractSimulation; kwargs...)
     fname = get(Dict(kwargs), :fname, "BioFlows.jld2")
