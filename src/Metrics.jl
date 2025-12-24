@@ -240,6 +240,8 @@ Integrates: M = -∮ (r - x₀) × (p n̂) ds
 
 The negative sign matches the pressure force convention.
 Returns moment in N·m/m (2D) or N·m (3D).
+
+Note: Uses same scaling as pressure_force to account for unit-spacing Poisson solver.
 """
 pressure_moment(x₀,sim) = pressure_moment(x₀,sim.flow,sim.body)
 pressure_moment(x₀,flow,body) = pressure_moment(x₀,flow.p,flow.Δx,flow.f,body,time(flow))
@@ -247,9 +249,9 @@ function pressure_moment(x₀,p,Δx,df,body,t=0)
     D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
-    # Arc length element (2D) or area element (3D)
-    ds = prod(Δx)^((D-1)/D)
-    @loop df[I,:] .= -p[I]*cross(loc(0,I,Tp)-x₀,nds(body,loc(0,I,Tp),t))*ds over I ∈ inside(p)
+    # Same scaling as pressure_force: prod(Δx) = Δx² for 2D, Δx³ for 3D
+    scale = prod(Δx)
+    @loop df[I,:] .= -p[I]*cross(loc(0,I,Tp)-x₀,nds(body,loc(0,I,Tp),t))*scale over I ∈ inside(p)
     sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
 
