@@ -391,7 +391,24 @@ function build_stiffness_matrix(EI::Vector{T}, tension::T, Δs::T, n::Int,
     # Symmetrize for stability
     K = (K + K') / 2
 
-    return sparse(K)
+    # Ensure positive semi-definiteness by shifting eigenvalues if needed
+    # This is a numerical regularization for stability
+    K_dense = Matrix(K)
+    eig_vals = eigvals(Symmetric(K_dense))
+    eig_min = minimum(eig_vals)
+
+    if eig_min < 0
+        # Add regularization to make positive semi-definite
+        # Shift all eigenvalues up so minimum is slightly positive
+        shift = abs(eig_min) + 0.01 * maximum(abs.(eig_vals))
+        for i in 1:n
+            if K_dense[i, i] != one(T)  # Don't modify identity rows
+                K_dense[i, i] += shift
+            end
+        end
+    end
+
+    return sparse(K_dense)
 end
 
 """
