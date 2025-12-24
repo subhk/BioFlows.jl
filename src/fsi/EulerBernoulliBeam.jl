@@ -14,6 +14,7 @@
 
 using LinearAlgebra
 using SparseArrays
+using JLD2
 
 """
     BeamBoundaryCondition
@@ -564,4 +565,305 @@ total_energy(beam::EulerBernoulliBeam) = kinetic_energy(beam) + potential_energy
 # =============================================================================
 function apply_stiffness_bc!(K, n, bc_left, bc_right)
     # Not used in new implementation
+end
+
+# =============================================================================
+# BEAM STATE WRITER - Save beam positions to JLD2 files
+# =============================================================================
+
+"""
+    BeamStateWriter(filename::AbstractString; interval::Real=0.01, overwrite::Bool=true)
+
+Writer for saving flexible body (beam) state to JLD2 files at configurable intervals.
+
+Each beam gets its own file containing time-series data of:
+- Displacement field w(s,t)
+- Rotation field θ(s,t)
+- Velocity field ẇ(s,t)
+- Arc-length coordinates s
+- Curvature κ(s,t)
+- Bending moment M(s,t)
+- Kinetic and potential energy
+
+# Arguments
+- `filename`: Output JLD2 file path (e.g., "beam_1.jld2")
+- `interval`: Time interval between saves (default: 0.01)
+- `overwrite`: If true, overwrite existing file (default: true)
+
+# Example
+```julia
+# Create writers for multiple beams
+beam1_writer = BeamStateWriter("flag_1.jld2"; interval=0.01)
+beam2_writer = BeamStateWriter("flag_2.jld2"; interval=0.01)
+
+# In simulation loop
+for step in 1:1000
+    t = step * dt
+    step!(beam1, dt)
+    step!(beam2, dt)
+
+    file_save!(beam1_writer, beam1, t)
+    file_save!(beam2_writer, beam2, t)
+end
+
+# Close writers when done
+close!(beam1_writer)
+close!(beam2_writer)
+```
+
+# Reading the Output
+```julia
+using JLD2
+
+jldopen("flag_1.jld2", "r") do file
+    # Get metadata
+    s = file["coordinates/s"]
+    n_snapshots = file["metadata/n_snapshots"]
+
+    # Read specific snapshot
+    t = file["snapshots/1/time"]
+    w = file["snapshots/1/displacement"]
+    θ = file["snapshots/1/rotation"]
+    κ = file["snapshots/1/curvature"]
+end
+```
+"""
+mutable struct BeamStateWriter
+    filename::String
+    interval::Float64
+    next_time::Float64
+    samples::Int
+    initialized::Bool
+
+    # History storage
+    time_history::Vector{Float64}
+    displacement_history::Vector{Vector{Float64}}
+    rotation_history::Vector{Vector{Float64}}
+    velocity_history::Vector{Vector{Float64}}
+    curvature_history::Vector{Vector{Float64}}
+    moment_history::Vector{Vector{Float64}}
+    kinetic_energy_history::Vector{Float64}
+    potential_energy_history::Vector{Float64}
+
+    function BeamStateWriter(filename::AbstractString="beam_state.jld2";
+                             interval::Real=0.01,
+                             overwrite::Bool=true)
+        interval > 0 || throw(ArgumentError("interval must be positive"))
+
+        # Handle file creation/overwrite
+        if overwrite && isfile(filename)
+            rm(filename)
+        end
+
+        return new(
+            String(filename),
+            float(interval),
+            0.0,  # Start saving from t=0
+            0,
+            false,
+            Float64[],
+            Vector{Float64}[],
+            Vector{Float64}[],
+            Vector{Float64}[],
+            Vector{Float64}[],
+            Vector{Float64}[],
+            Float64[],
+            Float64[]
+        )
+    end
+end
+
+"""
+    file_save!(writer::BeamStateWriter, beam::EulerBernoulliBeam, t::Real)
+
+Check the time and, if the configured interval has elapsed, save the current
+beam state to the writer's storage.
+
+Returns the writer for chaining.
+"""
+function file_save!(writer::BeamStateWriter, beam::EulerBernoulliBeam, t::Real)
+    if t + eps(writer.interval) < writer.next_time
+        return writer
+    end
+
+    while t + eps(writer.interval) >= writer.next_time
+        _record_beam_state!(writer, beam, t)
+        writer.samples += 1
+        writer.next_time += writer.interval
+    end
+
+    return writer
+end
+
+"""
+Internal function to record beam state to writer's storage.
+"""
+function _record_beam_state!(writer::BeamStateWriter, beam::EulerBernoulliBeam, t::Real)
+    # Record time
+    push!(writer.time_history, t)
+
+    # Record displacement and rotation (copy to avoid aliasing)
+    push!(writer.displacement_history, copy(Vector(beam.w)))
+    push!(writer.rotation_history, copy(Vector(beam.θ)))
+    push!(writer.velocity_history, copy(Vector(beam.w_dot)))
+
+    # Compute and record curvature and moment
+    κ = get_curvature(beam)
+    M = get_bending_moment(beam)
+    push!(writer.curvature_history, copy(κ))
+    push!(writer.moment_history, copy(M))
+
+    # Record energies
+    push!(writer.kinetic_energy_history, kinetic_energy(beam))
+    push!(writer.potential_energy_history, potential_energy(beam))
+end
+
+"""
+    close!(writer::BeamStateWriter, beam::EulerBernoulliBeam)
+
+Finalize and write all accumulated data to the JLD2 file.
+Must be called to save data to disk.
+"""
+function close!(writer::BeamStateWriter, beam::EulerBernoulliBeam)
+    writer.samples == 0 && return writer
+
+    jldopen(writer.filename, "w") do file
+        # Metadata
+        file["metadata/n_snapshots"] = writer.samples
+        file["metadata/interval"] = writer.interval
+        file["metadata/n_nodes"] = beam.n_nodes
+        file["metadata/length"] = beam.geometry.L
+
+        # Coordinates (constant)
+        file["coordinates/s"] = collect(beam.s)
+
+        # Material properties
+        file["material/density"] = beam.material.ρ
+        file["material/youngs_modulus"] = beam.material.E
+
+        # Time series as arrays (more efficient for analysis)
+        file["time"] = writer.time_history
+        file["kinetic_energy"] = writer.kinetic_energy_history
+        file["potential_energy"] = writer.potential_energy_history
+
+        # Snapshots
+        for i in 1:writer.samples
+            group = "snapshots/$i"
+            file["$group/time"] = writer.time_history[i]
+            file["$group/displacement"] = writer.displacement_history[i]
+            file["$group/rotation"] = writer.rotation_history[i]
+            file["$group/velocity"] = writer.velocity_history[i]
+            file["$group/curvature"] = writer.curvature_history[i]
+            file["$group/moment"] = writer.moment_history[i]
+        end
+
+        # Also store as matrices for easy analysis
+        n = beam.n_nodes
+        w_matrix = zeros(n, writer.samples)
+        θ_matrix = zeros(n, writer.samples)
+        v_matrix = zeros(n, writer.samples)
+        κ_matrix = zeros(n, writer.samples)
+
+        for i in 1:writer.samples
+            w_matrix[:, i] = writer.displacement_history[i]
+            θ_matrix[:, i] = writer.rotation_history[i]
+            v_matrix[:, i] = writer.velocity_history[i]
+            κ_matrix[:, i] = writer.curvature_history[i]
+        end
+
+        file["fields/displacement"] = w_matrix
+        file["fields/rotation"] = θ_matrix
+        file["fields/velocity"] = v_matrix
+        file["fields/curvature"] = κ_matrix
+    end
+
+    return writer
+end
+
+"""
+    reset!(writer::BeamStateWriter)
+
+Reset the writer to start fresh. Does not delete the existing file.
+"""
+function reset!(writer::BeamStateWriter)
+    writer.samples = 0
+    writer.next_time = 0.0
+    writer.initialized = false
+    empty!(writer.time_history)
+    empty!(writer.displacement_history)
+    empty!(writer.rotation_history)
+    empty!(writer.velocity_history)
+    empty!(writer.curvature_history)
+    empty!(writer.moment_history)
+    empty!(writer.kinetic_energy_history)
+    empty!(writer.potential_energy_history)
+    return writer
+end
+
+"""
+    BeamStateWriterGroup(prefix::AbstractString, n_beams::Int; kwargs...)
+
+Create multiple BeamStateWriters for a group of beams.
+Files are named `{prefix}_1.jld2`, `{prefix}_2.jld2`, etc.
+
+# Example
+```julia
+# Create writers for 5 flags
+writers = BeamStateWriterGroup("flag", 5; interval=0.01)
+
+# In simulation loop
+for step in 1:1000
+    t = step * dt
+    for (i, beam) in enumerate(beams)
+        step!(beam, dt)
+        file_save!(writers[i], beam, t)
+    end
+end
+
+# Close all writers
+close!(writers, beams)
+```
+"""
+struct BeamStateWriterGroup
+    writers::Vector{BeamStateWriter}
+
+    function BeamStateWriterGroup(prefix::AbstractString, n_beams::Int;
+                                   interval::Real=0.01,
+                                   overwrite::Bool=true)
+        writers = [BeamStateWriter("$(prefix)_$i.jld2";
+                                    interval=interval,
+                                    overwrite=overwrite)
+                   for i in 1:n_beams]
+        return new(writers)
+    end
+end
+
+# Array-like access
+Base.getindex(g::BeamStateWriterGroup, i::Int) = g.writers[i]
+Base.length(g::BeamStateWriterGroup) = length(g.writers)
+Base.iterate(g::BeamStateWriterGroup) = iterate(g.writers)
+Base.iterate(g::BeamStateWriterGroup, state) = iterate(g.writers, state)
+
+"""
+    file_save!(group::BeamStateWriterGroup, beams::Vector{<:EulerBernoulliBeam}, t::Real)
+
+Save state for all beams in a group.
+"""
+function file_save!(group::BeamStateWriterGroup, beams::AbstractVector{<:EulerBernoulliBeam}, t::Real)
+    for (writer, beam) in zip(group.writers, beams)
+        file_save!(writer, beam, t)
+    end
+    return group
+end
+
+"""
+    close!(group::BeamStateWriterGroup, beams::Vector{<:EulerBernoulliBeam})
+
+Close all writers in a group.
+"""
+function close!(group::BeamStateWriterGroup, beams::AbstractVector{<:EulerBernoulliBeam})
+    for (writer, beam) in zip(group.writers, beams)
+        close!(writer, beam)
+    end
+    return group
 end
