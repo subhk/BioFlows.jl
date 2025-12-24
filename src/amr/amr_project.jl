@@ -149,18 +149,14 @@ end
 
 Correct base velocity using pressure gradient.
 Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * ∇p
-This matches the standard project! convention which uses forward difference.
+Uses the same formula as standard project!: u -= L*∂(d,I,p)/ρ
 """
 function correct_base_velocity!(flow::Flow{D,T}, p::AbstractArray{T},
                                 L::AbstractArray{T}, inv_ρ::T) where {D,T}
-    for I in inside(p)
-        for d in 1:D
-            δd = δ(d, I)  # Unit offset in direction d
-            # u -= (L/ρ) * ∂p/∂x = inv_ρ * L * (p[I+1] - p[I]) - FORWARD difference
-            # This matches standard project!: a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)/ρ
-            # where ∂(i,I,x) = x[I+δ(i,I)] - x[I]
-            flow.u[I, d] -= inv_ρ * L[I, d] * (p[I+δd] - p[I])
-        end
+    # Use the same formula as standard project!
+    # a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)/ρ where ∂(i,I,x) = x[I+δ(i,I)] - x[I]
+    for d in 1:D
+        @loop flow.u[I, d] -= inv_ρ * L[I, d] * ∂(d, I, p) over I ∈ inside(p)
     end
 end
 
