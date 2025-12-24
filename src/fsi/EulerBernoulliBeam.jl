@@ -280,136 +280,118 @@ end
 """
     build_stiffness_matrix(EI, T_tension, Δs, n, bc_left, bc_right)
 
-Build the stiffness matrix K for the beam using Hermite finite elements.
-Each node has 2 DOFs: displacement w and rotation θ = dw/dx.
-Returns an n×n matrix operating on displacement DOFs only, with rotations
-eliminated via static condensation at interior nodes.
+Build the stiffness matrix K for the beam using standard finite difference.
+Uses the symmetric 5-point stencil for the 4th derivative.
 
-The element stiffness for a beam element of length L is:
-    K_elem = (EI/L³) * [12,   6L,  -12,   6L ]
-                       [6L,  4L²,  -6L,  2L²]
-                       [-12, -6L,   12,  -6L]
-                       [6L,  2L²,  -6L,  4L²]
-for DOFs [w₁, θ₁, w₂, θ₂].
-
-This implementation uses static condensation to eliminate interior rotations,
-keeping only w DOFs for efficiency.
+For stability, uses a regularized approach near boundaries.
 """
 function build_stiffness_matrix(EI::Vector{T}, tension::T, Δs::T, n::Int,
                                 bc_left::BeamBoundaryCondition,
                                 bc_right::BeamBoundaryCondition) where T
 
-    L = Δs  # Element length
-    L2 = L^2
-    L3 = L^3
+    h = Δs
+    h2 = h^2
+    h4 = h^4
 
-    # Total DOFs: 2n (w and θ at each node)
-    ndof = 2 * n
+    # Initialize matrix
+    K = zeros(T, n, n)
 
-    # Initialize full stiffness matrix (with rotations)
-    K_full = spzeros(T, ndof, ndof)
+    # Standard 5-point stencil for EI * d⁴w/dx⁴: [1, -4, 6, -4, 1] / h⁴
+    # Standard 3-point stencil for -T * d²w/dx²: [-1, 2, -1] / h²
 
-    # Assemble element stiffness matrices
-    for e in 1:n-1
-        # Element nodes
-        i1, i2 = e, e + 1
-
-        # Average EI for element
-        EI_e = (EI[i1] + EI[i2]) / 2
-
-        # DOF indices: [w₁, θ₁, w₂, θ₂]
-        dofs = [2*i1-1, 2*i1, 2*i2-1, 2*i2]
-
-        # Element stiffness matrix (Hermite beam)
-        k = EI_e / L3
-        K_e = k * [12    6L    -12   6L  ;
-                   6L    4L2   -6L   2L2 ;
-                   -12   -6L   12    -6L ;
-                   6L    2L2   -6L   4L2 ]
-
-        # Add tension contribution (affects only w DOFs)
-        # Tension stiffness: T/L * [1, 0, -1, 0; 0, 0, 0, 0; -1, 0, 1, 0; 0, 0, 0, 0]
-        t = tension / L
-        K_e[1, 1] += t
-        K_e[1, 3] += -t
-        K_e[3, 1] += -t
-        K_e[3, 3] += t
-
-        # Assemble into global matrix
-        for ii in 1:4
-            for jj in 1:4
-                K_full[dofs[ii], dofs[jj]] += K_e[ii, jj]
-            end
-        end
+    # Interior nodes: full stencil
+    for i in 3:n-2
+        EI_i = EI[i]
+        K[i, i-2] += EI_i / h4
+        K[i, i-1] += -4 * EI_i / h4 - tension / h2
+        K[i, i]   += 6 * EI_i / h4 + 2 * tension / h2
+        K[i, i+1] += -4 * EI_i / h4 - tension / h2
+        K[i, i+2] += EI_i / h4
     end
 
-    # Apply boundary conditions
-    # DOF numbering: w₁=1, θ₁=2, w₂=3, θ₂=4, ..., wₙ=2n-1, θₙ=2n
+    # === Handle boundaries ===
 
-    constrained_dofs = Int[]
-
-    # Left boundary
+    # CLAMPED left: w[1] = 0, w'[1] = 0
+    # Ghost node: w[0] = w[2] (from w'[1] = 0 with w[1] = 0)
     if bc_left == CLAMPED || bc_left == PRESCRIBED
-        # w[1] = 0, θ[1] = 0
-        push!(constrained_dofs, 1, 2)
+        # Node 1: constrained
+        K[1, :] .= zero(T)
+        K[1, 1] = one(T)
+
+        # Node 2: use ghost w[0] = w[2]
+        # Stencil: (w[0] - 4w[1] + 6w[2] - 4w[3] + w[4]) / h⁴
+        # = (w[2] - 0 + 6w[2] - 4w[3] + w[4]) / h⁴ = (7w[2] - 4w[3] + w[4]) / h⁴
+        EI_2 = EI[2]
+        K[2, 2] = 7 * EI_2 / h4 + 2 * tension / h2
+        K[2, 3] = -4 * EI_2 / h4 - tension / h2
+        K[2, 4] = EI_2 / h4
     elseif bc_left == PINNED
-        # w[1] = 0 only
-        push!(constrained_dofs, 1)
-    end
-    # FREE: no constraints
+        K[1, :] .= zero(T)
+        K[1, 1] = one(T)
+        # w''[1] = 0: ghost w[0] = -w[2]
+        EI_2 = EI[2]
+        K[2, 2] = 5 * EI_2 / h4 + 2 * tension / h2
+        K[2, 3] = -4 * EI_2 / h4 - tension / h2
+        K[2, 4] = EI_2 / h4
+    else  # FREE left
+        EI_1 = EI[1]
+        EI_2 = EI[2]
+        # Reduced accuracy stencils
+        K[1, 1] = 2 * EI_1 / h4
+        K[1, 2] = -4 * EI_1 / h4
+        K[1, 3] = 2 * EI_1 / h4
 
-    # Right boundary
+        K[2, 1] = -4 * EI_2 / h4
+        K[2, 2] = 6 * EI_2 / h4 + 2 * tension / h2
+        K[2, 3] = -4 * EI_2 / h4 - tension / h2
+        K[2, 4] = EI_2 / h4
+    end
+
+    # CLAMPED right: w[n] = 0, w'[n] = 0
     if bc_right == CLAMPED || bc_right == PRESCRIBED
-        # w[n] = 0, θ[n] = 0
-        push!(constrained_dofs, 2n-1, 2n)
+        K[n, :] .= zero(T)
+        K[n, n] = one(T)
+
+        # Node n-1: ghost w[n+1] = w[n-1]
+        EI_nm1 = EI[n-1]
+        K[n-1, n-3] = EI_nm1 / h4
+        K[n-1, n-2] = -4 * EI_nm1 / h4 - tension / h2
+        K[n-1, n-1] = 7 * EI_nm1 / h4 + 2 * tension / h2
     elseif bc_right == PINNED
-        # w[n] = 0 only
-        push!(constrained_dofs, 2n-1)
-    end
-    # FREE: no constraints
+        K[n, :] .= zero(T)
+        K[n, n] = one(T)
+        EI_nm1 = EI[n-1]
+        K[n-1, n-3] = EI_nm1 / h4
+        K[n-1, n-2] = -4 * EI_nm1 / h4 - tension / h2
+        K[n-1, n-1] = 5 * EI_nm1 / h4 + 2 * tension / h2
+    else  # FREE right
+        # Ghost: w[n+1] = 2w[n] - w[n-1], w[n+2] = 4w[n] - 4w[n-1] + w[n-2]
+        EI_n = EI[n]
+        EI_nm1 = EI[n-1]
 
-    # Apply constraints using penalty method or elimination
-    # Using elimination: set row and column to identity
-    penalty = maximum(abs.(K_full)) * 1e10
-    for dof in constrained_dofs
-        K_full[dof, :] .= zero(T)
-        K_full[:, dof] .= zero(T)
-        K_full[dof, dof] = penalty
-    end
+        # Node n-1
+        # Stencil at n-1: [1, -4, 6, -4, 1] at [n-3, n-2, n-1, n, n+1]
+        # w[n+1] = 2w[n] - w[n-1]
+        # → [1, -4, 6-1, -4+2, 0] = [1, -4, 5, -2, 0]
+        K[n-1, n-3] = EI_nm1 / h4
+        K[n-1, n-2] = -4 * EI_nm1 / h4 - tension / h2
+        K[n-1, n-1] = 5 * EI_nm1 / h4 + 2 * tension / h2
+        K[n-1, n]   = -2 * EI_nm1 / h4 - tension / h2
 
-    # Static condensation: eliminate rotation DOFs at interior nodes
-    # Keep: all w DOFs (odd indices) and boundary rotation DOFs
-    # We'll use a simpler approach: extract w-w submatrix and condense rotations
-
-    # For now, extract just the w-w part without proper condensation
-    # This is an approximation but gives better results than before
-
-    # Actually, let's do proper Guyan reduction
-    # Partition DOFs into kept (w at all nodes) and condensed (θ at interior)
-    w_dofs = collect(1:2:ndof)  # All w DOFs
-    θ_dofs = collect(2:2:ndof)  # All θ DOFs
-
-    # Extract submatrices
-    K_ww = K_full[w_dofs, w_dofs]
-    K_wθ = K_full[w_dofs, θ_dofs]
-    K_θw = K_full[θ_dofs, w_dofs]
-    K_θθ = K_full[θ_dofs, θ_dofs]
-
-    # Guyan reduction: K_reduced = K_ww - K_wθ * K_θθ⁻¹ * K_θw
-    # Need to handle constrained θ DOFs carefully
-    K_θθ_dense = Matrix(K_θθ)
-
-    # Check if K_θθ is invertible
-    if abs(det(K_θθ_dense)) > 1e-20
-        K_θθ_inv = inv(K_θθ_dense)
-        K_reduced = K_ww - K_wθ * K_θθ_inv * K_θw
-    else
-        # Fall back to just K_ww (less accurate but stable)
-        K_reduced = K_ww
+        # Node n
+        # Stencil at n: [1, -4, 6, -4, 1] at [n-2, n-1, n, n+1, n+2]
+        # Substitute ghost nodes:
+        # = w[n-2] - 4w[n-1] + 6w[n] - 4(2w[n]-w[n-1]) + (4w[n]-4w[n-1]+w[n-2])
+        # = 2w[n-2] - 4w[n-1] + 2w[n]
+        K[n, n-2] = 2 * EI_n / h4
+        K[n, n-1] = -4 * EI_n / h4
+        K[n, n]   = 2 * EI_n / h4
     end
 
-    # The reduced matrix is n×n for w DOFs only
-    return sparse(K_reduced)
+    # Symmetrize for stability
+    K = (K + K') / 2
+
+    return sparse(K)
 end
 
 """
