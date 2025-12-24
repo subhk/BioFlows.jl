@@ -149,7 +149,10 @@ end
 
 Compute the pressure force on an immersed body.
 Integrates pressure times surface normal over the body using BDIM weighting:
-    F = ∮ p n̂ ds
+    F = -∮ p n̂ ds
+
+The negative sign is because pressure exerts force inward on the body,
+opposite to the outward normal n̂.
 
 Returns force in Newtons per unit span (N/m) for 2D, or Newtons (N) for 3D.
 The pressure field `p` is in Pa (kg/(m·s²)).
@@ -165,8 +168,8 @@ function pressure_force(p,Δx,df,body,t=0)
     df .= zero(Tp)
     # Arc length element (2D) or area element (3D): Δx^(D-1)
     ds = prod(Δx)^((D-1)/D)  # Δx for 2D, Δx² for 3D (assuming isotropic)
-    # Compute contribution at each cell: F = Σ p * n̂ * ds
-    @loop df[I,:] .= p[I]*nds(body,loc(0,I,Tp),t)*ds over I ∈ inside(p)
+    # Compute contribution at each cell: F = -Σ p * n̂ * ds (negative because pressure acts inward)
+    @loop df[I,:] .= -p[I]*nds(body,loc(0,I,Tp),t)*ds over I ∈ inside(p)
     # Sum over all spatial dimensions to get total force vector
     sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
@@ -216,8 +219,9 @@ using LinearAlgebra: cross
     pressure_moment(x₀,sim::Simulation)
 
 Computes the pressure moment on an immersed body relative to point x₀.
-Integrates: M = ∮ (r - x₀) × (p n̂) ds
+Integrates: M = -∮ (r - x₀) × (p n̂) ds
 
+The negative sign matches the pressure force convention.
 Returns moment in N·m/m (2D) or N·m (3D).
 """
 pressure_moment(x₀,sim) = pressure_moment(x₀,sim.flow,sim.body)
@@ -228,7 +232,7 @@ function pressure_moment(x₀,p,Δx,df,body,t=0)
     df .= zero(Tp)
     # Arc length element (2D) or area element (3D)
     ds = prod(Δx)^((D-1)/D)
-    @loop df[I,:] .= p[I]*cross(loc(0,I,Tp)-x₀,nds(body,loc(0,I,Tp),t))*ds over I ∈ inside(p)
+    @loop df[I,:] .= -p[I]*cross(loc(0,I,Tp)-x₀,nds(body,loc(0,I,Tp),t))*ds over I ∈ inside(p)
     sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
 

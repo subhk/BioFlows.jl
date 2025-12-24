@@ -236,19 +236,24 @@ function orbiting_cylinder_amr_sim(; n::Int=4*2^5, m::Int=4*2^5,
     cylinder_radius = m / 12
     domain_center = SVector(n / 2, m / 2)
 
+    # Initial center position (at t=0)
+    center_at_0 = domain_center .+ orbit_radius .* SVector(1.0, 0.0)
+
     # Center of cylinder orbits around domain center
     function orbit_center(t)
         θ = 2π * t / orbit_period
         domain_center .+ orbit_radius .* SVector(cos(θ), sin(θ))
     end
 
-    sdf(x, t) = norm(x .- orbit_center(t)) - cylinder_radius
+    # SDF in reference frame (time-independent)
+    sdf(x, t) = norm(x .- center_at_0) - cylinder_radius
 
-    # Map: translate point by negative displacement
+    # Map: translate point back to reference frame
+    # For AutoBody with compose=true: sdf'(x,t) = sdf(map(x,t), t)
+    # = norm((x - displacement) - center_at_0) - radius
+    # = norm(x - center_at_t) - radius (correct distance to current position)
     function move(x, t)
-        center_at_t = orbit_center(t)
-        center_at_0 = orbit_center(0)
-        displacement = center_at_t .- center_at_0
+        displacement = orbit_center(t) .- center_at_0
         return x .- displacement
     end
 
