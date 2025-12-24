@@ -281,7 +281,71 @@ for i in 1:beam.geometry.n
 end
 
 # Reset to zero
-reset!(beam)</code></pre><h3 id="Static-Analysis-(Point-Loads)"><a class="docs-heading-anchor" href="#Static-Analysis-(Point-Loads)">Static Analysis (Point Loads)</a><a id="Static-Analysis-(Point-Loads)-1"></a><a class="docs-heading-anchor-permalink" href="#Static-Analysis-(Point-Loads)" title="Permalink"></a></h3><p>For static problems, solve K*u = F directly:</p><pre><code class="language-julia hljs">using LinearAlgebra
+reset!(beam)</code></pre><h3 id="Saving-Beam-State-to-Files"><a class="docs-heading-anchor" href="#Saving-Beam-State-to-Files">Saving Beam State to Files</a><a id="Saving-Beam-State-to-Files-1"></a><a class="docs-heading-anchor-permalink" href="#Saving-Beam-State-to-Files" title="Permalink"></a></h3><p>Save flexible body positions to JLD2 files with configurable save rates:</p><pre><code class="language-julia hljs">using BioFlows
+
+# Create beam
+material = BeamMaterial(ρ=1100.0, E=1e6)
+geometry = BeamGeometry(0.2, 51; thickness=0.01, width=0.05)
+beam = EulerBernoulliBeam(geometry, material; bc_left=CLAMPED, bc_right=FREE)
+
+# Create writer - saves every 0.01 time units
+writer = BeamStateWriter(&quot;flag_1.jld2&quot;; interval=0.01)
+
+# Simulation loop
+dt = 1e-4
+for step in 1:10000
+    t = step * dt
+    fill!(beam.q, 50.0)  # Apply load
+    step!(beam, dt)
+    file_save!(writer, beam, t)
+end
+
+# IMPORTANT: Close writer to save data to file
+close!(writer, beam)</code></pre><h3 id="Multiple-Flags-(Separate-Files)"><a class="docs-heading-anchor" href="#Multiple-Flags-(Separate-Files)">Multiple Flags (Separate Files)</a><a id="Multiple-Flags-(Separate-Files)-1"></a><a class="docs-heading-anchor-permalink" href="#Multiple-Flags-(Separate-Files)" title="Permalink"></a></h3><p>For multiple flexible bodies, each gets its own file:</p><pre><code class="language-julia hljs"># Create 5 flags with different properties
+n_flags = 5
+beams = [
+    EulerBernoulliBeam(
+        BeamGeometry(0.2, 51; thickness=0.01, width=0.05),
+        BeamMaterial(ρ=1100.0, E=1e6 * i);  # Different stiffness
+        bc_left=CLAMPED, bc_right=FREE
+    ) for i in 1:n_flags
+]
+
+# Create writer group - creates flag_1.jld2, flag_2.jld2, etc.
+writers = BeamStateWriterGroup(&quot;flag&quot;, n_flags; interval=0.01)
+
+# Simulation loop
+for step in 1:10000
+    t = step * dt
+    for beam in beams
+        step!(beam, dt)
+    end
+    file_save!(writers, beams, t)  # Save all beams
+end
+
+# Close all writers
+close!(writers, beams)</code></pre><h3 id="Reading-Beam-State-Files"><a class="docs-heading-anchor" href="#Reading-Beam-State-Files">Reading Beam State Files</a><a id="Reading-Beam-State-Files-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-Beam-State-Files" title="Permalink"></a></h3><pre><code class="language-julia hljs">using JLD2
+
+jldopen(&quot;flag_1.jld2&quot;, &quot;r&quot;) do file
+    # Metadata
+    n_snapshots = file[&quot;metadata/n_snapshots&quot;]
+    n_nodes = file[&quot;metadata/n_nodes&quot;]
+    L = file[&quot;metadata/length&quot;]
+
+    # Time series
+    t = file[&quot;time&quot;]
+    KE = file[&quot;kinetic_energy&quot;]
+    PE = file[&quot;potential_energy&quot;]
+
+    # Field matrices (n_nodes × n_snapshots)
+    w = file[&quot;fields/displacement&quot;]
+    θ = file[&quot;fields/rotation&quot;]
+    κ = file[&quot;fields/curvature&quot;]
+
+    # Individual snapshots
+    w_10 = file[&quot;snapshots/10/displacement&quot;]
+    θ_10 = file[&quot;snapshots/10/rotation&quot;]
+end</code></pre><h3 id="Static-Analysis-(Point-Loads)"><a class="docs-heading-anchor" href="#Static-Analysis-(Point-Loads)">Static Analysis (Point Loads)</a><a id="Static-Analysis-(Point-Loads)-1"></a><a class="docs-heading-anchor-permalink" href="#Static-Analysis-(Point-Loads)" title="Permalink"></a></h3><p>For static problems, solve K*u = F directly:</p><pre><code class="language-julia hljs">using LinearAlgebra
 
 # Create beam
 beam = EulerBernoulliBeam(geometry, material;
@@ -312,4 +376,4 @@ sim = Simulation((256, 128), (1, 0), 16.0;
                  body = AutoBody(sdf),
                  mem = CuArray)  # Use GPU arrays
 
-sim_step!(sim, 10.0)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../diagnostics/">« Diagnostics</a><a class="docs-footer-nextpage" href="../api/">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Wednesday 24 December 2025 20:50">Wednesday 24 December 2025</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+sim_step!(sim, 10.0)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../diagnostics/">« Diagnostics</a><a class="docs-footer-nextpage" href="../api/">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Wednesday 24 December 2025 20:52">Wednesday 24 December 2025</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
