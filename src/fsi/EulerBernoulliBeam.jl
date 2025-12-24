@@ -418,21 +418,21 @@ end
 Get the displacement field w(s) at each node.
 """
 function get_displacement(beam::EulerBernoulliBeam)
-    return beam.u[1:2:end]  # w values are at odd indices
+    return @view beam.u[1:2:end]  # w values are at odd indices
 end
 
 # For compatibility, also expose as beam.w
 function Base.getproperty(beam::EulerBernoulliBeam, sym::Symbol)
     if sym === :w
-        return beam.u[1:2:end]
+        return @view getfield(beam, :u)[1:2:end]
     elseif sym === :w_dot
-        return beam.u_dot[1:2:end]
+        return @view getfield(beam, :u_dot)[1:2:end]
     elseif sym === :w_ddot
-        return beam.u_ddot[1:2:end]
+        return @view getfield(beam, :u_ddot)[1:2:end]
     elseif sym === :θ
-        return beam.u[2:2:end]
+        return @view getfield(beam, :u)[2:2:end]
     elseif sym === :θ_dot
-        return beam.u_dot[2:2:end]
+        return @view getfield(beam, :u_dot)[2:2:end]
     else
         return getfield(beam, sym)
     end
@@ -443,14 +443,14 @@ end
 
 Get the velocity field ∂w/∂t at each node.
 """
-get_velocity(beam::EulerBernoulliBeam) = beam.u_dot[1:2:end]
+get_velocity(beam::EulerBernoulliBeam) = @view beam.u_dot[1:2:end]
 
 """
     get_rotation(beam) -> Vector
 
 Get the rotation field θ = ∂w/∂x at each node.
 """
-get_rotation(beam::EulerBernoulliBeam) = beam.u[2:2:end]
+get_rotation(beam::EulerBernoulliBeam) = @view beam.u[2:2:end]
 
 """
     get_curvature(beam) -> Vector
