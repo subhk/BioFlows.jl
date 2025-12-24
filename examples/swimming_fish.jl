@@ -875,6 +875,315 @@ function run_swimming_fish_amr(; steps::Int=500, verbose_amr::Bool=false, kwargs
 end
 
 # =============================================================================
+# FLUID-STRUCTURE INTERACTION (FSI) FISH SIMULATION
+# =============================================================================
+# Uses Euler-Bernoulli beam equation for true flexible body dynamics:
+#   ρₛA ∂²w/∂t² + c ∂w/∂t + EI ∂⁴w/∂x⁴ = q(x,t) + f_active(x,t)
+# =============================================================================
+
+"""
+    fsi_swimming_fish(; nx=256, nz=128, kwargs...)
+
+Create a swimming fish simulation with true fluid-structure interaction.
+The fish body is modeled as an Euler-Bernoulli beam with:
+- Material properties (density, Young's modulus)
+- Active muscle forcing (traveling wave actuation)
+- Fluid pressure feedback on the beam
+
+# Structural Parameters
+- `beam_density`: Material density (kg/m³), default 1100 (fish tissue)
+- `young_modulus`: Young's modulus (Pa), default 1e6 (flexible tissue)
+- `beam_damping`: Structural damping coefficient, default 0.1
+
+# Active Forcing Parameters
+- `force_amplitude`: Muscle force amplitude (N/m), default 50.0
+- `force_frequency`: Actuation frequency (Hz), default 2.0
+- `force_wavelength`: Traveling wave wavelength relative to body, default 1.0
+- `force_envelope`: Amplitude envelope (:carangiform, :anguilliform), default :carangiform
+
+# Example
+```julia
+sim, beam = fsi_swimming_fish(
+    force_amplitude=100.0,
+    force_frequency=2.0,
+    force_envelope=:carangiform
+)
+
+# Run with FSI coupling
+for _ in 1:1000
+    # Update active forcing
+    t = sim_time(sim)
+    f_active = traveling_wave_forcing(
+        amplitude=100.0, frequency=2.0, wavelength=1.0,
+        envelope=:carangiform, L=0.2
+    )
+    set_active_forcing!(beam, f_active, t)
+
+    # Advance beam
+    step!(beam, 1e-4)
+
+    # Advance fluid
+    sim_step!(sim; remeasure=true)
+end
+```
+"""
+function fsi_swimming_fish(; nx::Int=256, nz::Int=128,
+                              Lx::Real=1.0, Lz::Real=0.5,
+                              ν::Real=0.001, U::Real=1.0, ρ_fluid::Real=1000.0,
+                              fish_length::Real=0.2,
+                              fish_thickness::Real=0.02,
+                              center::Tuple{Real,Real}=(0.3, 0.5),
+                              # Beam structural properties
+                              beam_density::Real=1100.0,
+                              young_modulus::Real=1.0e6,
+                              beam_damping::Real=0.1,
+                              n_beam_nodes::Int=51,
+                              # Active forcing
+                              force_amplitude::Real=50.0,
+                              force_frequency::Real=2.0,
+                              force_wavelength::Real=1.0,
+                              force_envelope::Symbol=:carangiform)
+
+    L = fish_length
+    h = fish_thickness
+
+    x_head = center[1] * Lx
+    z_center = center[2] * Lz
+
+    # Create beam material and geometry
+    material = BeamMaterial(ρ=beam_density, E=young_modulus, ν_poisson=0.45)
+
+    # Fish-like thickness profile: thick in middle, thin at head and tail
+    thickness_func = fish_thickness_profile(L, h)
+    width_func = s -> 0.5 * h  # Width proportional to thickness
+
+    geometry = BeamGeometry(L, n_beam_nodes;
+                            thickness=thickness_func,
+                            width=width_func)
+
+    # Create beam with clamped head (leading edge fixed) and free tail
+    beam = EulerBernoulliBeam(geometry, material;
+                              bc_left=CLAMPED,
+                              bc_right=FREE,
+                              damping=beam_damping)
+
+    # Create active forcing function (traveling wave muscle activation)
+    f_active = traveling_wave_forcing(
+        amplitude=force_amplitude,
+        frequency=force_frequency,
+        wavelength=force_wavelength * L,
+        envelope=force_envelope,
+        L=L
+    )
+
+    # SDF function using beam displacement
+    function fish_sdf_from_beam(x, t)
+        # Position along beam
+        s = x[1] - x_head
+
+        # Get local displacement from beam (interpolate if needed)
+        if s < 0 || s > L
+            # Outside fish body
+            if s < 0
+                z_head = z_center  # Clamped head at center
+                return sqrt(s^2 + (x[2] - z_head)^2) - thickness_func(0) / 2
+            else
+                # Interpolate tail position
+                idx = n_beam_nodes
+                w_tail = beam.w[idx]
+                z_tail = z_center + w_tail
+                return sqrt((s - L)^2 + (x[2] - z_tail)^2) - thickness_func(L) / 2
+            end
+        end
+
+        # Interpolate beam displacement at position s
+        ds_beam = L / (n_beam_nodes - 1)
+        idx = clamp(Int(floor(s / ds_beam)) + 1, 1, n_beam_nodes - 1)
+        t_local = (s - (idx - 1) * ds_beam) / ds_beam
+        w_local = (1 - t_local) * beam.w[idx] + t_local * beam.w[idx + 1]
+
+        z_body = z_center + w_local
+        h_local = thickness_func(s) / 2
+
+        return abs(x[2] - z_body) - h_local
+    end
+
+    # Create fish body with SDF that uses beam state
+    fish = AutoBody(fish_sdf_from_beam)
+
+    # Create fluid simulation
+    sim = Simulation((nx, nz), (Lx, Lz);
+                     inletBC=(U, 0.0),
+                     ν=ν,
+                     ρ=ρ_fluid,
+                     body=fish,
+                     L_char=fish_length,
+                     outletBC=true)
+
+    return sim, beam, f_active
+end
+
+"""
+    run_fsi_fish(; steps=1000, dt_beam=1e-4, kwargs...)
+
+Run the FSI swimming fish simulation with coupled fluid-structure dynamics.
+
+# Arguments
+- `steps`: Number of time steps
+- `dt_beam`: Time step for beam solver (default 1e-4 s)
+- All other arguments passed to fsi_swimming_fish
+
+# Returns
+- `sim`: Fluid simulation object
+- `beam`: Euler-Bernoulli beam object
+- `history`: Force history
+
+# Example
+```julia
+sim, beam, history = run_fsi_fish(
+    steps=500,
+    force_amplitude=100.0,
+    force_envelope=:carangiform
+)
+```
+"""
+function run_fsi_fish(; steps::Int=1000, dt_beam::Real=1e-4, verbose::Bool=true, kwargs...)
+    sim, beam, f_active = fsi_swimming_fish(; kwargs...)
+    history = NamedTuple[]
+
+    for k in 1:steps
+        t = sim_time(sim)
+
+        # Update active muscle forcing
+        set_active_forcing!(beam, f_active, t)
+
+        # Advance beam dynamics
+        step!(beam, dt_beam)
+
+        # Advance fluid (remeasure SDF since body moved)
+        sim_step!(sim; remeasure=true)
+
+        # Record forces
+        record_force!(history, sim)
+
+        if verbose && k % 100 == 0
+            w_max = maximum(abs.(get_displacement(beam)))
+            KE = kinetic_energy(beam)
+            forces = history[end]
+            @info "Step $k: t=$(round(t, digits=3)), max_w=$(round(w_max*1000, digits=2)) mm, KE=$(round(KE, sigdigits=3)) J, Cd=$(round(forces.total_coeff[1], digits=4))"
+        end
+    end
+
+    return sim, beam, history
+end
+
+"""
+    fsi_passive_flag(; nx=256, nz=128, kwargs...)
+
+Create a passive flag simulation (no active forcing).
+The flag deforms only due to fluid forces.
+
+# Example
+```julia
+sim, beam, history = run_fsi_passive_flag(
+    steps=500,
+    young_modulus=1e5,  # Flexible flag
+    beam_damping=0.05
+)
+```
+"""
+function fsi_passive_flag(; nx::Int=256, nz::Int=128,
+                            Lx::Real=1.0, Lz::Real=0.5,
+                            ν::Real=0.001, U::Real=1.0, ρ_fluid::Real=1000.0,
+                            flag_length::Real=0.2,
+                            flag_thickness::Real=0.01,
+                            center::Tuple{Real,Real}=(0.3, 0.5),
+                            beam_density::Real=1000.0,
+                            young_modulus::Real=1.0e5,
+                            beam_damping::Real=0.05,
+                            n_beam_nodes::Int=41)
+
+    L = flag_length
+    h = flag_thickness
+
+    x_anchor = center[1] * Lx
+    z_center = center[2] * Lz
+
+    # Create beam (uniform thickness for flag)
+    material = BeamMaterial(ρ=beam_density, E=young_modulus, ν_poisson=0.3)
+    geometry = BeamGeometry(L, n_beam_nodes; thickness=h, width=0.5 * h)
+
+    beam = EulerBernoulliBeam(geometry, material;
+                              bc_left=CLAMPED,  # Fixed at leading edge
+                              bc_right=FREE,     # Free trailing edge
+                              damping=beam_damping)
+
+    # SDF for flag
+    function flag_sdf(x, t)
+        s = x[1] - x_anchor
+
+        if s < 0
+            z_head = z_center
+            return sqrt(s^2 + (x[2] - z_head)^2) - h / 2
+        elseif s > L
+            idx = n_beam_nodes
+            z_tail = z_center + beam.w[idx]
+            return sqrt((s - L)^2 + (x[2] - z_tail)^2) - h / 2
+        end
+
+        # Interpolate displacement
+        ds_beam = L / (n_beam_nodes - 1)
+        idx = clamp(Int(floor(s / ds_beam)) + 1, 1, n_beam_nodes - 1)
+        t_local = (s - (idx - 1) * ds_beam) / ds_beam
+        w_local = (1 - t_local) * beam.w[idx] + t_local * beam.w[idx + 1]
+
+        return abs(x[2] - z_center - w_local) - h / 2
+    end
+
+    flag = AutoBody(flag_sdf)
+
+    sim = Simulation((nx, nz), (Lx, Lz);
+                     inletBC=(U, 0.0),
+                     ν=ν,
+                     ρ=ρ_fluid,
+                     body=flag,
+                     L_char=flag_length,
+                     outletBC=true)
+
+    return sim, beam
+end
+
+"""
+    run_fsi_passive_flag(; steps=1000, dt_beam=1e-4, kwargs...)
+
+Run the passive flag FSI simulation.
+"""
+function run_fsi_passive_flag(; steps::Int=1000, dt_beam::Real=1e-4, verbose::Bool=true, kwargs...)
+    sim, beam = fsi_passive_flag(; kwargs...)
+    history = NamedTuple[]
+
+    for k in 1:steps
+        # Advance beam (no active forcing, only response to fluid load)
+        step!(beam, dt_beam)
+
+        # Advance fluid
+        sim_step!(sim; remeasure=true)
+
+        record_force!(history, sim)
+
+        if verbose && k % 100 == 0
+            t = sim_time(sim)
+            w_max = maximum(abs.(get_displacement(beam)))
+            forces = history[end]
+            @info "Step $k: t=$(round(t, digits=3)), max_deflection=$(round(w_max*1000, digits=2)) mm, Cd=$(round(forces.total_coeff[1], digits=4))"
+        end
+    end
+
+    return sim, beam, history
+end
+
+
+# =============================================================================
 # MAIN SCRIPT
 # =============================================================================
 

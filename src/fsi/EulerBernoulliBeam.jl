@@ -286,8 +286,10 @@ Includes bending stiffness (EI * ∂⁴/∂x⁴) and tension (-T * ∂²/∂x²)
 Fourth derivative stencil (central difference):
     w''''[i] ≈ (w[i-2] - 4w[i-1] + 6w[i] - 4w[i+1] + w[i+2]) / Δs⁴
 
-Second derivative stencil:
-    w''[i] ≈ (w[i-1] - 2w[i] + w[i+1]) / Δs²
+Boundary conditions use ghost nodes:
+- Clamped: w = 0, w' = 0 → ghost node w[-1] = w[1] (for zero slope at w[0])
+- Free: w'' = 0, w''' = 0 → ghost node relations from zero moment/shear
+- Pinned: w = 0, w'' = 0 → ghost node w[-1] = -w[1] (for zero curvature)
 """
 function build_stiffness_matrix(EI::Vector{T}, tension::T, Δs::T, n::Int,
                                 bc_left::BeamBoundaryCondition,
@@ -316,57 +318,97 @@ function build_stiffness_matrix(EI::Vector{T}, tension::T, Δs::T, n::Int,
         K[i, i+1] += -tension / Δs2
     end
 
-    # Near-boundary points need special treatment
-    # Point i=2: use one-sided stencil or reduced accuracy
-    if n > 3
+    # Point i=2: near left boundary
+    # For CLAMPED: w[1]=0, w'[1]=0 → ghost node w[0] = w[2]
+    # Stencil: (w[0] - 4w[1] + 6w[2] - 4w[3] + w[4])/Δs⁴ = (w[2] - 0 + 6w[2] - 4w[3] + w[4])/Δs⁴
+    if n > 4
         i = 2
         EI_avg = EI[i]
-        # Use 4-point stencil: w''''[2] ≈ (w[1] - 4w[2] + 6w[3] - 4w[4] + w[5]) / Δs⁴
-        # But w[1] may be constrained
-        if bc_left == FREE
-            # w'' = 0 at left: use modified stencil
+        if bc_left == CLAMPED || bc_left == PRESCRIBED
+            # w[1] = 0, w'[1] = 0 → ghost w[0] = w[2]
+            K[i, i]   += 7 * EI_avg / Δs4  # 6 + 1 from ghost
+            K[i, i+1] += -4 * EI_avg / Δs4
+            K[i, i+2] += EI_avg / Δs4
+        elseif bc_left == PINNED
+            # w[1] = 0, w''[1] = 0 → ghost w[0] = -w[2]
+            K[i, i]   += 5 * EI_avg / Δs4  # 6 - 1 from ghost
+            K[i, i+1] += -4 * EI_avg / Δs4
+            K[i, i+2] += EI_avg / Δs4
+        else  # FREE
+            # w''[1] = 0, w'''[1] = 0
+            K[i, 1]   += 2 * EI_avg / Δs4
             K[i, i]   += 5 * EI_avg / Δs4
             K[i, i+1] += -4 * EI_avg / Δs4
             K[i, i+2] += EI_avg / Δs4
-        else
-            K[i, 1]   += EI_avg / Δs4
-            K[i, i]   += 6 * EI_avg / Δs4 - 4 * EI_avg / Δs4
-            K[i, i+1] += -4 * EI_avg / Δs4
-            if i+2 <= n
-                K[i, i+2] += EI_avg / Δs4
-            end
         end
 
-        # Tension term
-        K[i, 1]   += -tension / Δs2
-        K[i, i]   += 2 * tension / Δs2
-        K[i, i+1] += -tension / Δs2
+        # Tension term for i=2
+        if bc_left == CLAMPED || bc_left == PINNED || bc_left == PRESCRIBED
+            K[i, i]   += 2 * tension / Δs2
+            K[i, i+1] += -tension / Δs2
+        else
+            K[i, 1]   += -tension / Δs2
+            K[i, i]   += 2 * tension / Δs2
+            K[i, i+1] += -tension / Δs2
+        end
     end
 
-    # Point i=n-1
-    if n > 3
+    # Point i=n-1: near right boundary
+    if n > 4
         i = n - 1
         EI_avg = EI[i]
-        if bc_right == FREE
+        if bc_right == CLAMPED || bc_right == PRESCRIBED
+            # w[n] = 0, w'[n] = 0 → ghost w[n+1] = w[n-1]
+            K[i, i-2] += EI_avg / Δs4
+            K[i, i-1] += -4 * EI_avg / Δs4
+            K[i, i]   += 7 * EI_avg / Δs4
+        elseif bc_right == PINNED
             K[i, i-2] += EI_avg / Δs4
             K[i, i-1] += -4 * EI_avg / Δs4
             K[i, i]   += 5 * EI_avg / Δs4
-        else
-            if i-2 >= 1
-                K[i, i-2] += EI_avg / Δs4
-            end
+        else  # FREE
+            # w''[n] = 0, w'''[n] = 0
+            K[i, i-2] += EI_avg / Δs4
             K[i, i-1] += -4 * EI_avg / Δs4
-            K[i, i]   += 6 * EI_avg / Δs4 - 4 * EI_avg / Δs4
-            K[i, n]   += EI_avg / Δs4
+            K[i, i]   += 5 * EI_avg / Δs4
+            K[i, n]   += 2 * EI_avg / Δs4
         end
 
-        # Tension term
-        K[i, i-1] += -tension / Δs2
-        K[i, i]   += 2 * tension / Δs2
-        K[i, n]   += -tension / Δs2
+        # Tension term for i=n-1
+        if bc_right == CLAMPED || bc_right == PINNED || bc_right == PRESCRIBED
+            K[i, i-1] += -tension / Δs2
+            K[i, i]   += 2 * tension / Δs2
+        else
+            K[i, i-1] += -tension / Δs2
+            K[i, i]   += 2 * tension / Δs2
+            K[i, n]   += -tension / Δs2
+        end
     end
 
-    # Apply boundary conditions
+    # Handle free end boundary equations
+    # For FREE left: row 1 represents w''[1] = 0 (curvature equation)
+    if bc_left == FREE && n > 2
+        EI_avg = EI[1]
+        K[1, 1] = 2 * EI_avg / Δs4
+        K[1, 2] = -5 * EI_avg / Δs4
+        K[1, 3] = 4 * EI_avg / Δs4
+        if n > 3
+            K[1, 4] = -EI_avg / Δs4
+        end
+    end
+
+    # For FREE right: row n represents w''[n] = 0
+    if bc_right == FREE && n > 2
+        EI_avg = EI[n]
+        if n > 3
+            K[n, n-3] = -EI_avg / Δs4
+        end
+        K[n, n-2] = 4 * EI_avg / Δs4
+        K[n, n-1] = -5 * EI_avg / Δs4
+        K[n, n]   = 2 * EI_avg / Δs4
+    end
+
+    # Apply displacement boundary conditions (clamped, pinned, prescribed)
     apply_stiffness_bc!(K, n, bc_left, bc_right)
 
     return K
