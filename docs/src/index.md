@@ -58,6 +58,7 @@ println("Time: ", sim_time(sim))
 ```@contents
 Pages = [
     "getting_started.md",
+    "codebase_structure.md",
     "numerical_methods.md",
     "core_types.md",
     "amr.md",

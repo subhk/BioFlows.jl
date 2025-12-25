@@ -13,6 +13,7 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "Getting Started" => "getting_started.md",
+        "Codebase Structure" => "codebase_structure.md",
         "Numerical Methods" => "numerical_methods.md",
         "Core Types" => "core_types.md",
         "Adaptive Mesh Refinement" => "amr.md",
