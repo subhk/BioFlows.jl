@@ -127,6 +127,19 @@ See [Numerical Methods](@ref) for details.
 | `compute_beam_combined_indicator(flow, sdf)` | Combined indicator with flow features |
 | `get_beam_bounding_box(sdf)` | Get beam bounding box |
 
+### BeamAMRSimulation
+
+| Type/Function | Description |
+|---------------|-------------|
+| `BeamAMRSimulation(dims, L, beam, x, z; config, kwargs...)` | Integrated beam-fluid AMR simulation |
+| `set_forcing!(sim, f)` | Set active forcing function f(s, t) |
+| `sim_step!(sim::BeamAMRSimulation)` | Advance coupled beam-fluid step |
+| `beam_info(sim)` | Print beam and AMR status |
+| `get_flow(sim)` | Get underlying Flow struct |
+| `get_beam(sim)` | Get EulerBernoulliBeam |
+| `perform_beam_regrid!(sim)` | Force regridding based on beam position |
+| `swimming_fish_simulation(; kwargs...)` | Create ready-to-run fish simulation |
+
 ## Force Diagnostics
 
 See [Diagnostics](@ref) for details.

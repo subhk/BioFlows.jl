@@ -1057,6 +1057,71 @@ end
 | `compute_beam_refinement_indicator(flow, sdf)` | Compute beam-only indicator |
 | `compute_beam_combined_indicator(flow, sdf)` | Compute weighted combined indicator |
 
+#### BeamAMRSimulation
+
+For fully integrated beam-fluid simulations with AMR, use `BeamAMRSimulation`:
+
+```julia
+using BioFlows
+
+# Create beam
+material = BeamMaterial(ρ=1050.0, E=5e5)
+geometry = BeamGeometry(0.2, 51; thickness=fish_thickness_profile(0.2, 0.02))
+beam = EulerBernoulliBeam(geometry, material; bc_left=CLAMPED, bc_right=FREE)
+
+# AMR configuration
+config = BeamAMRConfig(
+    max_level=2,
+    beam_distance_threshold=4.0,
+    beam_weight=0.7,
+    min_regrid_interval=10,
+    motion_threshold=0.002
+)
+
+# Create integrated simulation
+sim = BeamAMRSimulation((256, 128), (2.0, 1.0), beam, 0.4, 0.5;
+                         config=config, ν=0.001, U=1.0)
+
+# Set active forcing
+f_wave = traveling_wave_forcing(amplitude=100.0, frequency=2.0)
+set_forcing!(sim, f_wave)
+
+# Run simulation - beam and fluid are coupled automatically
+for step in 1:1000
+    sim_step!(sim)
+end
+
+# Get status
+beam_info(sim)
+```
+
+The `BeamAMRSimulation` automatically:
+1. Advances beam dynamics with the specified `dt_beam`
+2. Updates the body SDF with the deformed beam shape
+3. Triggers AMR regridding when the beam moves significantly
+4. Advances the fluid with the updated body position
+5. Couples forces between beam and fluid (when enabled)
+
+#### Convenience Constructor
+
+For quick setup of swimming fish simulations:
+
+```julia
+# Create ready-to-run swimming fish with AMR
+sim = swimming_fish_simulation(
+    L_fish = 0.2,           # Fish length
+    Re = 1000,              # Reynolds number
+    St = 0.3,               # Strouhal number
+    grid_size = (256, 128), # Base grid
+    domain = (2.0, 1.0)     # Domain size
+)
+
+# Run
+for step in 1:10000
+    sim_step!(sim)
+end
+```
+
 ### Active Forcing for Swimming
 
 #### Traveling Wave Muscle Activation
