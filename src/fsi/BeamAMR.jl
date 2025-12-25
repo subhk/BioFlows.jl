@@ -474,3 +474,340 @@ function count_refined_cells_near_beam(refined_grid, beam_sdf::FlexibleBodySDF{T
 
     return count
 end
+
+# =============================================================================
+# BEAM AMR SIMULATION WRAPPER
+# =============================================================================
+
+"""
+    BeamAMRSimulation{T}
+
+Complete simulation wrapper for flexible bodies with adaptive mesh refinement.
+Integrates EulerBernoulliBeam dynamics with AMRSimulation.
+
+# Fields
+- `amr_sim`: Underlying AMRSimulation
+- `beam`: EulerBernoulliBeam solver
+- `beam_sdf`: FlexibleBodySDF for body representation
+- `tracker`: BeamAMRTracker for motion-based regridding
+- `config`: BeamAMRConfig settings
+- `forcing_func`: Optional active forcing function f(s, t)
+- `dt_beam`: Time step for beam solver
+- `couple_interval`: Couple beam/fluid every N flow steps
+
+# Example
+```julia
+# Create beam
+material = BeamMaterial(ρ=1050.0, E=5e5)
+geometry = BeamGeometry(0.2, 51; thickness=fish_thickness_profile(0.2, 0.02))
+beam = EulerBernoulliBeam(geometry, material; bc_left=CLAMPED, bc_right=FREE)
+
+# Create simulation
+sim = BeamAMRSimulation((256, 128), (2.0, 1.0), beam, 0.3, 0.5;
+                         ν=0.001, U=1.0)
+
+# Set forcing
+f_wave = traveling_wave_forcing(amplitude=100.0, frequency=2.0)
+set_forcing!(sim, f_wave)
+
+# Run
+for step in 1:1000
+    sim_step!(sim)
+end
+```
+"""
+mutable struct BeamAMRSimulation{T<:AbstractFloat}
+    amr_sim::AMRSimulation
+    beam::EulerBernoulliBeam{T}
+    beam_sdf::FlexibleBodySDF{T}
+    tracker::BeamAMRTracker{T}
+    config::BeamAMRConfig
+    forcing_func::Union{Nothing, Function}
+    dt_beam::T
+    couple_interval::Int
+    step_count::Int
+
+    function BeamAMRSimulation(dims::NTuple{N}, L::NTuple{N},
+                                beam::EulerBernoulliBeam{T},
+                                x_head::Real, z_center::Real;
+                                config::BeamAMRConfig=BeamAMRConfig(),
+                                thickness_func::Union{Nothing,Function}=nothing,
+                                dt_beam::Real=1e-4,
+                                couple_interval::Int=1,
+                                kwargs...) where {N, T}
+        # Create beam body and SDF
+        body, beam_sdf = create_beam_body(beam, x_head, z_center;
+                                          thickness_func=thickness_func)
+
+        # Create AMR config from beam config
+        amr_config = AMRConfig(
+            max_level=config.max_level,
+            body_distance_threshold=config.beam_distance_threshold,
+            velocity_gradient_threshold=config.gradient_threshold,
+            vorticity_threshold=config.vorticity_threshold,
+            regrid_interval=config.regrid_interval,
+            buffer_size=config.buffer_size,
+            body_weight=config.beam_weight,
+            gradient_weight=config.gradient_weight,
+            vorticity_weight=config.vorticity_weight,
+            flexible_body=true,
+            indicator_change_threshold=0.05,
+            min_regrid_interval=config.min_regrid_interval
+        )
+
+        # Create AMR simulation with beam body
+        amr_sim = AMRSimulation(dims, L; body=body, amr_config=amr_config, kwargs...)
+
+        # Create tracker
+        tracker = BeamAMRTracker(beam_sdf)
+        mark_regrid!(tracker, 0)
+
+        new{T}(amr_sim, beam, beam_sdf, tracker, config, nothing, T(dt_beam),
+               couple_interval, 0)
+    end
+end
+
+"""
+    set_forcing!(sim::BeamAMRSimulation, f::Function)
+
+Set the active forcing function for the beam.
+The function should have signature f(s, t) returning force per unit length.
+"""
+function set_forcing!(sim::BeamAMRSimulation, f::Function)
+    sim.forcing_func = f
+    return sim
+end
+
+"""
+    sim_step!(sim::BeamAMRSimulation; kwargs...)
+
+Advance the beam-AMR simulation by one time step.
+
+This performs:
+1. Apply active forcing to beam (if set)
+2. Advance beam dynamics
+3. Update beam SDF
+4. Check for AMR regridding based on beam motion
+5. Advance fluid with updated body position
+"""
+function sim_step!(sim::BeamAMRSimulation; λ=quick, kwargs...)
+    sim.step_count += 1
+    t = sim.step_count * sim.dt_beam
+
+    # Apply forcing if set
+    if !isnothing(sim.forcing_func)
+        set_active_forcing!(sim.beam, sim.forcing_func, t)
+    end
+
+    # Advance beam
+    step!(sim.beam, sim.dt_beam)
+
+    # Update SDF with new beam position
+    update!(sim.beam_sdf)
+
+    # Check if regridding needed based on beam motion
+    if should_regrid(sim.tracker, sim.step_count;
+                     min_interval=sim.config.min_regrid_interval,
+                     motion_threshold=sim.config.motion_threshold)
+        # Perform beam-aware regridding
+        perform_beam_regrid!(sim)
+    end
+
+    # Advance fluid (remeasure body position)
+    if sim.step_count % sim.couple_interval == 0
+        sim_step!(sim.amr_sim; remeasure=true, λ=λ, kwargs...)
+    end
+
+    return sim
+end
+
+"""
+    sim_step!(sim::BeamAMRSimulation, t_end; kwargs...)
+
+Advance simulation to target dimensionless time.
+"""
+function sim_step!(sim::BeamAMRSimulation, t_end::Real; max_steps=typemax(Int), kwargs...)
+    n_steps = 0
+    while sim_time(sim) < t_end && n_steps < max_steps
+        sim_step!(sim; kwargs...)
+        n_steps += 1
+    end
+    return sim
+end
+
+"""
+    perform_beam_regrid!(sim::BeamAMRSimulation)
+
+Perform AMR regridding based on current beam position.
+"""
+function perform_beam_regrid!(sim::BeamAMRSimulation{T}) where T
+    flow = sim.amr_sim.sim.flow
+    config = sim.config
+
+    # Compute combined indicator
+    indicator = compute_beam_combined_indicator(flow, sim.beam_sdf;
+        beam_threshold=config.beam_distance_threshold,
+        gradient_threshold=config.gradient_threshold,
+        vorticity_threshold=config.vorticity_threshold,
+        beam_weight=config.beam_weight,
+        gradient_weight=config.gradient_weight,
+        vorticity_weight=config.vorticity_weight)
+
+    # Apply buffer zone
+    apply_buffer_zone!(indicator; buffer_size=config.buffer_size)
+
+    # Mark cells for refinement
+    cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5)
+
+    # Update refined grid
+    update_refined_cells!(sim.amr_sim.refined_grid, cells_to_refine, config.max_level)
+
+    # Create patches
+    create_patches!(sim.amr_sim.composite_pois, sim.amr_sim.refined_grid, flow.μ₀)
+
+    # Synchronize data
+    synchronize_base_and_patches!(flow, sim.amr_sim.composite_pois)
+
+    # Mark regrid occurred
+    mark_regrid!(sim.tracker, sim.step_count)
+
+    return sim
+end
+
+# Forward common functions to underlying simulation
+sim_time(sim::BeamAMRSimulation) = sim_time(sim.amr_sim)
+time(sim::BeamAMRSimulation) = time(sim.amr_sim)
+
+"""
+    beam_info(sim::BeamAMRSimulation)
+
+Print beam and simulation status.
+"""
+function beam_info(sim::BeamAMRSimulation)
+    println("=" ^ 60)
+    println("BEAM-AMR SIMULATION STATUS")
+    println("=" ^ 60)
+    println("  Step: $(sim.step_count)")
+    println("  Time (tU/L): $(round(sim_time(sim), digits=4))")
+
+    # Beam state
+    w_max = maximum(abs.(sim.beam.w))
+    θ_max = maximum(abs.(sim.beam.θ))
+    E_total = total_energy(sim.beam)
+    println("\n  Beam:")
+    println("    Max displacement: $(round(w_max * 1000, digits=2)) mm")
+    println("    Max rotation: $(round(rad2deg(θ_max), digits=2))°")
+    println("    Total energy: $(round(E_total, digits=4)) J")
+
+    # AMR status
+    n_refined = num_refined_cells(sim.amr_sim.refined_grid)
+    n_patches = num_patches(sim.amr_sim.composite_pois)
+    println("\n  AMR:")
+    println("    Refined cells: $n_refined")
+    println("    Active patches: $n_patches")
+    println("    Last regrid: step $(sim.tracker.last_regrid_step)")
+
+    # Bounding box
+    bbox = get_beam_bounding_box(sim.beam_sdf; margin=0.01)
+    println("\n  Beam bounding box:")
+    println("    x: [$(round(bbox[1], digits=3)), $(round(bbox[2], digits=3))]")
+    println("    z: [$(round(bbox[3], digits=3)), $(round(bbox[4], digits=3))]")
+    println("=" ^ 60)
+end
+
+"""
+    get_flow(sim::BeamAMRSimulation)
+
+Get the underlying Flow struct.
+"""
+get_flow(sim::BeamAMRSimulation) = sim.amr_sim.sim.flow
+
+"""
+    get_beam(sim::BeamAMRSimulation)
+
+Get the EulerBernoulliBeam.
+"""
+get_beam(sim::BeamAMRSimulation) = sim.beam
+
+# =============================================================================
+# CONVENIENCE CONSTRUCTORS
+# =============================================================================
+
+"""
+    swimming_fish_simulation(; L_fish=0.2, Re=1000, St=0.3, n_nodes=51,
+                              grid_size=(256, 128), domain=(2.0, 1.0),
+                              amr_config=BeamAMRConfig(), kwargs...)
+
+Create a ready-to-run swimming fish simulation with AMR.
+
+# Arguments
+- `L_fish`: Fish body length (default: 0.2)
+- `Re`: Reynolds number based on body length (default: 1000)
+- `St`: Strouhal number for tail beat (default: 0.3)
+- `n_nodes`: Number of beam nodes (default: 51)
+- `grid_size`: Grid dimensions (default: (256, 128))
+- `domain`: Physical domain size (default: (2.0, 1.0))
+- `amr_config`: AMR configuration (default: BeamAMRConfig())
+
+# Returns
+- `BeamAMRSimulation` ready for time stepping
+"""
+function swimming_fish_simulation(;
+        L_fish::Real=0.2,
+        Re::Real=1000.0,
+        St::Real=0.3,
+        n_nodes::Int=51,
+        grid_size::NTuple{2,Int}=(256, 128),
+        domain::NTuple{2,Real}=(2.0, 1.0),
+        amr_config::BeamAMRConfig=BeamAMRConfig(),
+        E::Real=5e5,
+        ρ_fish::Real=1050.0,
+        h_max::Real=0.02,
+        kwargs...)
+
+    T = Float64
+
+    # Material properties
+    material = BeamMaterial(ρ=ρ_fish, E=E)
+
+    # Fish body geometry with NACA-like profile
+    h_func = fish_thickness_profile(L_fish, h_max)
+    geometry = BeamGeometry(L_fish, n_nodes; thickness=h_func, width=h_max)
+
+    # Create beam
+    beam = EulerBernoulliBeam(geometry, material;
+                              bc_left=CLAMPED, bc_right=FREE,
+                              damping=0.5)
+
+    # Compute viscosity from Reynolds number
+    U = one(T)  # Reference velocity
+    ν = U * L_fish / Re
+
+    # Position fish in domain (head at 1/5 of domain, centered vertically)
+    x_head = domain[1] / 5
+    z_center = domain[2] / 2
+
+    # Create simulation
+    sim = BeamAMRSimulation(grid_size, domain, beam, x_head, z_center;
+                            config=amr_config,
+                            ν=ν, U=U, L_char=L_fish,
+                            kwargs...)
+
+    # Set traveling wave forcing based on Strouhal number
+    # St = f * A / U, frequency f = St * U / A
+    # Typical amplitude A ~ 0.1 * L for fish
+    A_tail = 0.1 * L_fish
+    freq = St * U / A_tail
+
+    f_wave = traveling_wave_forcing(
+        amplitude=100.0,  # Will be adjusted by Strouhal
+        frequency=freq,
+        wavelength=L_fish,
+        envelope=:carangiform,
+        L=L_fish
+    )
+
+    set_forcing!(sim, f_wave)
+
+    return sim
+end

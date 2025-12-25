@@ -992,6 +992,10 @@ export compute_beam_refinement_indicator, compute_beam_combined_indicator
 export create_beam_body, regrid_for_beam!, should_regrid, mark_regrid!
 export get_beam_bounding_box, count_refined_cells_near_beam
 
+# BeamAMRSimulation exports
+export BeamAMRSimulation, set_forcing!, beam_info, get_flow, get_beam
+export perform_beam_regrid!, swimming_fish_simulation
+
 # defaults JLD2 and VTK I/O functions
 function load!(sim::AbstractSimulation; kwargs...)
     fname = get(Dict(kwargs), :fname, "BioFlows.jld2")
