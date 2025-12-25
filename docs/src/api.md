@@ -111,6 +111,21 @@ See [Numerical Methods](@ref) for details.
 | `file_save!(writer, beam, t)` | Record beam state if interval elapsed |
 | `close!(writer, beam)` | Finalize and write data to file |
 
+### AMR for Flexible Bodies
+
+| Type/Function | Description |
+|---------------|-------------|
+| `FlexibleBodySDF(beam, x, z)` | Time-dependent SDF from beam state |
+| `FlexibleBodyAMRConfig(; kwargs...)` | AMR configuration for flexible bodies |
+| `BeamAMRTracker(beam_sdf)` | Motion tracker for regrid decisions |
+| `create_beam_body(beam, x, z)` | Create AutoBody from beam |
+| `update!(beam_sdf)` | Update SDF with current beam state |
+| `should_regrid(tracker, step)` | Check if regrid needed |
+| `regrid_for_beam!(sim, sdf, tracker, step, config)` | Perform beam-aware regridding |
+| `compute_beam_refinement_indicator(flow, sdf)` | Compute beam proximity indicator |
+| `compute_beam_combined_indicator(flow, sdf)` | Combined indicator with flow features |
+| `get_beam_bounding_box(sdf)` | Get beam bounding box |
+
 ## Force Diagnostics
 
 See [Diagnostics](@ref) for details.

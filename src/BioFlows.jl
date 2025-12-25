@@ -973,6 +973,7 @@ export get_body_motion_stats, estimate_body_displacement, should_regrid_for_body
 
 _silent_include("fsi/EulerBernoulliBeam.jl")
 _silent_include("fsi/FluidStructureCoupling.jl")
+_silent_include("fsi/BeamAMR.jl")
 
 # FSI exports
 export BeamBoundaryCondition, CLAMPED, FREE, PINNED, PRESCRIBED
@@ -984,6 +985,12 @@ export get_beam, get_displacement, get_velocity, get_curvature
 export get_bending_moment, kinetic_energy, potential_energy, total_energy
 export set_fluid_load!, set_active_forcing!, get_fluid_load, reset!, step!
 export BeamStateWriter, BeamStateWriterGroup, close!
+
+# FSI AMR exports
+export FlexibleBodySDF, FlexibleBodyAMRConfig, BeamAMRTracker
+export compute_beam_refinement_indicator, compute_beam_combined_indicator
+export create_beam_body, regrid_for_beam!, should_regrid, mark_regrid!
+export get_beam_bounding_box, count_refined_cells_near_beam
 
 # defaults JLD2 and VTK I/O functions
 function load!(sim::AbstractSimulation; kwargs...)

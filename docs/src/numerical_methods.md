@@ -910,6 +910,153 @@ The Hermite FEM implementation has been verified against analytical solutions:
 | Natural frequency | $f_1 = 1.875^2 \sqrt{EI/(\rho A L^4)}/(2\pi)$ | Computed | < 1% |
 | Energy conservation | $E_{total} = const$ | Computed | < 1% |
 
+### Adaptive Mesh Refinement for Flexible Bodies
+
+BioFlows supports **adaptive mesh refinement (AMR)** that automatically follows flexible bodies as they deform during simulation. This ensures high resolution near the moving body surface while keeping computational cost low in far-field regions.
+
+#### FlexibleBodySDF
+
+The `FlexibleBodySDF` creates a time-dependent signed distance function from the beam state:
+
+```julia
+beam_sdf = FlexibleBodySDF(beam, x_head, z_center;
+                           thickness_func=s -> beam.geometry.thickness(s),
+                           width=0.01)
+```
+
+The SDF automatically updates as the beam deforms:
+- Negative values: inside the body
+- Positive values: outside the body
+- Zero: on the body surface
+
+#### AMR Configuration
+
+Configure AMR behavior with `FlexibleBodyAMRConfig`:
+
+```julia
+config = FlexibleBodyAMRConfig(
+    max_level=2,                    # Maximum refinement level (2=4x)
+    beam_distance_threshold=3.0,    # Refine within 3 cells of beam
+    gradient_threshold=1.0,         # Velocity gradient threshold
+    vorticity_threshold=1.0,        # Vorticity threshold
+    beam_weight=0.6,                # Weight for beam proximity
+    gradient_weight=0.25,           # Weight for velocity gradients
+    vorticity_weight=0.15,          # Weight for vorticity
+    buffer_size=2,                  # Buffer cells around refined region
+    min_regrid_interval=5,          # Minimum steps between regrids
+    motion_threshold=0.5,           # Displacement change to trigger regrid
+    regrid_interval=10              # Force regrid every N steps
+)
+```
+
+#### Motion-Triggered Regridding
+
+The `BeamAMRTracker` monitors beam motion and triggers regridding when the beam moves significantly:
+
+```julia
+tracker = BeamAMRTracker(beam_sdf)
+
+# In simulation loop
+for step in 1:n_steps
+    # Advance beam
+    step!(beam, dt)
+
+    # Check if regrid needed
+    if should_regrid(tracker, step; min_interval=5, motion_threshold=0.5)
+        # Perform regridding
+        regrid_for_beam!(amr_sim, beam_sdf, tracker, step, config)
+    end
+end
+```
+
+#### Combined Refinement Indicator
+
+The refinement decision combines three criteria:
+
+```math
+I_{combined} = w_b I_{beam} + w_g I_{gradient} + w_v I_{vorticity}
+```
+
+where:
+- $I_{beam}$: 1 if within `beam_distance_threshold` of beam surface
+- $I_{gradient}$: 1 if velocity gradient exceeds threshold
+- $I_{vorticity}$: 1 if vorticity magnitude exceeds threshold
+- $w_b, w_g, w_v$: configurable weights (default: 0.6, 0.25, 0.15)
+
+#### Example: Swimming Fish with AMR
+
+```julia
+using BioFlows
+
+# Create flexible beam (fish body)
+material = BeamMaterial(ρ=1050.0, E=5e5)
+L = 0.2
+h_func = fish_thickness_profile(L, 0.02)
+geometry = BeamGeometry(L, 51; thickness=h_func, width=0.02)
+
+beam = EulerBernoulliBeam(geometry, material;
+                          bc_left=CLAMPED, bc_right=FREE,
+                          damping=0.5)
+
+# Create body and SDF from beam
+body, beam_sdf = create_beam_body(beam, 0.2, 0.5)
+
+# Create AMR simulation
+amr_config = AMRConfig(
+    max_level=2,
+    body_distance_threshold=3.0,
+    flexible_body=true,
+    indicator_change_threshold=0.1
+)
+
+sim = AMRSimulation((256, 128), (2.0, 1.0);
+                    body=body,
+                    amr_config=amr_config,
+                    ν=0.001)
+
+# Create tracker for motion-based regridding
+tracker = BeamAMRTracker(beam_sdf)
+flex_config = FlexibleBodyAMRConfig(max_level=2, beam_weight=0.7)
+
+# Traveling wave forcing
+f_wave = traveling_wave_forcing(amplitude=100.0, frequency=2.0,
+                                wavelength=1.0, envelope=:carangiform, L=L)
+
+# Simulation loop
+dt = 1e-4
+for step in 1:10000
+    t = step * dt
+
+    # Advance beam
+    set_active_forcing!(beam, f_wave, t)
+    step!(beam, dt)
+
+    # Update body SDF
+    update!(beam_sdf)
+
+    # Advance flow with remeasure for moving body
+    sim_step!(sim; remeasure=true)
+
+    # Check for regrid
+    if should_regrid(tracker, step; motion_threshold=0.5)
+        regrid_for_beam!(sim, beam_sdf, tracker, step, flex_config)
+        println("Regrid at step $step")
+    end
+end
+```
+
+#### Utility Functions
+
+| Function | Description |
+|----------|-------------|
+| `create_beam_body(beam, x, z)` | Create AutoBody from beam |
+| `update!(beam_sdf)` | Update SDF with current beam state |
+| `get_beam_bounding_box(sdf)` | Get current bounding box |
+| `should_regrid(tracker, step)` | Check if regrid needed |
+| `mark_regrid!(tracker, step)` | Mark that regrid occurred |
+| `compute_beam_refinement_indicator(flow, sdf)` | Compute beam-only indicator |
+| `compute_beam_combined_indicator(flow, sdf)` | Compute weighted combined indicator |
+
 ### Active Forcing for Swimming
 
 #### Traveling Wave Muscle Activation
