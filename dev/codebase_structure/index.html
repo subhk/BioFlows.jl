@@ -10,7 +10,7 @@
 │   ├── util.jl                   # Utilities, macros, boundary conditions
 │   ├── Diagnostics.jl            # Force computation, vorticity
 │   ├── Metrics.jl                # Flow statistics (mean flow, Reynolds stress)
-│   ├── Output.jl                 # I/O utilities (VTK, JLD2 writers)
+│   ├── Output.jl                 # I/O utilities (JLD2 writers)
 │   ├── amr/                      # Adaptive Mesh Refinement
 │   │   ├── amr_types.jl          # Core AMR data structures
 │   │   ├── amr_project.jl        # AMR projection and momentum step
@@ -24,17 +24,23 @@
 │   │   └── refined_fields.jl     # Refined velocity field storage
 │   └── fsi/                      # Fluid-Structure Interaction
 │       ├── EulerBernoulliBeam.jl # Beam dynamics solver
-│       ├── FluidStructureCoupling.jl  # Beam-fluid coupling
-│       └── BeamAMR.jl            # Beam-aware AMR
-├── ext/                          # Package extensions
-│   ├── BioFlowsJLD2Ext.jl        # JLD2 I/O extension
-│   ├── BioFlowsReadVTKExt.jl     # VTK reading extension
-│   ├── BioFlowsWriteVTKExt.jl    # VTK writing extension
-│   ├── BioFlowsPlotsExt.jl       # Plots.jl integration
-│   └── BioFlowsMakieExt.jl       # Makie.jl integration
+│       ├── FluidStructureCoupling.jl  # Beam-fluid coupling (FSISimulation)
+│       └── BeamAMR.jl            # BeamAMRSimulation for flexible bodies with AMR
 ├── examples/                     # Example scripts
+│   ├── circle_benchmark.jl       # Simple cylinder benchmark
+│   ├── flow_past_cylinder_2d.jl  # Comprehensive 2D cylinder example
+│   ├── oscillating_cylinder.jl   # Moving cylinder with sinusoidal motion
+│   ├── sphere_3d.jl              # 3D sphere wake simulation
+│   ├── torus_3d.jl               # 3D torus in periodic flow
+│   ├── swimming_fish.jl          # Flexible swimming fish (FSI)
+│   └── swimming_fish_amr.jl      # Swimming fish with adaptive mesh refinement
 ├── test/                         # Test suite
-└── docs/                         # Documentation</code></pre><h2 id="Core-Modules"><a class="docs-heading-anchor" href="#Core-Modules">Core Modules</a><a id="Core-Modules-1"></a><a class="docs-heading-anchor-permalink" href="#Core-Modules" title="Permalink"></a></h2><h3 id="Main-Module-(BioFlows.jl)"><a class="docs-heading-anchor" href="#Main-Module-(BioFlows.jl)">Main Module (<code>BioFlows.jl</code>)</a><a id="Main-Module-(BioFlows.jl)-1"></a><a class="docs-heading-anchor-permalink" href="#Main-Module-(BioFlows.jl)" title="Permalink"></a></h3><p>The entry point that:</p><ul><li>Imports all dependencies (KernelAbstractions, MPI, ForwardDiff, etc.)</li><li>Includes all source files in dependency order</li><li>Defines <code>Simulation</code> and <code>AMRSimulation</code> types</li><li>Exports public API</li></ul><h3 id="Flow-Solver-(Flow.jl)"><a class="docs-heading-anchor" href="#Flow-Solver-(Flow.jl)">Flow Solver (<code>Flow.jl</code>)</a><a id="Flow-Solver-(Flow.jl)-1"></a><a class="docs-heading-anchor-permalink" href="#Flow-Solver-(Flow.jl)" title="Permalink"></a></h3><p>The heart of the CFD solver implementing:</p><table><tr><th style="text-align: right">Function</th><th style="text-align: right">Description</th></tr><tr><td style="text-align: right"><code>Flow()</code></td><td style="text-align: right">Constructor for flow state (velocity, pressure, coefficients)</td></tr><tr><td style="text-align: right"><code>mom_step!()</code></td><td style="text-align: right">Full momentum step: predictor + pressure projection + corrector</td></tr><tr><td style="text-align: right"><code>BDIM!()</code></td><td style="text-align: right">Boundary Data Immersion Method for immersed boundaries</td></tr><tr><td style="text-align: right"><code>conv_diff!()</code></td><td style="text-align: right">Convection-diffusion operator (advection + viscous terms)</td></tr><tr><td style="text-align: right"><code>accelerate!()</code></td><td style="text-align: right">Apply body forces (gravity, prescribed accelerations)</td></tr><tr><td style="text-align: right"><code>exitBC!()</code></td><td style="text-align: right">Convective outlet boundary condition</td></tr><tr><td style="text-align: right"><code>project!()</code></td><td style="text-align: right">Pressure projection for divergence-free velocity</td></tr><tr><td style="text-align: right"><code>scale_u!()</code></td><td style="text-align: right">Velocity scaling for time stepping</td></tr></table><p><strong>Key data structures in <code>Flow</code>:</strong></p><pre><code class="language-julia hljs">struct Flow{T,D}
+│   ├── runtests.jl               # Main test runner
+│   ├── test_amr.jl               # AMR functionality tests
+│   ├── test_composite_poisson.jl # Composite Poisson solver tests
+│   ├── test_fvm.jl               # Finite volume method tests
+│   └── test_pressure_solver.jl   # Pressure solver tests
+└── docs/                         # Documentation (Documenter.jl)</code></pre><h2 id="Core-Modules"><a class="docs-heading-anchor" href="#Core-Modules">Core Modules</a><a id="Core-Modules-1"></a><a class="docs-heading-anchor-permalink" href="#Core-Modules" title="Permalink"></a></h2><h3 id="Main-Module-(BioFlows.jl)"><a class="docs-heading-anchor" href="#Main-Module-(BioFlows.jl)">Main Module (<code>BioFlows.jl</code>)</a><a id="Main-Module-(BioFlows.jl)-1"></a><a class="docs-heading-anchor-permalink" href="#Main-Module-(BioFlows.jl)" title="Permalink"></a></h3><p>The entry point that:</p><ul><li>Imports all dependencies (KernelAbstractions, MPI, ForwardDiff, JLD2, etc.)</li><li>Includes all source files in dependency order</li><li>Defines core simulation types: <code>Simulation</code>, <code>AMRSimulation</code>, <code>FSISimulation</code>, <code>BeamAMRSimulation</code></li><li>Exports public API for flow solving, AMR, and FSI</li></ul><h3 id="Flow-Solver-(Flow.jl)"><a class="docs-heading-anchor" href="#Flow-Solver-(Flow.jl)">Flow Solver (<code>Flow.jl</code>)</a><a id="Flow-Solver-(Flow.jl)-1"></a><a class="docs-heading-anchor-permalink" href="#Flow-Solver-(Flow.jl)" title="Permalink"></a></h3><p>The heart of the CFD solver implementing:</p><table><tr><th style="text-align: right">Function</th><th style="text-align: right">Description</th></tr><tr><td style="text-align: right"><code>Flow()</code></td><td style="text-align: right">Constructor for flow state (velocity, pressure, coefficients)</td></tr><tr><td style="text-align: right"><code>mom_step!()</code></td><td style="text-align: right">Full momentum step: predictor + pressure projection + corrector</td></tr><tr><td style="text-align: right"><code>BDIM!()</code></td><td style="text-align: right">Boundary Data Immersion Method for immersed boundaries</td></tr><tr><td style="text-align: right"><code>conv_diff!()</code></td><td style="text-align: right">Convection-diffusion operator (advection + viscous terms)</td></tr><tr><td style="text-align: right"><code>accelerate!()</code></td><td style="text-align: right">Apply body forces (gravity, prescribed accelerations)</td></tr><tr><td style="text-align: right"><code>exitBC!()</code></td><td style="text-align: right">Convective outlet boundary condition</td></tr><tr><td style="text-align: right"><code>project!()</code></td><td style="text-align: right">Pressure projection for divergence-free velocity</td></tr><tr><td style="text-align: right"><code>scale_u!()</code></td><td style="text-align: right">Velocity scaling for time stepping</td></tr></table><p><strong>Key data structures in <code>Flow</code>:</strong></p><pre><code class="language-julia hljs">struct Flow{T,D}
     u::Array{T,D+1}     # Velocity field (staggered)
     u⁰::Array{T,D+1}    # Previous velocity
     p::Array{T,D}       # Pressure
@@ -71,20 +77,39 @@ sim_step!(sim; remeasure=true)
 force_regrid!(sim)
 
 # Check divergence at all levels
-check_divergence(sim; verbose=true)</code></pre><h2 id="Fluid-Structure-Interaction-(FSI)"><a class="docs-heading-anchor" href="#Fluid-Structure-Interaction-(FSI)">Fluid-Structure Interaction (FSI)</a><a id="Fluid-Structure-Interaction-(FSI)-1"></a><a class="docs-heading-anchor-permalink" href="#Fluid-Structure-Interaction-(FSI)" title="Permalink"></a></h2><h3 id="FSI-Files"><a class="docs-heading-anchor" href="#FSI-Files">FSI Files</a><a id="FSI-Files-1"></a><a class="docs-heading-anchor-permalink" href="#FSI-Files" title="Permalink"></a></h3><table><tr><th style="text-align: right">File</th><th style="text-align: right">Purpose</th></tr><tr><td style="text-align: right"><code>EulerBernoulliBeam.jl</code></td><td style="text-align: right">Beam dynamics with Hermite finite elements</td></tr><tr><td style="text-align: right"><code>FluidStructureCoupling.jl</code></td><td style="text-align: right"><code>FSISimulation</code>, fluid-beam coupling</td></tr><tr><td style="text-align: right"><code>BeamAMR.jl</code></td><td style="text-align: right"><code>BeamAMRSimulation</code>, AMR for flexible bodies</td></tr></table><h3 id="Beam-Model"><a class="docs-heading-anchor" href="#Beam-Model">Beam Model</a><a id="Beam-Model-1"></a><a class="docs-heading-anchor-permalink" href="#Beam-Model" title="Permalink"></a></h3><ul><li>Euler-Bernoulli beam theory (small deflections)</li><li>Hermite cubic shape functions (C1 continuity)</li><li>Newmark-beta time integration</li><li>Boundary conditions: CLAMPED, FREE, PINNED, PRESCRIBED</li></ul><pre><code class="language-julia hljs"># Create a flexible beam
-beam = EulerBernoulliBeam(
-    n_elements = 20,
-    length = 1.0,
-    material = BeamMaterial(E=1e6, rho=1000),
-    geometry = BeamGeometry(width=0.1, thickness_func=fish_thickness_profile),
-    left_bc = CLAMPED,
-    right_bc = FREE
-)
+check_divergence(sim; verbose=true)</code></pre><h2 id="Fluid-Structure-Interaction-(FSI)"><a class="docs-heading-anchor" href="#Fluid-Structure-Interaction-(FSI)">Fluid-Structure Interaction (FSI)</a><a id="Fluid-Structure-Interaction-(FSI)-1"></a><a class="docs-heading-anchor-permalink" href="#Fluid-Structure-Interaction-(FSI)" title="Permalink"></a></h2><h3 id="FSI-Files"><a class="docs-heading-anchor" href="#FSI-Files">FSI Files</a><a id="FSI-Files-1"></a><a class="docs-heading-anchor-permalink" href="#FSI-Files" title="Permalink"></a></h3><table><tr><th style="text-align: right">File</th><th style="text-align: right">Purpose</th></tr><tr><td style="text-align: right"><code>EulerBernoulliBeam.jl</code></td><td style="text-align: right">Beam dynamics with Hermite finite elements, <code>BeamMaterial</code>, <code>BeamGeometry</code></td></tr><tr><td style="text-align: right"><code>FluidStructureCoupling.jl</code></td><td style="text-align: right"><code>FlexibleBodyFSI</code>, <code>FSISimulation</code>, fluid-beam coupling</td></tr><tr><td style="text-align: right"><code>BeamAMR.jl</code></td><td style="text-align: right"><code>BeamAMRSimulation</code>, <code>FlexibleBodySDF</code>, AMR for flexible swimming bodies</td></tr></table><h3 id="Beam-Model"><a class="docs-heading-anchor" href="#Beam-Model">Beam Model</a><a id="Beam-Model-1"></a><a class="docs-heading-anchor-permalink" href="#Beam-Model" title="Permalink"></a></h3><ul><li>Euler-Bernoulli beam theory (small deflections)</li><li>Hermite cubic shape functions (C1 continuity)</li><li>Newmark-beta time integration</li><li>Boundary conditions: <code>CLAMPED</code>, <code>FREE</code>, <code>PINNED</code>, <code>PRESCRIBED</code></li></ul><pre><code class="language-julia hljs"># Create beam material and geometry
+material = BeamMaterial(ρ=1050.0, E=5e5)
+geometry = BeamGeometry(0.2, 51; thickness=0.01, width=0.05)
 
-# FSI simulation
-fsi_sim = FSISimulation((256, 128), (2.0, 1.0);
-    beam = beam,
-    ν = 1e-3)</code></pre><h2 id="Diagnostics-(Diagnostics.jl)"><a class="docs-heading-anchor" href="#Diagnostics-(Diagnostics.jl)">Diagnostics (<code>Diagnostics.jl</code>)</a><a id="Diagnostics-(Diagnostics.jl)-1"></a><a class="docs-heading-anchor-permalink" href="#Diagnostics-(Diagnostics.jl)" title="Permalink"></a></h2><h3 id="Force-Computation"><a class="docs-heading-anchor" href="#Force-Computation">Force Computation</a><a id="Force-Computation-1"></a><a class="docs-heading-anchor-permalink" href="#Force-Computation" title="Permalink"></a></h3><table><tr><th style="text-align: right">Function</th><th style="text-align: right">Description</th></tr><tr><td style="text-align: right"><code>pressure_force(sim)</code></td><td style="text-align: right">Pressure contribution to force</td></tr><tr><td style="text-align: right"><code>viscous_force(sim)</code></td><td style="text-align: right">Viscous contribution to force</td></tr><tr><td style="text-align: right"><code>total_force(sim)</code></td><td style="text-align: right">Sum of pressure and viscous forces</td></tr><tr><td style="text-align: right"><code>force_coefficients(sim)</code></td><td style="text-align: right">Cd, Cl (drag and lift coefficients)</td></tr></table><h3 id="Flow-Quantities"><a class="docs-heading-anchor" href="#Flow-Quantities">Flow Quantities</a><a id="Flow-Quantities-1"></a><a class="docs-heading-anchor-permalink" href="#Flow-Quantities" title="Permalink"></a></h3><table><tr><th style="text-align: right">Function</th><th style="text-align: right">Description</th></tr><tr><td style="text-align: right"><code>ω(flow)</code></td><td style="text-align: right">Vorticity field (2D: scalar, 3D: vector)</td></tr><tr><td style="text-align: right"><code>ω_mag(flow)</code></td><td style="text-align: right">Vorticity magnitude</td></tr><tr><td style="text-align: right"><code>cell_center_velocity(flow)</code></td><td style="text-align: right">Interpolate staggered velocity to cell centers</td></tr><tr><td style="text-align: right"><code>cell_center_pressure(flow)</code></td><td style="text-align: right">Cell-centered pressure</td></tr></table><h2 id="Memory-and-Backends"><a class="docs-heading-anchor" href="#Memory-and-Backends">Memory and Backends</a><a id="Memory-and-Backends-1"></a><a class="docs-heading-anchor-permalink" href="#Memory-and-Backends" title="Permalink"></a></h2><p>BioFlows.jl supports multiple compute backends via KernelAbstractions.jl:</p><pre><code class="language-julia hljs"># CPU (default)
+# Create a flexible beam
+beam = EulerBernoulliBeam(geometry, material;
+    bc_left = CLAMPED,
+    bc_right = FREE,
+    damping = 0.1)
+
+# Apply traveling wave muscle activation
+f_wave = traveling_wave_forcing(
+    amplitude=100.0,
+    frequency=2.0,
+    wavelength=1.0,
+    envelope=:carangiform,
+    L=0.2
+)</code></pre><h3 id="BeamAMRSimulation"><a class="docs-heading-anchor" href="#BeamAMRSimulation">BeamAMRSimulation</a><a id="BeamAMRSimulation-1"></a><a class="docs-heading-anchor-permalink" href="#BeamAMRSimulation" title="Permalink"></a></h3><p>For flexible swimming bodies with adaptive mesh refinement:</p><pre><code class="language-julia hljs"># Create swimming fish simulation with AMR
+sim = BeamAMRSimulation((256, 128), (2.0, 1.0);
+    L_fish = 0.2,
+    h_max = 0.02,
+    E = 5e5,
+    ρ_fish = 1050.0,
+    amr_config = FlexibleBodyAMRConfig(max_level=2),
+    ν = 1e-3)
+
+# Time stepping with automatic regridding
+for _ in 1:1000
+    sim_step!(sim; remeasure=true)
+end
+
+# Check AMR status
+beam_info(sim)</code></pre><h2 id="Diagnostics-(Diagnostics.jl)"><a class="docs-heading-anchor" href="#Diagnostics-(Diagnostics.jl)">Diagnostics (<code>Diagnostics.jl</code>)</a><a id="Diagnostics-(Diagnostics.jl)-1"></a><a class="docs-heading-anchor-permalink" href="#Diagnostics-(Diagnostics.jl)" title="Permalink"></a></h2><h3 id="Force-Computation"><a class="docs-heading-anchor" href="#Force-Computation">Force Computation</a><a id="Force-Computation-1"></a><a class="docs-heading-anchor-permalink" href="#Force-Computation" title="Permalink"></a></h3><table><tr><th style="text-align: right">Function</th><th style="text-align: right">Description</th></tr><tr><td style="text-align: right"><code>pressure_force(sim)</code></td><td style="text-align: right">Pressure contribution to force</td></tr><tr><td style="text-align: right"><code>viscous_force(sim)</code></td><td style="text-align: right">Viscous contribution to force</td></tr><tr><td style="text-align: right"><code>total_force(sim)</code></td><td style="text-align: right">Sum of pressure and viscous forces</td></tr><tr><td style="text-align: right"><code>force_coefficients(sim)</code></td><td style="text-align: right">Cd, Cl (drag and lift coefficients)</td></tr></table><h3 id="Flow-Quantities"><a class="docs-heading-anchor" href="#Flow-Quantities">Flow Quantities</a><a id="Flow-Quantities-1"></a><a class="docs-heading-anchor-permalink" href="#Flow-Quantities" title="Permalink"></a></h3><table><tr><th style="text-align: right">Function</th><th style="text-align: right">Description</th></tr><tr><td style="text-align: right"><code>ω(flow)</code></td><td style="text-align: right">Vorticity field (2D: scalar, 3D: vector)</td></tr><tr><td style="text-align: right"><code>ω_mag(flow)</code></td><td style="text-align: right">Vorticity magnitude</td></tr><tr><td style="text-align: right"><code>cell_center_velocity(flow)</code></td><td style="text-align: right">Interpolate staggered velocity to cell centers</td></tr><tr><td style="text-align: right"><code>cell_center_pressure(flow)</code></td><td style="text-align: right">Cell-centered pressure</td></tr></table><h2 id="Memory-and-Backends"><a class="docs-heading-anchor" href="#Memory-and-Backends">Memory and Backends</a><a id="Memory-and-Backends-1"></a><a class="docs-heading-anchor-permalink" href="#Memory-and-Backends" title="Permalink"></a></h2><p>BioFlows.jl supports multiple compute backends via KernelAbstractions.jl:</p><pre><code class="language-julia hljs"># CPU (default)
 sim = Simulation(dims, L; mem=Array, ...)
 
 # GPU (requires CUDA.jl)
@@ -135,13 +160,21 @@ BioFlows.measure!(flow::Flow, body::MyBody; kwargs...) = ...</code></pre><h3 id=
 function my_diagnostic(sim::Simulation)
     flow = sim.flow
     # Compute diagnostic from flow fields
-end</code></pre><h3 id="Creating-Extensions"><a class="docs-heading-anchor" href="#Creating-Extensions">Creating Extensions</a><a id="Creating-Extensions-1"></a><a class="docs-heading-anchor-permalink" href="#Creating-Extensions" title="Permalink"></a></h3><p>Use Julia&#39;s package extension mechanism:</p><pre><code class="language-julia hljs"># In ext/MyExtension.jl
-module MyExtension
+end</code></pre><h3 id="Using-I/O-Features"><a class="docs-heading-anchor" href="#Using-I/O-Features">Using I/O Features</a><a id="Using-I/O-Features-1"></a><a class="docs-heading-anchor-permalink" href="#Using-I/O-Features" title="Permalink"></a></h3><p>BioFlows includes JLD2 for saving simulation data:</p><pre><code class="language-julia hljs">using BioFlows
+using JLD2
 
-using BioFlows
-using MyDependency  # Triggers extension loading
+# Create diagnostic writers
+writer = CenterFieldWriter(&quot;fields.jld2&quot;; interval=0.1)
+force_writer = ForceWriter(&quot;forces.jld2&quot;)
 
-# Extend BioFlows functions
-BioFlows.my_function(args...) = ...
+# In simulation loop
+file_save!(writer, sim, t)
+record_force!(force_writer, sim, t)
 
-end</code></pre><h2 id="Performance-Tips"><a class="docs-heading-anchor" href="#Performance-Tips">Performance Tips</a><a id="Performance-Tips-1"></a><a class="docs-heading-anchor-permalink" href="#Performance-Tips" title="Permalink"></a></h2><ol><li><strong>Use <code>remeasure=false</code></strong> for static bodies to skip SDF recomputation</li><li><strong>Set <code>JULIA_NUM_THREADS=auto</code></strong> for multi-threaded CPU execution</li><li><strong>Use GPU arrays</strong> (<code>CuArray</code>) for large 3D simulations</li><li><strong>Tune AMR parameters</strong>: Lower <code>regrid_interval</code> for fast-moving bodies</li><li><strong>Use <code>store_fluxes=false</code></strong> (default) unless debugging conservation</li></ol></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../getting_started/">« Getting Started</a><a class="docs-footer-nextpage" href="../numerical_methods/">Numerical Methods »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Thursday 25 December 2025 08:36">Thursday 25 December 2025</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+# Close writers when done
+close!(writer)
+close!(force_writer)</code></pre><h3 id="Using-Plots/Makie-(Optional)"><a class="docs-heading-anchor" href="#Using-Plots/Makie-(Optional)">Using Plots/Makie (Optional)</a><a id="Using-Plots/Makie-(Optional)-1"></a><a class="docs-heading-anchor-permalink" href="#Using-Plots/Makie-(Optional)" title="Permalink"></a></h3><p>If you load Plots.jl or Makie.jl, visualization functions become available:</p><pre><code class="language-julia hljs">using BioFlows
+using Plots  # Enables flood, addbody, body_plot!, sim_gif!
+
+# Or with Makie
+using GLMakie  # Enables viz!, get_body, plot_body_obs!</code></pre><h2 id="Performance-Tips"><a class="docs-heading-anchor" href="#Performance-Tips">Performance Tips</a><a id="Performance-Tips-1"></a><a class="docs-heading-anchor-permalink" href="#Performance-Tips" title="Permalink"></a></h2><ol><li><strong>Use <code>remeasure=false</code></strong> for static bodies to skip SDF recomputation</li><li><strong>Set <code>JULIA_NUM_THREADS=auto</code></strong> for multi-threaded CPU execution</li><li><strong>Use GPU arrays</strong> (<code>CuArray</code>) for large 3D simulations</li><li><strong>Tune AMR parameters</strong>: Lower <code>regrid_interval</code> for fast-moving bodies</li><li><strong>Use <code>store_fluxes=false</code></strong> (default) unless debugging conservation</li></ol></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../getting_started/">« Getting Started</a><a class="docs-footer-nextpage" href="../numerical_methods/">Numerical Methods »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Thursday 25 December 2025 09:17">Thursday 25 December 2025</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
