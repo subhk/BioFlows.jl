@@ -987,7 +987,7 @@ export set_fluid_load!, set_active_forcing!, get_fluid_load, reset!, step!
 export BeamStateWriter, BeamStateWriterGroup, close!
 
 # FSI AMR exports
-export FlexibleBodySDF, FlexibleBodyAMRConfig, BeamAMRTracker
+export FlexibleBodySDF, BeamAMRConfig, BeamAMRTracker
 export compute_beam_refinement_indicator, compute_beam_combined_indicator
 export create_beam_body, regrid_for_beam!, should_regrid, mark_regrid!
 export get_beam_bounding_box, count_refined_cells_near_beam

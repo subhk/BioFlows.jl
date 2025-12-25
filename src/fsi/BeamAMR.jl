@@ -320,11 +320,11 @@ end
 # =============================================================================
 
 """
-    FlexibleBodyAMRConfig
+    BeamAMRConfig
 
-Configuration for AMR with flexible bodies.
+Configuration for AMR with Euler-Bernoulli beam flexible bodies.
 """
-Base.@kwdef struct FlexibleBodyAMRConfig
+Base.@kwdef struct BeamAMRConfig
     max_level::Int = 2
     beam_distance_threshold::Float64 = 3.0
     gradient_threshold::Float64 = 1.0
@@ -340,13 +340,13 @@ end
 
 """
     regrid_for_beam!(amr_sim, beam_sdf::FlexibleBodySDF, tracker::BeamAMRTracker,
-                     step::Int, config::FlexibleBodyAMRConfig)
+                     step::Int, config::BeamAMRConfig)
 
 Perform AMR regridding based on beam position and motion.
 """
 function regrid_for_beam!(amr_sim, beam_sdf::FlexibleBodySDF,
                           tracker::BeamAMRTracker, step::Int,
-                          config::FlexibleBodyAMRConfig)
+                          config::BeamAMRConfig)
     flow = amr_sim.sim.flow
 
     # Check if regridding is needed

@@ -116,7 +116,8 @@ See [Numerical Methods](@ref) for details.
 | Type/Function | Description |
 |---------------|-------------|
 | `FlexibleBodySDF(beam, x, z)` | Time-dependent SDF from beam state |
-| `FlexibleBodyAMRConfig(; kwargs...)` | AMR configuration for flexible bodies |
+| `BeamAMRConfig(; kwargs...)` | Beam-specific AMR configuration |
+| `FlexibleBodyAMRConfig(; kwargs...)` | AMR configuration for flexible bodies (returns AMRConfig) |
 | `BeamAMRTracker(beam_sdf)` | Motion tracker for regrid decisions |
 | `create_beam_body(beam, x, z)` | Create AutoBody from beam |
 | `update!(beam_sdf)` | Update SDF with current beam state |

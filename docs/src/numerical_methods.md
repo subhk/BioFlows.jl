@@ -931,10 +931,10 @@ The SDF automatically updates as the beam deforms:
 
 #### AMR Configuration
 
-Configure AMR behavior with `FlexibleBodyAMRConfig`:
+Configure AMR behavior with `BeamAMRConfig`:
 
 ```julia
-config = FlexibleBodyAMRConfig(
+config = BeamAMRConfig(
     max_level=2,                    # Maximum refinement level (2=4x)
     beam_distance_threshold=3.0,    # Refine within 3 cells of beam
     gradient_threshold=1.0,         # Velocity gradient threshold
@@ -1016,7 +1016,7 @@ sim = AMRSimulation((256, 128), (2.0, 1.0);
 
 # Create tracker for motion-based regridding
 tracker = BeamAMRTracker(beam_sdf)
-flex_config = FlexibleBodyAMRConfig(max_level=2, beam_weight=0.7)
+flex_config = BeamAMRConfig(max_level=2, beam_weight=0.7)
 
 # Traveling wave forcing
 f_wave = traveling_wave_forcing(amplitude=100.0, frequency=2.0,
