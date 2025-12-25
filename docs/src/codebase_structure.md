@@ -16,7 +16,7 @@ BioFlows.jl/
 │   ├── util.jl                   # Utilities, macros, boundary conditions
 │   ├── Diagnostics.jl            # Force computation, vorticity
 │   ├── Metrics.jl                # Flow statistics (mean flow, Reynolds stress)
-│   ├── Output.jl                 # I/O utilities (VTK, JLD2 writers)
+│   ├── Output.jl                 # I/O utilities (JLD2 writers)
 │   ├── amr/                      # Adaptive Mesh Refinement
 │   │   ├── amr_types.jl          # Core AMR data structures
 │   │   ├── amr_project.jl        # AMR projection and momentum step
@@ -30,17 +30,23 @@ BioFlows.jl/
 │   │   └── refined_fields.jl     # Refined velocity field storage
 │   └── fsi/                      # Fluid-Structure Interaction
 │       ├── EulerBernoulliBeam.jl # Beam dynamics solver
-│       ├── FluidStructureCoupling.jl  # Beam-fluid coupling
-│       └── BeamAMR.jl            # Beam-aware AMR
-├── ext/                          # Package extensions
-│   ├── BioFlowsJLD2Ext.jl        # JLD2 I/O extension
-│   ├── BioFlowsReadVTKExt.jl     # VTK reading extension
-│   ├── BioFlowsWriteVTKExt.jl    # VTK writing extension
-│   ├── BioFlowsPlotsExt.jl       # Plots.jl integration
-│   └── BioFlowsMakieExt.jl       # Makie.jl integration
+│       ├── FluidStructureCoupling.jl  # Beam-fluid coupling (FSISimulation)
+│       └── BeamAMR.jl            # BeamAMRSimulation for flexible bodies with AMR
 ├── examples/                     # Example scripts
+│   ├── circle_benchmark.jl       # Simple cylinder benchmark
+│   ├── flow_past_cylinder_2d.jl  # Comprehensive 2D cylinder example
+│   ├── oscillating_cylinder.jl   # Moving cylinder with sinusoidal motion
+│   ├── sphere_3d.jl              # 3D sphere wake simulation
+│   ├── torus_3d.jl               # 3D torus in periodic flow
+│   ├── swimming_fish.jl          # Flexible swimming fish (FSI)
+│   └── swimming_fish_amr.jl      # Swimming fish with adaptive mesh refinement
 ├── test/                         # Test suite
-└── docs/                         # Documentation
+│   ├── runtests.jl               # Main test runner
+│   ├── test_amr.jl               # AMR functionality tests
+│   ├── test_composite_poisson.jl # Composite Poisson solver tests
+│   ├── test_fvm.jl               # Finite volume method tests
+│   └── test_pressure_solver.jl   # Pressure solver tests
+└── docs/                         # Documentation (Documenter.jl)
 ```
 
 ## Core Modules
@@ -48,10 +54,10 @@ BioFlows.jl/
 ### Main Module (`BioFlows.jl`)
 
 The entry point that:
-- Imports all dependencies (KernelAbstractions, MPI, ForwardDiff, etc.)
+- Imports all dependencies (KernelAbstractions, MPI, ForwardDiff, JLD2, etc.)
 - Includes all source files in dependency order
-- Defines `Simulation` and `AMRSimulation` types
-- Exports public API
+- Defines core simulation types: `Simulation`, `AMRSimulation`, `FSISimulation`, `BeamAMRSimulation`
+- Exports public API for flow solving, AMR, and FSI
 
 ### Flow Solver (`Flow.jl`)
 
@@ -186,32 +192,59 @@ check_divergence(sim; verbose=true)
 
 | File | Purpose |
 |------|---------|
-| `EulerBernoulliBeam.jl` | Beam dynamics with Hermite finite elements |
-| `FluidStructureCoupling.jl` | `FSISimulation`, fluid-beam coupling |
-| `BeamAMR.jl` | `BeamAMRSimulation`, AMR for flexible bodies |
+| `EulerBernoulliBeam.jl` | Beam dynamics with Hermite finite elements, `BeamMaterial`, `BeamGeometry` |
+| `FluidStructureCoupling.jl` | `FlexibleBodyFSI`, `FSISimulation`, fluid-beam coupling |
+| `BeamAMR.jl` | `BeamAMRSimulation`, `FlexibleBodySDF`, AMR for flexible swimming bodies |
 
 ### Beam Model
 
 - Euler-Bernoulli beam theory (small deflections)
 - Hermite cubic shape functions (C1 continuity)
 - Newmark-beta time integration
-- Boundary conditions: CLAMPED, FREE, PINNED, PRESCRIBED
+- Boundary conditions: `CLAMPED`, `FREE`, `PINNED`, `PRESCRIBED`
 
 ```julia
-# Create a flexible beam
-beam = EulerBernoulliBeam(
-    n_elements = 20,
-    length = 1.0,
-    material = BeamMaterial(E=1e6, rho=1000),
-    geometry = BeamGeometry(width=0.1, thickness_func=fish_thickness_profile),
-    left_bc = CLAMPED,
-    right_bc = FREE
-)
+# Create beam material and geometry
+material = BeamMaterial(ρ=1050.0, E=5e5)
+geometry = BeamGeometry(0.2, 51; thickness=0.01, width=0.05)
 
-# FSI simulation
-fsi_sim = FSISimulation((256, 128), (2.0, 1.0);
-    beam = beam,
+# Create a flexible beam
+beam = EulerBernoulliBeam(geometry, material;
+    bc_left = CLAMPED,
+    bc_right = FREE,
+    damping = 0.1)
+
+# Apply traveling wave muscle activation
+f_wave = traveling_wave_forcing(
+    amplitude=100.0,
+    frequency=2.0,
+    wavelength=1.0,
+    envelope=:carangiform,
+    L=0.2
+)
+```
+
+### BeamAMRSimulation
+
+For flexible swimming bodies with adaptive mesh refinement:
+
+```julia
+# Create swimming fish simulation with AMR
+sim = BeamAMRSimulation((256, 128), (2.0, 1.0);
+    L_fish = 0.2,
+    h_max = 0.02,
+    E = 5e5,
+    ρ_fish = 1050.0,
+    amr_config = FlexibleBodyAMRConfig(max_level=2),
     ν = 1e-3)
+
+# Time stepping with automatic regridding
+for _ in 1:1000
+    sim_step!(sim; remeasure=true)
+end
+
+# Check AMR status
+beam_info(sim)
 ```
 
 ## Diagnostics (`Diagnostics.jl`)
@@ -344,21 +377,37 @@ function my_diagnostic(sim::Simulation)
 end
 ```
 
-### Creating Extensions
+### Using I/O Features
 
-Use Julia's package extension mechanism:
+BioFlows includes JLD2 for saving simulation data:
 
 ```julia
-# In ext/MyExtension.jl
-module MyExtension
-
 using BioFlows
-using MyDependency  # Triggers extension loading
+using JLD2
 
-# Extend BioFlows functions
-BioFlows.my_function(args...) = ...
+# Create diagnostic writers
+writer = CenterFieldWriter("fields.jld2"; interval=0.1)
+force_writer = ForceWriter("forces.jld2")
 
-end
+# In simulation loop
+file_save!(writer, sim, t)
+record_force!(force_writer, sim, t)
+
+# Close writers when done
+close!(writer)
+close!(force_writer)
+```
+
+### Using Plots/Makie (Optional)
+
+If you load Plots.jl or Makie.jl, visualization functions become available:
+
+```julia
+using BioFlows
+using Plots  # Enables flood, addbody, body_plot!, sim_gif!
+
+# Or with Makie
+using GLMakie  # Enables viz!, get_body, plot_body_obs!
 ```
 
 ## Performance Tips
