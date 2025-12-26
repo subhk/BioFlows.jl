@@ -164,7 +164,11 @@ is `p_stored = p_physical / Δx`. The force integral accounts for this:
 
 This gives F = -Σ p_physical * n̂ * K(d) * Δx = -∮ p_physical * n̂ * ds.
 """
-_sim_kernel_width(sim) = hasproperty(sim, :ϵ) ? getproperty(sim, :ϵ) : 1
+_sim_kernel_width(sim) = try
+    getproperty(sim, :ϵ)
+catch
+    1
+end
 pressure_force(sim) = pressure_force(sim.flow,sim.body; ϵ=_sim_kernel_width(sim))
 pressure_force(flow,body; ϵ=1) = pressure_force(flow.p,flow.Δx,flow.f,body,time(flow); ϵ)
 function pressure_force(p,Δx,df,body,t=0; ϵ=1)
