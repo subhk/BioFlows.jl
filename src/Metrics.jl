@@ -133,15 +133,16 @@ end
 # =============================================================================
 
 """
-    nds(body,x,t)
+    nds(body,x,t,ϵ=1)
 
 BDIM-masked surface normal.
-Returns n̂ weighted by the kernel K(d), which is 1 at the surface and
+Returns n̂ weighted by the kernel K(d/ϵ), which is 1 at the surface and
 decays smoothly to 0 away from the body.
 """
-@inline function nds(body,x,t)
-    d,n,_ = measure(body,x,t,fastd²=1)
-    n*BioFlows.kern(clamp(d,-1,1))  # Weight normal by kernel
+@inline function nds(body,x,t,ϵ=1)
+    d,n,_ = measure(body,x,t,fastd²=ϵ^2)
+    ϵT = oftype(d, ϵ)
+    n*BioFlows.kern(clamp(d/ϵT,-1,1))  # Weight normal by kernel
 end
 
 """
@@ -163,9 +164,10 @@ is `p_stored = p_physical / Δx`. The force integral accounts for this:
 
 This gives F = -Σ p_physical * n̂ * K(d) * Δx = -∮ p_physical * n̂ * ds.
 """
-pressure_force(sim) = pressure_force(sim.flow,sim.body)
-pressure_force(flow,body) = pressure_force(flow.p,flow.Δx,flow.f,body,time(flow))
-function pressure_force(p,Δx,df,body,t=0)
+_sim_kernel_width(sim) = hasproperty(sim, :ϵ) ? getproperty(sim, :ϵ) : 1
+pressure_force(sim) = pressure_force(sim.flow,sim.body; ϵ=_sim_kernel_width(sim))
+pressure_force(flow,body; ϵ=1) = pressure_force(flow.p,flow.Δx,flow.f,body,time(flow); ϵ)
+function pressure_force(p,Δx,df,body,t=0; ϵ=1)
     D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
@@ -175,7 +177,7 @@ function pressure_force(p,Δx,df,body,t=0)
     # Combined scale factor: Δx * ds = Δx² for 2D, Δx³ for 3D = prod(Δx)
     scale = prod(Δx)  # Δx² for 2D (isotropic), Δx³ for 3D
     # Compute contribution at each cell: F = -Σ p * n̂ * scale (negative because pressure acts inward)
-    @loop df[I,:] .= -p[I]*nds(body,loc(0,I,Tp),t)*scale over I ∈ inside(p)
+    @loop df[I,:] .= -p[I]*nds(body,loc(0,I,Tp),t,ϵ)*scale over I ∈ inside(p)
     # Sum over all spatial dimensions to get total force vector
     sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
@@ -206,9 +208,9 @@ Note: The strain rate S is computed using unit-spacing derivatives, so
 
 This gives F = +Σ 2μ * S_physical * Δx * n̂ * K(d) = +∮ 2μ * S_physical * n̂ * ds.
 """
-viscous_force(sim) = viscous_force(sim.flow,sim.body)
-viscous_force(flow,body) = viscous_force(flow.u,flow.ν,flow.ρ,flow.Δx,flow.f,body,time(flow))
-function viscous_force(u,ν,ρ,Δx,df,body,t=0)
+viscous_force(sim) = viscous_force(sim.flow,sim.body; ϵ=_sim_kernel_width(sim))
+viscous_force(flow,body; ϵ=1) = viscous_force(flow.u,flow.ν,flow.ρ,flow.Δx,flow.f,body,time(flow); ϵ)
+function viscous_force(u,ν,ρ,Δx,df,body,t=0; ϵ=1)
     D = ndims(u) - 1  # Spatial dimensions (u has extra dimension for components)
     Tu = eltype(u); To = promote_type(Float64,Tu)
     μ = ρ * ν  # dynamic viscosity (Pa·s)
@@ -220,7 +222,7 @@ function viscous_force(u,ν,ρ,Δx,df,body,t=0)
     # For isotropic grid: scale = Δx^(D-2) = 1 for 2D, Δx for 3D
     scale = prod(Δx)^((D-2)/D)  # 1 for 2D, Δx for 3D (isotropic)
     # F = +∮ 2μS·n̂ ds (viscous traction on body from fluid)
-    @loop df[I,:] .= 2μ*S(I,u)*nds(body,loc(0,I,Tu),t)*scale over I ∈ inside_u(u)
+    @loop df[I,:] .= 2μ*S(I,u)*nds(body,loc(0,I,Tu),t,ϵ)*scale over I ∈ inside_u(u)
     sum(To,df,dims=ntuple(i->i,D))[:] |> Array
 end
 
@@ -243,16 +245,25 @@ Returns moment in N·m/m (2D) or N·m (3D).
 
 Note: Uses same scaling as pressure_force to account for unit-spacing Poisson solver.
 """
-pressure_moment(x₀,sim) = pressure_moment(x₀,sim.flow,sim.body)
-pressure_moment(x₀,flow,body) = pressure_moment(x₀,flow.p,flow.Δx,flow.f,body,time(flow))
-function pressure_moment(x₀,p,Δx,df,body,t=0)
+pressure_moment(x₀,sim) = pressure_moment(x₀,sim.flow,sim.body; ϵ=_sim_kernel_width(sim))
+pressure_moment(x₀,flow,body; ϵ=1) = pressure_moment(x₀,flow.p,flow.Δx,flow.f,body,time(flow); ϵ)
+function pressure_moment(x₀,p,Δx,df,body,t=0; ϵ=1)
     D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
     # Same scaling as pressure_force: prod(Δx) = Δx² for 2D, Δx³ for 3D
     scale = prod(Δx)
-    @loop df[I,:] .= -p[I]*cross(loc(0,I,Tp)-x₀,nds(body,loc(0,I,Tp),t))*scale over I ∈ inside(p)
-    sum(To,df,dims=ntuple(i->i,D))[:] |> Array
+    if D == 2
+        @loop (x = loc(0,I,Tp);
+               n = nds(body,x,t,ϵ);
+               df[I,1] = -p[I] * ((x[1]-x₀[1]) * n[2] - (x[2]-x₀[2]) * n[1]) * scale) over I ∈ inside(p)
+        sum(To,df,dims=ntuple(i->i,D))[:] |> Array |> first
+    else
+        @loop (x = loc(0,I,Tp);
+               n = nds(body,x,t,ϵ);
+               df[I,:] .= -p[I] * cross(x - x₀, n) * scale) over I ∈ inside(p)
+        sum(To,df,dims=ntuple(i->i,D))[:] |> Array
+    end
 end
 
 # =============================================================================
@@ -330,7 +341,7 @@ function update!(meanflow::MeanFlow, flow::Flow)
     # Update velocity correlation tensor <uᵢuⱼ> for Reynolds stresses
     if meanflow.uu_stats
         for i in 1:ndims(flow.p), j in 1:ndims(flow.p)
-            @loop meanflow.UU[I,i,j] = ε * (flow.u[I,i] .* flow.u[I,j]) + (1 - ε) * meanflow.UU[I,i,j] over I in CartesianIndices(flow.p)
+            @loop meanflow.UU[I,i,j] = ε * (flow.u[I,i] * flow.u[I,j]) + (1 - ε) * meanflow.UU[I,i,j] over I in CartesianIndices(flow.p)
         end
     end
     push!(meanflow.t, meanflow.t[end] + dt)
