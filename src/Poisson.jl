@@ -130,7 +130,9 @@ without the corrections, no solution exists.
 function residual!(p::Poisson)
     perBC!(p.x,p.perdir)
     @inside p.r[I] = ifelse(p.iD[I]==0,0,p.z[I]-mult(I,p.L,p.D,p.x))
-    s = sum(p.r)/length(inside(p.r))
+    n_inside = length(inside(p.r))
+    n_inside == 0 && return
+    s = sum(p.r)/n_inside
     abs(s) <= 2eps(eltype(s)) && return
     @inside p.r[I] = p.r[I]-s
 end
@@ -190,8 +192,10 @@ function pcg!(p::Poisson{T};it=6) where T
     for i in 1:it
         perBC!(ϵ,p.perdir)
         @inside z[I] = mult(I,p.L,p.D,ϵ)  # z = Aϵ
-        alpha = rho/(z⋅ϵ)  # Step size (Rayleigh quotient)
-        (abs(alpha)<1e-2 || abs(alpha)>1e2) && return  # Convergence check
+        denom = z⋅ϵ
+        abs(denom) < 10eps(T) && return
+        alpha = rho/denom  # Step size (Rayleigh quotient)
+        (!isfinite(alpha) || abs(alpha)<1e-2 || abs(alpha)>1e2) && return  # Convergence check
         @loop (x[I] += alpha*ϵ[I];  # Update solution
                r[I] -= alpha*z[I]) over I ∈ inside(x)  # Update residual
         i==it && return
