@@ -62,7 +62,7 @@ struct StaggeredGrid{T<:AbstractFloat}
 end
 
 """
-    StaggeredGrid(nx, nz, dx, dz; T=Float64)
+    StaggeredGrid(nx, nz, dx, dz)
 
 Construct a 2D staggered grid in the XZ plane.
 """
@@ -81,7 +81,7 @@ function StaggeredGrid(nx::Int, nz::Int, dx::T, dz::T) where {T<:AbstractFloat}
 end
 
 """
-    StaggeredGrid(nx, ny, nz, dx, dy, dz; T=Float64)
+    StaggeredGrid(nx, ny, nz, dx, dy, dz)
 
 Construct a 3D staggered grid.
 """
@@ -118,7 +118,7 @@ struct SolutionState{T<:AbstractFloat, A<:AbstractArray{T}}
 end
 
 """
-    SolutionState(grid::StaggeredGrid; T=Float64, mem=Array)
+    SolutionState(grid::StaggeredGrid; mem=Array)
 
 Create an empty solution state for the given grid.
 """
@@ -185,7 +185,7 @@ Stores the base grid and tracking information for refined cells.
 
 # Fields
 - `base_grid`: The coarse/base level grid
-- `refined_cells_2d/3d`: Dict mapping cell indices to refinement level
+- `refined_cells_2d/3d`: Dict mapping Flow indices (including ghost offset) to refinement level
 - `refined_grids_2d/3d`: Dict mapping cell indices to local refined StaggeredGrid
 - `interpolation_weights_2d/3d`: Pre-computed interpolation weights
 """
@@ -234,6 +234,7 @@ end
     refinement_level(rg::RefinedGrid, i, j, k)
 
 Get the refinement level of a cell (0 = base grid, 1+ = refined).
+Indices are in Flow array coordinates (including ghost offset).
 """
 function refinement_level(rg::RefinedGrid, i::Int, j::Int)
     get(rg.refined_cells_2d, (i, j), 0)
@@ -242,3 +243,6 @@ end
 function refinement_level(rg::RefinedGrid, i::Int, j::Int, k::Int)
     get(rg.refined_cells_3d, (i, j, k), 0)
 end
+
+refinement_level(rg::RefinedGrid, I::CartesianIndex{2}) = refinement_level(rg, I[1], I[2])
+refinement_level(rg::RefinedGrid, I::CartesianIndex{3}) = refinement_level(rg, I[1], I[2], I[3])

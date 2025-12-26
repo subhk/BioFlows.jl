@@ -18,6 +18,7 @@
 # - AMR indices: 1-based without ghost cells (interior starts at 1)
 # - cell_index_to_flow_index: (i,j) → (i+1, j+1)
 # - flow_index_to_cell_index: CartesianIndex → (i-1, j-1)
+# - Note: refinement tracking uses Flow indices (including ghost offset)
 #
 # The adapter also provides interpolation functions for transferring data
 # between coarse and refined grids.
