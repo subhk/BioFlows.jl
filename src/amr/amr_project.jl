@@ -64,11 +64,11 @@ function amr_project!(flow::Flow{D,T}, cp::CompositePoisson{T}, w::Real=1) where
         patch.x .*= dt
     end
 
-    # 3. Set divergence on refined patches (using same ρ scaling)
-    set_all_patch_divergence!(cp, flow.u, ρ)
-
-    # 4. Interpolate velocity to refined patches (before solve)
+    # 3. Interpolate velocity to refined patches (before divergence/solve)
     interpolate_velocity_to_patches!(cp.refined_velocity, flow.u)
+
+    # 4. Set divergence on refined patches (using same ρ scaling)
+    set_all_patch_divergence!(cp, flow.u, ρ)
 
     # 5. Solve composite Poisson system
     solver!(cp)
@@ -98,30 +98,32 @@ end
 
 Set divergence source term on all patches.
 RHS = ρ * div(u) to match standard projection convention.
+Uses refined patch velocity when available; otherwise falls back to coarse.
 """
 function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractArray{T}, ρ::T) where T
     for (anchor, patch) in cp.patches
+        vel_patch = get_patch(cp.refined_velocity, anchor)
         ratio = refinement_ratio(patch)
         ai, aj = anchor
 
         for I in inside(patch)
-            fi, fj = I.I
+            if vel_patch !== nothing
+                # Use fine velocity directly when available.
+                patch.z[I] = ρ * div(I, vel_patch.u)
+            else
+                fi, fj = I.I
 
-            # Map fine cell center to coarse location
-            xf = (fi - 1.5) / ratio
-            zf = (fj - 1.5) / ratio
-            ic = floor(Int, xf) + ai
-            jc = floor(Int, zf) + aj
-            ic = clamp(ic, 2, size(u_coarse, 1) - 1)
-            jc = clamp(jc, 2, size(u_coarse, 2) - 1)
+                # Map fine cell center to coarse location
+                xf = (fi - 1.5) / ratio
+                zf = (fj - 1.5) / ratio
+                ic = floor(Int, xf) + ai
+                jc = floor(Int, zf) + aj
+                ic = clamp(ic, 2, size(u_coarse, 1) - 1)
+                jc = clamp(jc, 2, size(u_coarse, 2) - 1)
 
-            # Interpolated divergence from coarse
-            # TODO: Use fine velocity when available
-            div_c = (u_coarse[ic, jc, 1] - u_coarse[ic-1, jc, 1]) +
-                    (u_coarse[ic, jc, 2] - u_coarse[ic, jc-1, 2])
-
-            # RHS = ρ * div(u) to match standard convention
-            patch.z[I] = ρ * div_c
+                # RHS = ρ * div(u) to match standard convention
+                patch.z[I] = ρ * div(CartesianIndex(ic, jc), u_coarse)
+            end
         end
     end
 end
@@ -183,13 +185,13 @@ function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T) where
         p, L = patch.x, patch.L
 
         # Use the same formula as standard project!
-        # ∂(d,I,p) = p[I+δ(d,I)] - p[I]
+        # ∂(d,I,p) = p[I] - p[I-δ(d,I)]
         for I in inside(patch)
             fi, fj = I.I
             # x-velocity correction
-            vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi+1, fj] - p[fi, fj])
+            vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
             # z-velocity correction
-            vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj+1] - p[fi, fj])
+            vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
         end
     end
 end
@@ -294,11 +296,7 @@ function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
 
         patch_div = zero(T)
         for I in inside(patch)
-            fi, fj = I.I
-            # Fine divergence
-            d = (vel_patch.u[fi, fj, 1] - vel_patch.u[fi-1, fj, 1]) +
-                (vel_patch.u[fi, fj, 2] - vel_patch.u[fi, fj-1, 2])
-            patch_div = max(patch_div, abs(d))
+            patch_div = max(patch_div, abs(div(I, vel_patch.u)))
         end
 
         if verbose
