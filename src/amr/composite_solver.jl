@@ -133,67 +133,69 @@ Projects velocity to divergence-free state using composite solver.
 function project!(flow::Flow{D,T}, cp::CompositePoisson{T},
                   refined_grid, w::Real=1) where {D,T}
     dt = T(w * flow.Δt[end])
+    ρ = flow.ρ
+    inv_ρ = inv(ρ)
 
     # 1. Set divergence on base grid
-    @inside flow.σ[I] = div(I, flow.u) / dt
+    @inside flow.σ[I] = ρ * div(I, flow.u)
     cp.base.z .= flow.σ
 
-    # 2. Set divergence on refined patches (interpolated from base for now)
-    for (anchor, patch) in cp.patches
-        set_patch_divergence!(patch, flow.u, anchor, dt)
+    # 2. Scale pressure initial guess for warm start
+    cp.base.x .*= dt
+    for (_, patch) in cp.patches
+        patch.x .*= dt
     end
 
-    # 3. Solve composite Poisson system
+    # 3. Interpolate velocity to refined patches
+    interpolate_velocity_to_patches!(cp.refined_velocity, flow.u)
+
+    # 4. Set divergence on refined patches
+    for (anchor, patch) in cp.patches
+        vel_patch = get_patch(cp.refined_velocity, anchor)
+        u_fine = vel_patch === nothing ? nothing : vel_patch.u
+        set_patch_divergence!(patch, flow.u, u_fine, anchor, ρ)
+    end
+
+    # 5. Solve composite Poisson system
     solver!(cp)
 
-    # 4. Correct base grid velocity
-    scale = inv(dt)
-    correct_velocity!(flow, cp.base.x, cp.base.L, scale)
+    # 6. Correct base grid velocity
+    correct_velocity!(flow, cp.base.x, cp.base.L, inv_ρ)
 
-    # 5. Correct refined velocity patches
+    # 7. Correct refined velocity patches
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         if vel_patch !== nothing
-            correct_refined_velocity!(vel_patch, patch, scale)
+            correct_refined_velocity!(vel_patch, patch, inv_ρ)
         end
     end
 
-    # 6. Enforce interface velocity consistency
+    # 8. Enforce interface velocity consistency
     enforce_velocity_consistency!(flow.u, cp.refined_velocity, cp.patches)
 
-    # 7. Store pressure
+    # 9. Unscale pressure for storage
+    cp.base.x ./= dt
+    for (_, patch) in cp.patches
+        patch.x ./= dt
+    end
+
+    # 10. Store pressure
     flow.p .= cp.base.x
 end
 
 """
-    set_patch_divergence!(patch, u_coarse, anchor, dt)
+    set_patch_divergence!(patch, u_coarse, u_fine, anchor, ρ)
 
 Set divergence source term on patch.
-Currently interpolates from coarse; will use fine velocity when available.
+Uses fine velocity when available, otherwise interpolates from coarse.
 """
 function set_patch_divergence!(patch::PatchPoisson{T},
                                u_coarse::AbstractArray{T},
+                               u_fine::Union{Nothing, AbstractArray{T}},
                                anchor::NTuple{2,Int},
-                               dt::T) where T
-    ratio = refinement_ratio(patch)
-    ai, aj = anchor
-    inv_dt = inv(dt)
-
-    for I in inside(patch)
-        fi, fj = I.I
-        # Map to coarse location
-        xf = (fi - 1.5) / ratio
-        zf = (fj - 1.5) / ratio
-        ic = floor(Int, xf) + ai
-        jc = floor(Int, zf) + aj
-        ic = clamp(ic, 2, size(u_coarse, 1) - 1)
-        jc = clamp(jc, 2, size(u_coarse, 2) - 1)
-
-        # Coarse divergence at (ic, jc)
-        div_coarse = (u_coarse[ic, jc, 1] - u_coarse[ic-1, jc, 1]) +
-                     (u_coarse[ic, jc, 2] - u_coarse[ic, jc-1, 2])
-        patch.z[I] = div_coarse * inv_dt
-    end
+                               ρ::T) where T
+    compute_fine_divergence!(patch, u_coarse, u_fine, anchor)
+    @inside patch.z[I] *= ρ
 end
 
 """
@@ -221,13 +223,13 @@ function correct_refined_velocity!(vel_patch::RefinedVelocityPatch{T,2},
                                    scale::T) where T
     p, L = pois_patch.x, pois_patch.L
 
-    # Use forward difference like standard project!
+    # Use backward difference like standard project!
     for I in inside(pois_patch)
         fi, fj = I.I
-        # x-velocity correction: ∂(1,I,p) = p[I+1] - p[I]
-        vel_patch.u[fi, fj, 1] -= scale * L[fi, fj, 1] * (p[fi+1, fj] - p[fi, fj])
-        # z-velocity correction: ∂(2,I,p) = p[I+(0,1)] - p[I]
-        vel_patch.u[fi, fj, 2] -= scale * L[fi, fj, 2] * (p[fi, fj+1] - p[fi, fj])
+        # x-velocity correction: ∂(1,I,p) = p[I] - p[I-1]
+        vel_patch.u[fi, fj, 1] -= scale * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
+        # z-velocity correction: ∂(2,I,p) = p[I] - p[I-(0,1)]
+        vel_patch.u[fi, fj, 2] -= scale * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
     end
 end
 
@@ -276,7 +278,7 @@ function enforce_velocity_consistency!(u_coarse::AbstractArray{T},
         if ic <= size(u_coarse, 1) - 1
             for cj_idx in 1:patch.coarse_extent[2]
                 jc = aj + cj_idx - 1
-                coarse_flux = u_coarse[ic+1, jc, 1]
+                coarse_flux = u_coarse[ic, jc, 1]
 
                 fine_sum = zero(T)
                 for dj in 1:ratio
@@ -320,7 +322,7 @@ function enforce_velocity_consistency!(u_coarse::AbstractArray{T},
         if jc <= size(u_coarse, 2) - 1
             for ci_idx in 1:patch.coarse_extent[1]
                 ic = ai + ci_idx - 1
-                coarse_flux = u_coarse[ic, jc+1, 2]
+                coarse_flux = u_coarse[ic, jc, 2]
 
                 fine_sum = zero(T)
                 for di in 1:ratio
@@ -361,11 +363,7 @@ function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) wher
 
         max_div = zero(T)
         for I in inside(patch)
-            fi, fj = I.I
-            # Fine divergence
-            d = (vel_patch.u[fi, fj, 1] - vel_patch.u[fi-1, fj, 1]) +
-                (vel_patch.u[fi, fj, 2] - vel_patch.u[fi, fj-1, 2])
-            max_div = max(max_div, abs(d))
+            max_div = max(max_div, abs(div(I, vel_patch.u)))
         end
         patch_divs[anchor] = max_div
     end
