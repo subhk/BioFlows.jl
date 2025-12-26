@@ -93,8 +93,12 @@ function create_patches_2d!(cp::CompositePoisson{T}, rg::RefinedGrid, μ₀::Abs
 
             # Clamp to grid bounds (flow indices include a ghost offset)
             nx, nz = rg.base_grid.nx + 1, rg.base_grid.nz + 1
-            anchor = (clamp(anchor[1], 2, nx - extent[1] + 1),
-                      clamp(anchor[2], 2, nz - extent[2] + 1))
+            i_min = clamp(anchor[1], 2, nx)
+            j_min = clamp(anchor[2], 2, nz)
+            i_max = clamp(anchor[1] + extent[1] - 1, 2, nx)
+            j_max = clamp(anchor[2] + extent[2] - 1, 2, nz)
+            anchor = (i_min, j_min)
+            extent = (max(i_max - i_min + 1, 2), max(j_max - j_min + 1, 2))
 
             add_patch!(cp, anchor, extent, level, μ₀)
         end

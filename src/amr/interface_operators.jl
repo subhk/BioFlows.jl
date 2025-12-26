@@ -103,7 +103,7 @@ function compute_interface_flux(patch::PatchPoisson{T},
     if side == :left
         ic = ai
         # Check if at domain boundary (no coarse neighbor to the left)
-        if ic <= 1
+        if ic <= 2
             # At domain boundary - no flux mismatch to compute
             return InterfaceFluxData{T}(zero(T), T[], zero(T))
         end
@@ -130,7 +130,7 @@ function compute_interface_flux(patch::PatchPoisson{T},
         # ic = ai + extent is the first cell OUTSIDE the patch (to the right)
         ic = ai + patch.coarse_extent[1]
         # Check if at domain boundary (need ic to exist for flux calculation)
-        if ic > nc_i || ic < 2
+        if ic >= nc_i || ic < 2
             return InterfaceFluxData{T}(zero(T), T[], zero(T))
         end
 
@@ -156,7 +156,7 @@ function compute_interface_flux(patch::PatchPoisson{T},
     elseif side == :bottom
         jc = aj
         # Check if at domain boundary
-        if jc <= 1
+        if jc <= 2
             return InterfaceFluxData{T}(zero(T), T[], zero(T))
         end
 
@@ -181,7 +181,7 @@ function compute_interface_flux(patch::PatchPoisson{T},
         # jc = aj + extent is the first cell OUTSIDE the patch (above)
         jc = aj + patch.coarse_extent[2]
         # Check if at domain boundary (need jc to exist for flux calculation)
-        if jc > nc_j || jc < 2
+        if jc >= nc_j || jc < 2
             return InterfaceFluxData{T}(zero(T), T[], zero(T))
         end
 

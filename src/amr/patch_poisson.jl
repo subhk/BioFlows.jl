@@ -335,8 +335,9 @@ function patch_pcg!(patch::PatchPoisson{T}; it::Int=6) where T
         for I in inside(patch)
             zϵ += z[I] * ϵ[I]
         end
+        abs(zϵ) < 10eps(T) && return
         alpha = rho / zϵ
-        (abs(alpha) < 1e-2 || abs(alpha) > 1e2) && return
+        (!isfinite(alpha) || abs(alpha) < 1e-2 || abs(alpha) > 1e2) && return
 
         # x += alpha*ϵ, r -= alpha*z
         for I in inside(patch)
@@ -459,7 +460,7 @@ function set_patch_boundary!(patch::PatchPoisson{T},
     end
 
     # Left boundary (i = 1) - ghost cell to the left of interior
-    if ai > 1  # Interior interface - use Dirichlet from coarse
+    if ai > 2  # Interior interface - use Dirichlet from coarse
         for fj in 1:nz+2
             patch.x[1, fj] = bilinear_interp_at(1, fj)
         end
@@ -471,7 +472,7 @@ function set_patch_boundary!(patch::PatchPoisson{T},
 
     # Right boundary (i = nx+2) - ghost cell to the right of interior
     right_coarse = ai + patch.coarse_extent[1]
-    if right_coarse <= nc_i  # Interior interface - use Dirichlet
+    if right_coarse < nc_i  # Interior interface - use Dirichlet
         for fj in 1:nz+2
             patch.x[nx+2, fj] = bilinear_interp_at(nx+2, fj)
         end
@@ -482,7 +483,7 @@ function set_patch_boundary!(patch::PatchPoisson{T},
     end
 
     # Bottom boundary (j = 1) - ghost cell below interior
-    if aj > 1  # Interior interface - use Dirichlet
+    if aj > 2  # Interior interface - use Dirichlet
         for fi in 1:nx+2
             patch.x[fi, 1] = bilinear_interp_at(fi, 1)
         end
@@ -494,7 +495,7 @@ function set_patch_boundary!(patch::PatchPoisson{T},
 
     # Top boundary (j = nz+2) - ghost cell above interior
     top_coarse = aj + patch.coarse_extent[2]
-    if top_coarse <= nc_j  # Interior interface - use Dirichlet
+    if top_coarse < nc_j  # Interior interface - use Dirichlet
         for fi in 1:nx+2
             patch.x[fi, nz+2] = bilinear_interp_at(fi, nz+2)
         end
