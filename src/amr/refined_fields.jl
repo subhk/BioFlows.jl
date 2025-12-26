@@ -293,6 +293,7 @@ end
     interpolate_from_coarse!(patch, u_coarse, anchor)
 
 Interpolate coarse velocity to fine patch using bilinear/trilinear interpolation.
+Accounts for staggered velocity component offsets.
 Fills the entire patch interior from the coarse grid.
 
 # Arguments
