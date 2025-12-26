@@ -651,21 +651,28 @@ Update the refined grid with new cells to refine.
 """
 function update_refined_cells!(rg::RefinedGrid, cells::Vector{CartesianIndex{N}},
                                 max_level::Int) where N
+    max_level < 1 && return rg
+    level = max_level
     # Clear existing refinement
     if N == 2
+        i_max = rg.base_grid.nx + 1
+        j_max = rg.base_grid.nz + 1
         empty!(rg.refined_cells_2d)
         for I in cells
             i, j = I[1], I[2]
-            if 1 <= i <= rg.base_grid.nx && 1 <= j <= rg.base_grid.nz
-                rg.refined_cells_2d[(i, j)] = min(max_level, 1)
+            if 2 <= i <= i_max && 2 <= j <= j_max
+                rg.refined_cells_2d[(i, j)] = level
             end
         end
     else
+        i_max = rg.base_grid.nx + 1
+        j_max = rg.base_grid.ny + 1
+        k_max = rg.base_grid.nz + 1
         empty!(rg.refined_cells_3d)
         for I in cells
             i, j, k = I[1], I[2], I[3]
-            if 1 <= i <= rg.base_grid.nx && 1 <= j <= rg.base_grid.ny && 1 <= k <= rg.base_grid.nz
-                rg.refined_cells_3d[(i, j, k)] = min(max_level, 1)
+            if 2 <= i <= i_max && 2 <= j <= j_max && 2 <= k <= k_max
+                rg.refined_cells_3d[(i, j, k)] = level
             end
         end
     end
