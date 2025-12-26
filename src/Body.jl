@@ -123,7 +123,7 @@ end
 Use for a simulation without a body.
 """
 struct NoBody <: AbstractBody end
-measure(::NoBody,x::AbstractVector,args...;kwargs...)=(Inf,zero(x),zero(x))
+measure(::NoBody,x::AbstractVector,args...;kwargs...)=(Inf,zero.(x),zero.(x))
 function measure!(::Flow,::NoBody;kwargs...) end # skip measure! entirely
 
 # =============================================================================
@@ -164,6 +164,19 @@ Base.:-(a::AbstractBody, b::AbstractBody) = a ∩ (-b)          # Difference: a 
 function measure(body::SetBody,x,t;fastd²=Inf)
     # Apply operation (min/max) to the full measurement tuples
     body.op(measure(body.a,x,t;fastd²),measure(body.b,x,t;fastd²))
+end
+
+# Explicit union/intersection to avoid tuple ordering on normals/velocities
+function measure(body::SetBody{typeof(min)},x,t;fastd²=Inf)
+    dₐ,nₐ,Vₐ = measure(body.a,x,t;fastd²)
+    d_b,n_b,V_b = measure(body.b,x,t;fastd²)
+    return dₐ <= d_b ? (dₐ,nₐ,Vₐ) : (d_b,n_b,V_b)
+end
+
+function measure(body::SetBody{typeof(max)},x,t;fastd²=Inf)
+    dₐ,nₐ,Vₐ = measure(body.a,x,t;fastd²)
+    d_b,n_b,V_b = measure(body.b,x,t;fastd²)
+    return dₐ >= d_b ? (dₐ,nₐ,Vₐ) : (d_b,n_b,V_b)
 end
 
 # Special case for complement: negate distance and normal, keep velocity
