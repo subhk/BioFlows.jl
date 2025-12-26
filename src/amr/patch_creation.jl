@@ -91,10 +91,10 @@ function create_patches_2d!(cp::CompositePoisson{T}, rg::RefinedGrid, μ₀::Abs
             # Add padding if patch is too small (minimum 2x2 coarse cells)
             extent = max.(extent, (2, 2))
 
-            # Clamp to grid bounds
-            nx, nz = rg.base_grid.nx, rg.base_grid.nz
-            anchor = (clamp(anchor[1], 2, nx - extent[1]),
-                      clamp(anchor[2], 2, nz - extent[2]))
+            # Clamp to grid bounds (flow indices include a ghost offset)
+            nx, nz = rg.base_grid.nx + 1, rg.base_grid.nz + 1
+            anchor = (clamp(anchor[1], 2, nx - extent[1] + 1),
+                      clamp(anchor[2], 2, nz - extent[2] + 1))
 
             add_patch!(cp, anchor, extent, level, μ₀)
         end
@@ -329,7 +329,7 @@ function ensure_proper_nesting!(rg::RefinedGrid, buffer::Int=1)
 end
 
 function ensure_proper_nesting_2d!(rg::RefinedGrid, buffer::Int)
-    nx, nz = rg.base_grid.nx, rg.base_grid.nz
+    nx, nz = rg.base_grid.nx + 1, rg.base_grid.nz + 1
     max_level = maximum(values(rg.refined_cells_2d); init=0)
     max_level == 0 && return
 
@@ -344,7 +344,7 @@ function ensure_proper_nesting_2d!(rg::RefinedGrid, buffer::Int)
             for di in -buffer:buffer, dj in -buffer:buffer
                 (di == 0 && dj == 0) && continue
                 ni, nj = i + di, j + dj
-                (ni < 1 || ni > nx || nj < 1 || nj > nz) && continue
+                (ni < 2 || ni > nx || nj < 2 || nj > nz) && continue
 
                 neighbor = (ni, nj)
                 current = get(rg.refined_cells_2d, neighbor, 0)
@@ -357,7 +357,7 @@ function ensure_proper_nesting_2d!(rg::RefinedGrid, buffer::Int)
 end
 
 function ensure_proper_nesting_3d!(rg::RefinedGrid, buffer::Int)
-    nx, ny, nz = rg.base_grid.nx, rg.base_grid.ny, rg.base_grid.nz
+    nx, ny, nz = rg.base_grid.nx + 1, rg.base_grid.ny + 1, rg.base_grid.nz + 1
     max_level = maximum(values(rg.refined_cells_3d); init=0)
     max_level == 0 && return
 
@@ -369,7 +369,7 @@ function ensure_proper_nesting_3d!(rg::RefinedGrid, buffer::Int)
             for di in -buffer:buffer, dj in -buffer:buffer, dk in -buffer:buffer
                 (di == 0 && dj == 0 && dk == 0) && continue
                 ni, nj, nk = i + di, j + dj, k + dk
-                (ni < 1 || ni > nx || nj < 1 || nj > ny || nk < 1 || nk > nz) && continue
+                (ni < 2 || ni > nx || nj < 2 || nj > ny || nk < 2 || nk > nz) && continue
 
                 neighbor = (ni, nj, nk)
                 current = get(rg.refined_cells_3d, neighbor, 0)
