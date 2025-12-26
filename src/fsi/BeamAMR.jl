@@ -56,47 +56,40 @@ function update!(sdf::FlexibleBodySDF)
     return sdf
 end
 
-"""
-    (sdf::FlexibleBodySDF)(x, t)
-
-Compute signed distance from point x to the deformed beam surface.
-Negative inside, positive outside.
-"""
-function (sdf::FlexibleBodySDF{T})(x, t) where T
+@inline function _beam_sdf_with_displacement(sdf::FlexibleBodySDF{T},
+                                             x,
+                                             w_vals::AbstractVector) where T
     # x[1] is streamwise, x[2] is transverse (z)
     x_rel = x[1] - sdf.x_head
     z_pos = x[2]
-
     L = sdf.beam.geometry.L
 
     # Check if outside beam extent
     if x_rel < 0
         # Before beam head - distance to leading edge
         h_head = sdf.thickness_func(zero(T))
-        z_beam = sdf.z_center + sdf.w_current[1]
+        z_beam = sdf.z_center + T(w_vals[1])
         dz = z_pos - z_beam
         return sqrt(x_rel^2 + max(zero(T), abs(dz) - h_head)^2)
     elseif x_rel > L
         # After beam tail - distance to trailing edge
         h_tail = sdf.thickness_func(L)
-        z_beam = sdf.z_center + sdf.w_current[end]
+        z_beam = sdf.z_center + T(w_vals[end])
         dz = z_pos - z_beam
         return sqrt((x_rel - L)^2 + max(zero(T), abs(dz) - h_tail)^2)
     end
 
     # Inside beam extent - interpolate displacement
     s = x_rel
-
-    # Find bracketing nodes
-    n = sdf.beam.n_nodes
+    n = length(w_vals)
     ds = L / (n - 1)
     idx = clamp(floor(Int, s / ds) + 1, 1, n - 1)
 
     # Linear interpolation of displacement
     s1, s2 = sdf.s_coords[idx], sdf.s_coords[idx + 1]
-    w1, w2 = sdf.w_current[idx], sdf.w_current[idx + 1]
+    w1, w2 = T(w_vals[idx]), T(w_vals[idx + 1])
     α = (s - s1) / (s2 - s1)
-    w_interp = (1 - α) * w1 + α * w2
+    w_interp = (one(T) - α) * w1 + α * w2
 
     # Beam centerline position
     z_beam = sdf.z_center + w_interp
@@ -107,6 +100,16 @@ function (sdf::FlexibleBodySDF{T})(x, t) where T
     # Signed distance (negative inside)
     dz = z_pos - z_beam
     return abs(dz) - h
+end
+
+"""
+    (sdf::FlexibleBodySDF)(x, t)
+
+Compute signed distance from point x to the deformed beam surface.
+Negative inside, positive outside.
+"""
+function (sdf::FlexibleBodySDF{T})(x, t) where T
+    return _beam_sdf_with_displacement(sdf, x, sdf.w_current)
 end
 
 """
@@ -183,12 +186,9 @@ function compute_beam_motion_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBodySD
     for I in inside(flow.p)
         x = loc(0, I, T)
 
-        # Distance to current position
-        d_new = abs(beam_sdf(x, zero(T)))
-
-        # Approximate distance to old position (shift by max displacement)
-        # This is conservative - marks a larger region
-        d_old = d_new  # Simplified: use current position
+        # Distance to current and previous beam positions
+        d_new = abs(_beam_sdf_with_displacement(beam_sdf, x, beam_sdf.w_current))
+        d_old = abs(_beam_sdf_with_displacement(beam_sdf, x, last_displacement))
 
         if d_new < threshold || d_old < threshold
             indicator[I] = one(T)
