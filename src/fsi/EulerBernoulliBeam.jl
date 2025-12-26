@@ -222,12 +222,13 @@ function build_system_matrices(m::Vector{T}, EI::Vector{T}, damping::T, tension:
         #                      22L,  4L²,  13L,  -3L²;
         #                      54,   13L,  156,  -22L;
         #                     -13L, -3L², -22L,  4L²]
-        M_e = (m_e * h / 420) * [
+        mass_template = [
             156     22h     54     -13h  ;
             22h     4h2     13h    -3h2  ;
             54      13h     156    -22h  ;
             -13h    -3h2    -22h   4h2
         ]
+        M_e = (m_e * h / 420) * mass_template
 
         # Element stiffness matrix (Hermite beam bending)
         # K_e = (EI/L³) * [12,   6L,  -12,   6L;
@@ -258,8 +259,8 @@ function build_system_matrices(m::Vector{T}, EI::Vector{T}, damping::T, tension:
             K_e += K_g
         end
 
-        # Element damping matrix (proportional to mass for simplicity)
-        C_e = damping * M_e / m_e  # Rayleigh damping approximation
+        # Element damping matrix for c * ∂w/∂t (c is per-length damping)
+        C_e = (damping * h / 420) * mass_template
 
         # Assemble into global matrices
         for ii in 1:4
@@ -288,7 +289,8 @@ function apply_boundary_conditions!(M::Matrix{T}, C::Matrix{T}, K::Matrix{T},
                                      bc_right::BeamBoundaryCondition,
                                      constrained::AbstractVector{Bool}) where T
 
-    penalty = maximum(abs.(K)) * 1e8
+    maxK = maximum(abs.(K))
+    penalty = max(maxK, one(T)) * T(1e8)
 
     # Left boundary
     if bc_left == CLAMPED || bc_left == PRESCRIBED
