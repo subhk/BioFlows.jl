@@ -280,36 +280,43 @@ function compute_beam_combined_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBody
                                          beam_weight::Real=0.6,
                                          gradient_weight::Real=0.25,
                                          vorticity_weight::Real=0.15) where {N,T}
+    # Normalize weights
+    total_weight = beam_weight + gradient_weight + vorticity_weight
+    bw = T(beam_weight / total_weight)
+    gw = T(gradient_weight / total_weight)
+    vw = T(vorticity_weight / total_weight)
+
     # Compute individual indicators
     beam_ind = compute_beam_refinement_indicator(flow, beam_sdf;
                                                   distance_threshold=beam_threshold)
-
     gradient_ind = compute_velocity_gradient_indicator(flow)
     vorticity_ind = compute_vorticity_indicator(flow)
 
-    # Normalize gradient and vorticity indicators
-    grad_max = maximum(gradient_ind)
-    if grad_max > eps(T)
-        gradient_ind ./= grad_max
-    end
-
-    vort_max = maximum(vorticity_ind)
-    if vort_max > eps(T)
-        vorticity_ind ./= vort_max
-    end
-
-    # Apply thresholds
-    for I in eachindex(gradient_ind)
-        gradient_ind[I] = gradient_ind[I] > T(gradient_threshold) ? one(T) : zero(T)
-        vorticity_ind[I] = vorticity_ind[I] > T(vorticity_threshold) ? one(T) : zero(T)
-    end
+    # Threshold-based activation
+    gt = T(gradient_threshold)
+    vt = T(vorticity_threshold)
 
     # Combine with weights
     combined = similar(flow.p)
-    bw, gw, vw = T(beam_weight), T(gradient_weight), T(vorticity_weight)
+    for I in inside(flow.p)
+        g_active = gradient_ind[I] > gt ? one(T) : zero(T)
+        v_active = vorticity_ind[I] > vt ? one(T) : zero(T)
+        combined[I] = bw * beam_ind[I] + gw * g_active + vw * v_active
+    end
 
-    for I in eachindex(combined)
-        combined[I] = bw * beam_ind[I] + gw * gradient_ind[I] + vw * vorticity_ind[I]
+    # Set boundary values to zero
+    if N == 2
+        fill!(view(combined, 1, :), zero(T))
+        fill!(view(combined, size(combined, 1), :), zero(T))
+        fill!(view(combined, :, 1), zero(T))
+        fill!(view(combined, :, size(combined, 2)), zero(T))
+    else  # N == 3
+        fill!(view(combined, 1, :, :), zero(T))
+        fill!(view(combined, size(combined, 1), :, :), zero(T))
+        fill!(view(combined, :, 1, :), zero(T))
+        fill!(view(combined, :, size(combined, 2), :), zero(T))
+        fill!(view(combined, :, :, 1), zero(T))
+        fill!(view(combined, :, :, size(combined, 3)), zero(T))
     end
 
     return combined
