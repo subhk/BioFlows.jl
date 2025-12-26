@@ -31,24 +31,26 @@
 # For prolongation: copy coarse value to 2^D fine cells
 @inline down(I::CartesianIndex) = CI((I+2oneunit(I)).I .÷2)
 
-# Restrict scalar field: sum fine values to coarse (full weighting)
-# R: fine -> coarse, sums 4 fine cells (2D) or 8 fine cells (3D)
-@fastmath @inline function restrict(I::CartesianIndex,b)
-    s = zero(eltype(b))
+# Restrict scalar field: scaled sum fine values to coarse (full weighting)
+# R: fine -> coarse, sums 4 fine cells (2D) or 8 fine cells (3D) with scaling
+@fastmath @inline function restrict(I::CartesianIndex,b::AbstractArray{T,N}) where {T,N}
+    s = zero(T)
     for J ∈ up(I)
      s += @inbounds(b[J])
     end
-    return s
+    scale = N <= 2 ? one(T) : inv(T(2)^(N-2))  # 1 for 2D, 1/2 for 3D
+    return s * scale
 end
 
-# Restrict coefficient field L: average face values (half weighting)
+# Restrict coefficient field L: average face values (half weighting in 2D)
 # Used to build coarse grid operator from fine grid coefficients
-@fastmath @inline function restrictL(I::CartesianIndex,i,b)
-    s = zero(eltype(b))
+@fastmath @inline function restrictL(I::CartesianIndex,i,b::AbstractArray{T,N}) where {T,N}
+    s = zero(T)
     for J ∈ up(I,i)
      s += @inbounds(b[J,i])
     end
-    return 0.5s  # Average (not sum) for coefficient restriction
+    scale = inv(T(2)^(N-2))  # 1/2 for 2D faces, 1/4 for 3D faces
+    return s * scale
 end
 
 # Create coarse level Poisson from fine level (Galerkin coarsening)
