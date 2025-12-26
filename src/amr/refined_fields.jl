@@ -13,7 +13,7 @@ Stores velocity field for a single refined patch.
 # Fields
 - `u`: Velocity array at refined resolution (size: fine_dims..., N)
 - `level`: Refinement level (1=2x, 2=4x, 3=8x)
-- `anchor`: Coarse cell anchor (bottom-left corner)
+- `anchor`: Coarse cell anchor (Flow indices including ghost offset)
 - `coarse_extent`: Number of coarse cells covered in each direction
 - `fine_dims`: Dimensions of fine grid (excluding ghost cells)
 """
@@ -31,7 +31,7 @@ end
 Create a refined velocity patch.
 
 # Arguments
-- `anchor`: Coarse cell anchor position (1-indexed)
+- `anchor`: Coarse cell anchor position (Flow indices including ghost offset)
 - `coarse_extent`: Number of coarse cells in each direction
 - `level`: Refinement level (1, 2, or 3)
 - `N`: Number of spatial dimensions
@@ -67,6 +67,84 @@ Return the CartesianIndices for the interior fine cells (excluding ghost cells).
 """
 function fine_index_range(patch::RefinedVelocityPatch{T,N}) where {T,N}
     CartesianIndices(ntuple(i -> 2:patch.fine_dims[i]+1, N))
+end
+
+# Staggered-grid interpolation helpers (component-aware offsets).
+@inline function _interp_velocity_2d(u_coarse::AbstractArray{T},
+                                     ai::Int, aj::Int, ratio::Int,
+                                     fi::Int, fj::Int, d::Int) where T
+    shift_x = d == 1 ? T(0.5) : zero(T)
+    shift_z = d == 2 ? T(0.5) : zero(T)
+
+    xf = (T(fi) - T(1.5) - shift_x) / ratio
+    zf = (T(fj) - T(1.5) - shift_z) / ratio
+
+    ic = floor(Int, xf) + ai
+    jc = floor(Int, zf) + aj
+    wx = xf - floor(xf)
+    wz = zf - floor(zf)
+
+    nc_i, nc_j = size(u_coarse, 1), size(u_coarse, 2)
+    ic = clamp(ic, 1, nc_i - 1)
+    jc = clamp(jc, 1, nc_j - 1)
+    wx = clamp(wx, zero(T), one(T))
+    wz = clamp(wz, zero(T), one(T))
+
+    v00 = u_coarse[ic, jc, d]
+    v10 = u_coarse[ic+1, jc, d]
+    v01 = u_coarse[ic, jc+1, d]
+    v11 = u_coarse[ic+1, jc+1, d]
+
+    return (one(T) - wx) * (one(T) - wz) * v00 +
+           wx * (one(T) - wz) * v10 +
+           (one(T) - wx) * wz * v01 +
+           wx * wz * v11
+end
+
+@inline function _interp_velocity_3d(u_coarse::AbstractArray{T},
+                                     ai::Int, aj::Int, ak::Int, ratio::Int,
+                                     fi::Int, fj::Int, fk::Int, d::Int) where T
+    shift_x = d == 1 ? T(0.5) : zero(T)
+    shift_y = d == 2 ? T(0.5) : zero(T)
+    shift_z = d == 3 ? T(0.5) : zero(T)
+
+    xf = (T(fi) - T(1.5) - shift_x) / ratio
+    yf = (T(fj) - T(1.5) - shift_y) / ratio
+    zf = (T(fk) - T(1.5) - shift_z) / ratio
+
+    ic = floor(Int, xf) + ai
+    jc = floor(Int, yf) + aj
+    kc = floor(Int, zf) + ak
+    wx = xf - floor(xf)
+    wy = yf - floor(yf)
+    wz = zf - floor(zf)
+
+    nc_i, nc_j, nc_k = size(u_coarse, 1), size(u_coarse, 2), size(u_coarse, 3)
+    ic = clamp(ic, 1, nc_i - 1)
+    jc = clamp(jc, 1, nc_j - 1)
+    kc = clamp(kc, 1, nc_k - 1)
+    wx = clamp(wx, zero(T), one(T))
+    wy = clamp(wy, zero(T), one(T))
+    wz = clamp(wz, zero(T), one(T))
+
+    v000 = u_coarse[ic, jc, kc, d]
+    v100 = u_coarse[ic+1, jc, kc, d]
+    v010 = u_coarse[ic, jc+1, kc, d]
+    v110 = u_coarse[ic+1, jc+1, kc, d]
+    v001 = u_coarse[ic, jc, kc+1, d]
+    v101 = u_coarse[ic+1, jc, kc+1, d]
+    v011 = u_coarse[ic, jc+1, kc+1, d]
+    v111 = u_coarse[ic+1, jc+1, kc+1, d]
+
+    c00 = (one(T) - wx) * v000 + wx * v100
+    c10 = (one(T) - wx) * v010 + wx * v110
+    c01 = (one(T) - wx) * v001 + wx * v101
+    c11 = (one(T) - wx) * v011 + wx * v111
+
+    c0 = (one(T) - wy) * c00 + wy * c10
+    c1 = (one(T) - wy) * c01 + wy * c11
+
+    return (one(T) - wz) * c0 + wz * c1
 end
 
 """
@@ -229,28 +307,9 @@ function interpolate_from_coarse!(patch::RefinedVelocityPatch{T,2},
     ai, aj = anchor
 
     for I_fine in fine_index_range(patch)
-        # Fine cell center position relative to coarse grid
-        # I_fine indices are 2:(fine_dims+1), so interior starts at 2
         fi, fj = I_fine.I
-        # Position in coarse cell units (0 to coarse_extent)
-        xf = (fi - 1.5) / ratio  # Center of fine cell
-        zf = (fj - 1.5) / ratio
-
-        # Coarse cell and interpolation weights
-        ic = floor(Int, xf) + ai
-        jc = floor(Int, zf) + aj
-        wx = xf - floor(xf)
-        wz = zf - floor(zf)
-
-        # Bilinear interpolation for each velocity component
         for d in 1:2
-            v00 = u_coarse[ic, jc, d]
-            v10 = u_coarse[ic+1, jc, d]
-            v01 = u_coarse[ic, jc+1, d]
-            v11 = u_coarse[ic+1, jc+1, d]
-
-            patch.u[fi, fj, d] = (1-wx)*(1-wz)*v00 + wx*(1-wz)*v10 +
-                                  (1-wx)*wz*v01 + wx*wz*v11
+            patch.u[fi, fj, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, fi, fj, d)
         end
     end
 end
@@ -263,37 +322,9 @@ function interpolate_from_coarse!(patch::RefinedVelocityPatch{T,3},
 
     for I_fine in fine_index_range(patch)
         fi, fj, fk = I_fine.I
-        xf = (fi - 1.5) / ratio
-        yf = (fj - 1.5) / ratio
-        zf = (fk - 1.5) / ratio
-
-        ic = floor(Int, xf) + ai
-        jc = floor(Int, yf) + aj
-        kc = floor(Int, zf) + ak
-        wx = xf - floor(xf)
-        wy = yf - floor(yf)
-        wz = zf - floor(zf)
-
-        # Trilinear interpolation
         for d in 1:3
-            v000 = u_coarse[ic, jc, kc, d]
-            v100 = u_coarse[ic+1, jc, kc, d]
-            v010 = u_coarse[ic, jc+1, kc, d]
-            v110 = u_coarse[ic+1, jc+1, kc, d]
-            v001 = u_coarse[ic, jc, kc+1, d]
-            v101 = u_coarse[ic+1, jc, kc+1, d]
-            v011 = u_coarse[ic, jc+1, kc+1, d]
-            v111 = u_coarse[ic+1, jc+1, kc+1, d]
-
-            c00 = (1-wx)*v000 + wx*v100
-            c10 = (1-wx)*v010 + wx*v110
-            c01 = (1-wx)*v001 + wx*v101
-            c11 = (1-wx)*v011 + wx*v111
-
-            c0 = (1-wy)*c00 + wy*c10
-            c1 = (1-wy)*c01 + wy*c11
-
-            patch.u[fi, fj, fk, d] = (1-wz)*c0 + wz*c1
+            patch.u[fi, fj, fk, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
+                                                         ratio, fi, fj, fk, d)
         end
     end
 end
@@ -314,21 +345,29 @@ function restrict_to_coarse!(u_coarse::AbstractArray{T},
                               anchor::NTuple{2,Int}) where T
     ratio = refinement_ratio(patch)
     ai, aj = anchor
-    inv_ratio2 = one(T) / (ratio * ratio)
+    inv_ratio = one(T) / ratio
 
     for ci in 1:patch.coarse_extent[1], cj in 1:patch.coarse_extent[2]
-        I_coarse = (ai + ci - 1, aj + cj - 1)
+        ic = ai + ci - 1
+        jc = aj + cj - 1
 
-        for d in 1:2
-            # Average fine cells
-            sum_val = zero(T)
-            for di in 1:ratio, dj in 1:ratio
-                fi = (ci - 1) * ratio + di + 1  # +1 for ghost
-                fj = (cj - 1) * ratio + dj + 1
-                sum_val += patch.u[fi, fj, d]
-            end
-            u_coarse[I_coarse..., d] = sum_val * inv_ratio2
+        # x-component: average across transverse fine faces (z-direction)
+        fi = (ci - 1) * ratio + 2
+        sum_val = zero(T)
+        for dj in 1:ratio
+            fj = (cj - 1) * ratio + dj + 1
+            sum_val += patch.u[fi, fj, 1]
         end
+        u_coarse[ic, jc, 1] = sum_val * inv_ratio
+
+        # z-component: average across transverse fine faces (x-direction)
+        fj = (cj - 1) * ratio + 2
+        sum_val = zero(T)
+        for di in 1:ratio
+            fi = (ci - 1) * ratio + di + 1
+            sum_val += patch.u[fi, fj, 2]
+        end
+        u_coarse[ic, jc, 2] = sum_val * inv_ratio
     end
 end
 
@@ -337,24 +376,45 @@ function restrict_to_coarse!(u_coarse::AbstractArray{T},
                               anchor::NTuple{3,Int}) where T
     ratio = refinement_ratio(patch)
     ai, aj, ak = anchor
-    inv_ratio3 = one(T) / (ratio * ratio * ratio)
+    inv_ratio2 = one(T) / (ratio * ratio)
 
     for ci in 1:patch.coarse_extent[1],
         cj in 1:patch.coarse_extent[2],
         ck in 1:patch.coarse_extent[3]
 
-        I_coarse = (ai + ci - 1, aj + cj - 1, ak + ck - 1)
+        ic = ai + ci - 1
+        jc = aj + cj - 1
+        kc = ak + ck - 1
 
-        for d in 1:3
-            sum_val = zero(T)
-            for di in 1:ratio, dj in 1:ratio, dk in 1:ratio
-                fi = (ci - 1) * ratio + di + 1
-                fj = (cj - 1) * ratio + dj + 1
-                fk = (ck - 1) * ratio + dk + 1
-                sum_val += patch.u[fi, fj, fk, d]
-            end
-            u_coarse[I_coarse..., d] = sum_val * inv_ratio3
+        # x-component: average across transverse faces (y-z plane)
+        fi = (ci - 1) * ratio + 2
+        sum_val = zero(T)
+        for dj in 1:ratio, dk in 1:ratio
+            fj = (cj - 1) * ratio + dj + 1
+            fk = (ck - 1) * ratio + dk + 1
+            sum_val += patch.u[fi, fj, fk, 1]
         end
+        u_coarse[ic, jc, kc, 1] = sum_val * inv_ratio2
+
+        # y-component: average across transverse faces (x-z plane)
+        fj = (cj - 1) * ratio + 2
+        sum_val = zero(T)
+        for di in 1:ratio, dk in 1:ratio
+            fi = (ci - 1) * ratio + di + 1
+            fk = (ck - 1) * ratio + dk + 1
+            sum_val += patch.u[fi, fj, fk, 2]
+        end
+        u_coarse[ic, jc, kc, 2] = sum_val * inv_ratio2
+
+        # z-component: average across transverse faces (x-y plane)
+        fk = (ck - 1) * ratio + 2
+        sum_val = zero(T)
+        for di in 1:ratio, dj in 1:ratio
+            fi = (ci - 1) * ratio + di + 1
+            fj = (cj - 1) * ratio + dj + 1
+            sum_val += patch.u[fi, fj, fk, 3]
+        end
+        u_coarse[ic, jc, kc, 3] = sum_val * inv_ratio2
     end
 end
 
@@ -372,95 +432,16 @@ function fill_ghost_cells!(patch::RefinedVelocityPatch{T,2},
     ai, aj = anchor
     nx, nz = patch.fine_dims
 
-    # Coarse grid bounds
-    nc_i, nc_j = size(u_coarse, 1), size(u_coarse, 2)
-
-    # Left ghost (i=1)
-    ic = ai - 1  # One cell to the left
-    if ic >= 1  # Only fill if coarse neighbor exists
-        for fj in 1:nz+2
-            zf = (fj - 1.5) / ratio
-            jc = floor(Int, zf) + aj
-            jc = clamp(jc, 1, nc_j - 1)  # Clamp to valid range
-            wz = clamp(zf - floor(zf), zero(T), one(T))
-
-            for d in 1:2
-                v0 = u_coarse[ic, jc, d]
-                v1 = u_coarse[ic, jc+1, d]
-                patch.u[1, fj, d] = (1-wz)*v0 + wz*v1
-            end
-        end
-    else
-        # At domain left boundary - use zero gradient (Neumann)
-        for fj in 1:nz+2, d in 1:2
-            patch.u[1, fj, d] = patch.u[2, fj, d]
-        end
+    # Left/right ghost faces
+    for fj in 1:nz+2, d in 1:2
+        patch.u[1, fj, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, 1, fj, d)
+        patch.u[nx+2, fj, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, nx+2, fj, d)
     end
 
-    # Right ghost (i=nx+2)
-    ic = ai + patch.coarse_extent[1]
-    if ic <= nc_i  # Only fill if coarse neighbor exists
-        for fj in 1:nz+2
-            zf = (fj - 1.5) / ratio
-            jc = floor(Int, zf) + aj
-            jc = clamp(jc, 1, nc_j - 1)
-            wz = clamp(zf - floor(zf), zero(T), one(T))
-
-            for d in 1:2
-                v0 = u_coarse[ic, jc, d]
-                v1 = u_coarse[ic, jc+1, d]
-                patch.u[nx+2, fj, d] = (1-wz)*v0 + wz*v1
-            end
-        end
-    else
-        # At domain right boundary - use zero gradient (Neumann)
-        for fj in 1:nz+2, d in 1:2
-            patch.u[nx+2, fj, d] = patch.u[nx+1, fj, d]
-        end
-    end
-
-    # Bottom ghost (j=1)
-    jc = aj - 1
-    if jc >= 1  # Only fill if coarse neighbor exists
-        for fi in 1:nx+2
-            xf = (fi - 1.5) / ratio
-            ic = floor(Int, xf) + ai
-            ic = clamp(ic, 1, nc_i - 1)
-            wx = clamp(xf - floor(xf), zero(T), one(T))
-
-            for d in 1:2
-                v0 = u_coarse[ic, jc, d]
-                v1 = u_coarse[ic+1, jc, d]
-                patch.u[fi, 1, d] = (1-wx)*v0 + wx*v1
-            end
-        end
-    else
-        # At domain bottom boundary - use zero gradient (Neumann)
-        for fi in 1:nx+2, d in 1:2
-            patch.u[fi, 1, d] = patch.u[fi, 2, d]
-        end
-    end
-
-    # Top ghost (j=nz+2)
-    jc = aj + patch.coarse_extent[2]
-    if jc <= nc_j  # Only fill if coarse neighbor exists
-        for fi in 1:nx+2
-            xf = (fi - 1.5) / ratio
-            ic = floor(Int, xf) + ai
-            ic = clamp(ic, 1, nc_i - 1)
-            wx = clamp(xf - floor(xf), zero(T), one(T))
-
-            for d in 1:2
-                v0 = u_coarse[ic, jc, d]
-                v1 = u_coarse[ic+1, jc, d]
-                patch.u[fi, nz+2, d] = (1-wx)*v0 + wx*v1
-            end
-        end
-    else
-        # At domain top boundary - use zero gradient (Neumann)
-        for fi in 1:nx+2, d in 1:2
-            patch.u[fi, nz+2, d] = patch.u[fi, nz+1, d]
-        end
+    # Bottom/top ghost faces
+    for fi in 1:nx+2, d in 1:2
+        patch.u[fi, 1, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, fi, 1, d)
+        patch.u[fi, nz+2, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, fi, nz+2, d)
     end
 end
 
@@ -478,163 +459,27 @@ function fill_ghost_cells!(patch::RefinedVelocityPatch{T,3},
     ai, aj, ak = anchor
     nx, ny, nz = patch.fine_dims
 
-    # Coarse grid bounds
-    nc_i, nc_j, nc_k = size(u_coarse, 1), size(u_coarse, 2), size(u_coarse, 3)
-
-    # Helper for bilinear interpolation with bounds checking
-    function bilinear_interp_2d(u_coarse, ic, jc, kc, d, wy, wz, nc_j, nc_k)
-        jc = clamp(jc, 1, nc_j - 1)
-        kc = clamp(kc, 1, nc_k - 1)
-        v00 = u_coarse[ic, jc, kc, d]
-        v10 = u_coarse[ic, jc+1, kc, d]
-        v01 = u_coarse[ic, jc, kc+1, d]
-        v11 = u_coarse[ic, jc+1, kc+1, d]
-        return (1-wy)*(1-wz)*v00 + wy*(1-wz)*v10 + (1-wy)*wz*v01 + wy*wz*v11
+    # Left/right ghost faces
+    for fj in 1:ny+2, fk in 1:nz+2, d in 1:3
+        patch.u[1, fj, fk, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
+                                                    ratio, 1, fj, fk, d)
+        patch.u[nx+2, fj, fk, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
+                                                       ratio, nx+2, fj, fk, d)
     end
 
-    function bilinear_interp_xz(u_coarse, ic, jc, kc, d, wx, wz, nc_i, nc_k)
-        ic = clamp(ic, 1, nc_i - 1)
-        kc = clamp(kc, 1, nc_k - 1)
-        v00 = u_coarse[ic, jc, kc, d]
-        v10 = u_coarse[ic+1, jc, kc, d]
-        v01 = u_coarse[ic, jc, kc+1, d]
-        v11 = u_coarse[ic+1, jc, kc+1, d]
-        return (1-wx)*(1-wz)*v00 + wx*(1-wz)*v10 + (1-wx)*wz*v01 + wx*wz*v11
+    # Front/back ghost faces
+    for fi in 1:nx+2, fk in 1:nz+2, d in 1:3
+        patch.u[fi, 1, fk, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
+                                                    ratio, fi, 1, fk, d)
+        patch.u[fi, ny+2, fk, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
+                                                       ratio, fi, ny+2, fk, d)
     end
 
-    function bilinear_interp_xy(u_coarse, ic, jc, kc, d, wx, wy, nc_i, nc_j)
-        ic = clamp(ic, 1, nc_i - 1)
-        jc = clamp(jc, 1, nc_j - 1)
-        v00 = u_coarse[ic, jc, kc, d]
-        v10 = u_coarse[ic+1, jc, kc, d]
-        v01 = u_coarse[ic, jc+1, kc, d]
-        v11 = u_coarse[ic+1, jc+1, kc, d]
-        return (1-wx)*(1-wy)*v00 + wx*(1-wy)*v10 + (1-wx)*wy*v01 + wx*wy*v11
-    end
-
-    # Left ghost face (i=1)
-    ic = ai - 1
-    if ic >= 1
-        for fj in 1:ny+2, fk in 1:nz+2
-            yf = (fj - 1.5) / ratio
-            zf = (fk - 1.5) / ratio
-            jc = floor(Int, yf) + aj
-            kc = floor(Int, zf) + ak
-            wy = clamp(yf - floor(yf), zero(T), one(T))
-            wz = clamp(zf - floor(zf), zero(T), one(T))
-
-            for d in 1:3
-                patch.u[1, fj, fk, d] = bilinear_interp_2d(u_coarse, ic, jc, kc, d, wy, wz, nc_j, nc_k)
-            end
-        end
-    else
-        for fj in 1:ny+2, fk in 1:nz+2, d in 1:3
-            patch.u[1, fj, fk, d] = patch.u[2, fj, fk, d]
-        end
-    end
-
-    # Right ghost face (i=nx+2)
-    ic = ai + patch.coarse_extent[1]
-    if ic <= nc_i
-        for fj in 1:ny+2, fk in 1:nz+2
-            yf = (fj - 1.5) / ratio
-            zf = (fk - 1.5) / ratio
-            jc = floor(Int, yf) + aj
-            kc = floor(Int, zf) + ak
-            wy = clamp(yf - floor(yf), zero(T), one(T))
-            wz = clamp(zf - floor(zf), zero(T), one(T))
-
-            for d in 1:3
-                patch.u[nx+2, fj, fk, d] = bilinear_interp_2d(u_coarse, ic, jc, kc, d, wy, wz, nc_j, nc_k)
-            end
-        end
-    else
-        for fj in 1:ny+2, fk in 1:nz+2, d in 1:3
-            patch.u[nx+2, fj, fk, d] = patch.u[nx+1, fj, fk, d]
-        end
-    end
-
-    # Front ghost face (j=1)
-    jc = aj - 1
-    if jc >= 1
-        for fi in 1:nx+2, fk in 1:nz+2
-            xf = (fi - 1.5) / ratio
-            zf = (fk - 1.5) / ratio
-            ic = floor(Int, xf) + ai
-            kc = floor(Int, zf) + ak
-            wx = clamp(xf - floor(xf), zero(T), one(T))
-            wz = clamp(zf - floor(zf), zero(T), one(T))
-
-            for d in 1:3
-                patch.u[fi, 1, fk, d] = bilinear_interp_xz(u_coarse, ic, jc, kc, d, wx, wz, nc_i, nc_k)
-            end
-        end
-    else
-        for fi in 1:nx+2, fk in 1:nz+2, d in 1:3
-            patch.u[fi, 1, fk, d] = patch.u[fi, 2, fk, d]
-        end
-    end
-
-    # Back ghost face (j=ny+2)
-    jc = aj + patch.coarse_extent[2]
-    if jc <= nc_j
-        for fi in 1:nx+2, fk in 1:nz+2
-            xf = (fi - 1.5) / ratio
-            zf = (fk - 1.5) / ratio
-            ic = floor(Int, xf) + ai
-            kc = floor(Int, zf) + ak
-            wx = clamp(xf - floor(xf), zero(T), one(T))
-            wz = clamp(zf - floor(zf), zero(T), one(T))
-
-            for d in 1:3
-                patch.u[fi, ny+2, fk, d] = bilinear_interp_xz(u_coarse, ic, jc, kc, d, wx, wz, nc_i, nc_k)
-            end
-        end
-    else
-        for fi in 1:nx+2, fk in 1:nz+2, d in 1:3
-            patch.u[fi, ny+2, fk, d] = patch.u[fi, ny+1, fk, d]
-        end
-    end
-
-    # Bottom ghost face (k=1)
-    kc = ak - 1
-    if kc >= 1
-        for fi in 1:nx+2, fj in 1:ny+2
-            xf = (fi - 1.5) / ratio
-            yf = (fj - 1.5) / ratio
-            ic = floor(Int, xf) + ai
-            jc = floor(Int, yf) + aj
-            wx = clamp(xf - floor(xf), zero(T), one(T))
-            wy = clamp(yf - floor(yf), zero(T), one(T))
-
-            for d in 1:3
-                patch.u[fi, fj, 1, d] = bilinear_interp_xy(u_coarse, ic, jc, kc, d, wx, wy, nc_i, nc_j)
-            end
-        end
-    else
-        for fi in 1:nx+2, fj in 1:ny+2, d in 1:3
-            patch.u[fi, fj, 1, d] = patch.u[fi, fj, 2, d]
-        end
-    end
-
-    # Top ghost face (k=nz+2)
-    kc = ak + patch.coarse_extent[3]
-    if kc <= nc_k
-        for fi in 1:nx+2, fj in 1:ny+2
-            xf = (fi - 1.5) / ratio
-            yf = (fj - 1.5) / ratio
-            ic = floor(Int, xf) + ai
-            jc = floor(Int, yf) + aj
-            wx = clamp(xf - floor(xf), zero(T), one(T))
-            wy = clamp(yf - floor(yf), zero(T), one(T))
-
-            for d in 1:3
-                patch.u[fi, fj, nz+2, d] = bilinear_interp_xy(u_coarse, ic, jc, kc, d, wx, wy, nc_i, nc_j)
-            end
-        end
-    else
-        for fi in 1:nx+2, fj in 1:ny+2, d in 1:3
-            patch.u[fi, fj, nz+2, d] = patch.u[fi, fj, nz+1, d]
-        end
+    # Bottom/top ghost faces
+    for fi in 1:nx+2, fj in 1:ny+2, d in 1:3
+        patch.u[fi, fj, 1, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
+                                                    ratio, fi, fj, 1, d)
+        patch.u[fi, fj, nz+2, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
+                                                       ratio, fi, fj, nz+2, d)
     end
 end
