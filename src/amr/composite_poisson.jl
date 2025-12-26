@@ -47,7 +47,7 @@ mutable struct CompositePoisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: 
     base::MultiLevelPoisson{T,S,V,N}
     patches::Dict{Tuple{Int,Int}, PatchPoisson{T}}
     patches_3d::Dict{Tuple{Int,Int,Int}, PatchPoisson{T}}
-    refined_velocity::RefinedVelocityField{T,2}
+    refined_velocity::RefinedVelocityField{T,N}
     refinement_ratio::Int
     max_level::Int
     n::Vector{Int16}
@@ -78,7 +78,7 @@ function CompositePoisson(base::MultiLevelPoisson{T,S,V,N};
         base,
         Dict{Tuple{Int,Int}, PatchPoisson{T}}(),
         Dict{Tuple{Int,Int,Int}, PatchPoisson{T}}(),
-        RefinedVelocityField(Val{2}(), T),
+        RefinedVelocityField(Val{N}(), T),
         2,  # Always 2:1 ratio
         max_level,
         Int16[],
@@ -262,6 +262,9 @@ Total number of refined cells across all patches.
 function total_refined_cells(cp::CompositePoisson)
     total = 0
     for (_, patch) in cp.patches
+        total += prod(patch.fine_dims)
+    end
+    for (_, patch) in cp.patches_3d
         total += prod(patch.fine_dims)
     end
     return total
