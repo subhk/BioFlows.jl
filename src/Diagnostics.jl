@@ -58,7 +58,7 @@ The last dimension indexes the velocity components.
 """
 function cell_center_velocity(sim::AbstractSimulation; strip_ghosts::Bool=true)
     spatial_dims = ndims(sim.flow.p)
-    vel = zeros(eltype(sim.flow.p), (size(sim.flow.p)..., spatial_dims))
+    vel = similar(sim.flow.u, (size(sim.flow.p)..., spatial_dims))
     for comp in 1:spatial_dims
         @loop vel[I, comp] = 0.5 * (sim.flow.u[I, comp] + sim.flow.u[I + δ(comp, I), comp]) over I ∈ inside(sim.flow.p)
     end
@@ -87,11 +87,11 @@ dimension indexing components.
 function cell_center_vorticity(sim::AbstractSimulation; strip_ghosts::Bool=true)
     spatial_dims = ndims(sim.flow.p)
     if spatial_dims == 2
-        ω_field = zeros(eltype(sim.flow.p), size(sim.flow.p))
+        ω_field = similar(sim.flow.p)
         @inside ω_field[I] = curl(3, I, sim.flow.u)
         return strip_ghosts ? _strip_ghosts(ω_field, spatial_dims) : ω_field
     else
-        ω_field = zeros(eltype(sim.flow.p), (size(sim.flow.p)..., 3))
+        ω_field = similar(sim.flow.p, (size(sim.flow.p)..., 3))
         for comp in 1:3
             @loop ω_field[I, comp] = ω(I, sim.flow.u)[comp] over I ∈ inside(sim.flow.p)
         end
@@ -176,9 +176,7 @@ function compute_diagnostics(sim::AbstractSimulation)
         max_components[comp] = maximum(abs, slice)
     end
     Δt = sim.flow.Δt[end]
-    grid_counts = map(x -> max(x - 2, 1), size(sim.flow.p)[1:spatial_dims])
-    spacing = fill(float(sim.L), spatial_dims) ./ grid_counts
-    h = minimum(spacing)
+    h = minimum(sim.flow.Δx)
     cfl = maximum(max_components) * Δt / h
     return (
         max_u = max_components[1],
@@ -187,7 +185,7 @@ function compute_diagnostics(sim::AbstractSimulation)
         CFL = cfl,
         Δt = Δt,
         length_scale = sim.L,
-        grid = size(sim.flow.p)[1:spatial_dims]
+        grid = map(x -> max(x - 2, 0), size(sim.flow.p)[1:spatial_dims])
     )
 end
 
