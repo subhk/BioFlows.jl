@@ -341,7 +341,8 @@ function create_fsi_body(body::FlexibleBodyFSI{T}) where T
     sdf_func = (x, t) -> sdf(body, x, t)
 
     # No coordinate mapping - deformation is handled by time-varying SDF
-    AutoBody(sdf_func)
+    velocity_func = (x, t) -> body_velocity(body, x, t)
+    AutoBody(sdf_func; velocity=velocity_func)
 end
 
 """

@@ -9,12 +9,15 @@
 # This allows complex moving/deforming bodies with minimal user code.
 # =============================================================================
 
+const _identity_map = (x, t) -> x
+
 """
-    AutoBody(sdf,map=(x,t)->x; compose=true) <: AbstractBody
+    AutoBody(sdf, map=(x,t)->x; compose=true, velocity=nothing) <: AbstractBody
 
   - `sdf(x::AbstractVector,t::Real)::Real`: signed distance function
   - `map(x::AbstractVector,t::Real)::AbstractVector`: coordinate mapping function
   - `compose::Bool=true`: Flag for composing `sdf=sdf∘map`
+  - `velocity=nothing`: Optional body velocity function `velocity(x,t)`
 
 Implicitly define a geometry by its `sdf` and optional coordinate `map`. Note: the `map`
 is composed automatically if `compose=true`, i.e. `sdf(x,t) = sdf(map(x,t),t)`.
@@ -38,13 +41,17 @@ map(x,t) = [cos(ω*t) sin(ω*t); -sin(ω*t) cos(ω*t)] * x
 body = AutoBody(sdf, map)
 ```
 """
-struct AutoBody{F1<:Function,F2<:Function} <: AbstractBody
+struct AutoBody{F1<:Function,F2<:Function,F3} <: AbstractBody
     sdf::F1  # Signed distance function (possibly composed with map)
     map::F2  # Coordinate mapping for body motion
-    function AutoBody(sdf, map=(x,t)->x; compose=true)
+    velocity::F3  # Optional body velocity
+    use_map_velocity::Bool
+    function AutoBody(sdf, map=_identity_map; compose=true, velocity=nothing)
         # Optionally compose sdf with map: sdf'(x,t) = sdf(map(x,t), t)
         comp(x,t) = compose ? sdf(map(x,t),t) : sdf(x,t)
-        new{typeof(comp),typeof(map)}(comp, map)
+        vel = velocity === nothing ? nothing : velocity
+        use_map = vel === nothing && map !== _identity_map
+        new{typeof(comp),typeof(map),typeof(vel)}(comp, map, vel, use_map)
     end
 end
 
@@ -70,32 +77,42 @@ using ForwardDiff
 
 Determine the implicit geometric properties from the `sdf` and `map`.
 The gradient of `d=sdf(map(x,t))` is used to improve `d` for pseudo-sdfs.
-The velocity is determined _solely_ from the optional `map` function.
+The velocity is determined from the optional `velocity` function when provided,
+otherwise from the optional `map` function.
 Skips the `n,V` calculation when `d²>fastd²`.
 """
 function measure(body::AutoBody,x,t;fastd²=Inf)
     # Evaluate SDF value
     d = body.sdf(x,t)
-    d^2>fastd² && return (d,zero(x),zero(x))  # Far from body, skip expensive calculations
+    d^2>fastd² && return (d,zero.(x),zero.(x))  # Far from body, skip expensive calculations
 
     # Compute gradient (surface normal direction before normalization)
     n = ForwardDiff.gradient(x->body.sdf(x,t), x)
-    any(isnan.(n)) && return (d,zero(x),zero(x))  # Handle degenerate cases
+    any(isnan.(n)) && return (d,zero.(x),zero.(x))  # Handle degenerate cases
 
     # Correct for pseudo-SDF: a general implicit function f(x)=0 has |∇f| ≠ 1
     # True distance ≈ f(x) / |∇f| (first-order Taylor expansion)
     m = √sum(abs2,n)  # |∇f|
-    m == 0 && return (d,zero(x),zero(x))
+    m == 0 && return (d,zero.(x),zero.(x))
     d /= m            # Corrected distance
     n /= m            # Unit normal
 
-    # Compute body velocity from coordinate mapping
+    V = if body.velocity === nothing
+        body.use_map_velocity ? _map_velocity(body.map, x, t) : zero.(x)
+    else
+        body.velocity(x, t)
+    end
+
+    return (d, n, V)  # (distance, normal, velocity)
+end
+
+@inline function _map_velocity(mapf, x, t)
     # For a material point ξ = map(x,t), we have Dξ/Dt = 0 (Lagrangian view)
     # This gives: ∂map/∂t + J·ẋ = 0, where J = ∂map/∂x
     # Solving: ẋ = -J⁻¹ · (∂map/∂t)
-    J = ForwardDiff.jacobian(x->body.map(x,t), x)    # Jacobian of map
-    dmap_dt = _map_time_derivative(body.map, x, t)
-    return (d, n, -J\dmap_dt)  # (distance, normal, velocity)
+    J = ForwardDiff.jacobian(x->mapf(x,t), x)    # Jacobian of map
+    dmap_dt = _map_time_derivative(mapf, x, t)
+    -J\dmap_dt
 end
 
 @inline function _map_time_derivative(mapf, x, t)

@@ -417,7 +417,9 @@ function create_beam_body(beam::EulerBernoulliBeam{T}, x_head::Real, z_center::R
                                 thickness_func=h_func, width=width)
 
     # Create AutoBody with time-dependent SDF
-    body = AutoBody((x, t) -> beam_sdf(x, t))
+    x_head_T = T(x_head)
+    velocity_func = (x, t) -> SVector{2,T}(zero(T), interpolate_velocity(beam, x[1] - x_head_T))
+    body = AutoBody((x, t) -> beam_sdf(x, t); velocity=velocity_func)
 
     return body, beam_sdf
 end
