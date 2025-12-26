@@ -123,8 +123,8 @@ function conv_diff!(r,u,Φ,λ::F;ν=0.1,Δx=(1,1),perdir=()) where {F}
     T = eltype(r)
     for i ∈ 1:n, j ∈ 1:n
         # Direction-specific scaling for anisotropic grids
-        inv_Δxj = T(1/Δx[j])        # For convective term in direction j
-        ν_over_Δxj = T(ν/Δx[j])     # For diffusive term in direction j
+        inv_Δxj = T(1/Δx[j])          # For convective term in direction j
+        ν_over_Δxj = T(ν/Δx[j]^2)     # For diffusive term in direction j
         # if it is periodic direction
         tagper = (j in perdir)
         # treatment for bottom boundary with BCs
@@ -139,13 +139,13 @@ function conv_diff!(r,u,Φ,λ::F;ν=0.1,Δx=(1,1),perdir=()) where {F}
 end
 
 # Neumann BC Building block (dimensional form)
-lowerBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{false}) = @loop r[I,i] += inv_Δx*ϕuL(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν_Δx*∂(j,CI(I,i),u) over I ∈ slice(N,2,j,2)
-upperBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{false}) = @loop r[I-δ(j,I),i] += -inv_Δx*ϕuR(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) + ν_Δx*∂(j,CI(I,i),u) over I ∈ slice(N,N[j],j,2)
+lowerBoundary!(r,u,Φ,ν_Δx2,inv_Δx,i,j,N,λ,::Val{false}) = @loop r[I,i] += inv_Δx*ϕuL(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν_Δx2*∂(j,CI(I,i),u) over I ∈ slice(N,2,j,2)
+upperBoundary!(r,u,Φ,ν_Δx2,inv_Δx,i,j,N,λ,::Val{false}) = @loop r[I-δ(j,I),i] += -inv_Δx*ϕuR(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ) + ν_Δx2*∂(j,CI(I,i),u) over I ∈ slice(N,N[j],j,2)
 
 # Periodic BC Building block (dimensional form)
-lowerBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{true}) = @loop (
-    Φ[I] = inv_Δx*ϕuP(j,CIj(j,CI(I,i),N[j]-2),CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν_Δx*∂(j,CI(I,i),u); r[I,i] += Φ[I]) over I ∈ slice(N,2,j,2)
-upperBoundary!(r,u,Φ,ν_Δx,inv_Δx,i,j,N,λ,::Val{true}) = @loop r[I-δ(j,I),i] -= Φ[CIj(j,I,2)] over I ∈ slice(N,N[j],j,2)
+lowerBoundary!(r,u,Φ,ν_Δx2,inv_Δx,i,j,N,λ,::Val{true}) = @loop (
+    Φ[I] = inv_Δx*ϕuP(j,CIj(j,CI(I,i),N[j]-2),CI(I,i),u,ϕ(i,CI(I,j),u),λ) - ν_Δx2*∂(j,CI(I,i),u); r[I,i] += Φ[I]) over I ∈ slice(N,2,j,2)
+upperBoundary!(r,u,Φ,ν_Δx2,inv_Δx,i,j,N,λ,::Val{true}) = @loop r[I-δ(j,I),i] -= Φ[CIj(j,I,2)] over I ∈ slice(N,N[j],j,2)
 
 # =============================================================================
 # FINITE VOLUME METHOD (FVM) FLUX COMPUTATION
@@ -190,7 +190,7 @@ function compute_face_flux!(F_conv,F_diff,u,λ::F;ν=0.1,Δx=(1,1),perdir=()) wh
     F_diff .= zero(T)
     for i ∈ 1:n, j ∈ 1:n
         inv_Δxj = T(1/Δx[j])
-        ν_Δxj = T(ν/Δx[j])
+        ν_Δxj = T(ν/Δx[j]^2)
         tagper = (j in perdir)
         # Compute interior fluxes: convective + diffusive
         # Note: ∂(j,CI(I,i),u) = u[CI(I,i)] - u[CI(I,i)-δ(j,CI(I,i))] with proper dimensions
@@ -202,20 +202,20 @@ function compute_face_flux!(F_conv,F_diff,u,λ::F;ν=0.1,Δx=(1,1),perdir=()) wh
 end
 
 # Neumann boundary flux (non-periodic)
-function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx,i,j,N,λ,::Val{false})
+function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx2,i,j,N,λ,::Val{false})
     # Lower boundary: use ϕuL stencil
     @loop (F_conv[I,j,i] = inv_Δx * ϕuL(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ);
-           F_diff[I,j,i] = -ν_Δx * ∂(j,CI(I,i),u)) over I ∈ slice(N,2,j,2)
+           F_diff[I,j,i] = -ν_Δx2 * ∂(j,CI(I,i),u)) over I ∈ slice(N,2,j,2)
     # Upper boundary: use ϕuR stencil
     @loop (F_conv[I,j,i] = inv_Δx * ϕuR(j,CI(I,i),u,ϕ(i,CI(I,j),u),λ);
-           F_diff[I,j,i] = -ν_Δx * ∂(j,CI(I,i),u)) over I ∈ slice(N,N[j],j,2)
+           F_diff[I,j,i] = -ν_Δx2 * ∂(j,CI(I,i),u)) over I ∈ slice(N,N[j],j,2)
 end
 
 # Periodic boundary flux
-function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx,i,j,N,λ,::Val{true})
+function compute_boundary_flux!(F_conv,F_diff,u,inv_Δx,ν_Δx2,i,j,N,λ,::Val{true})
     # Lower boundary: use ϕuP stencil with wrapped index
     @loop (F_conv[I,j,i] = inv_Δx * ϕuP(j,CIj(j,CI(I,i),N[j]-2),CI(I,i),u,ϕ(i,CI(I,j),u),λ);
-           F_diff[I,j,i] = -ν_Δx * ∂(j,CI(I,i),u)) over I ∈ slice(N,2,j,2)
+           F_diff[I,j,i] = -ν_Δx2 * ∂(j,CI(I,i),u)) over I ∈ slice(N,2,j,2)
     # Upper boundary: copy lower boundary flux (periodic wrap)
     @loop (F_conv[I,j,i] = F_conv[CIj(j,I,2),j,i];
            F_diff[I,j,i] = F_diff[CIj(j,I,2),j,i]) over I ∈ slice(N,N[j],j,2)
