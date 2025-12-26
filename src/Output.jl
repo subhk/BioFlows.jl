@@ -4,7 +4,7 @@
 # This module provides tools for saving simulation results to disk:
 #
 # - CenterFieldWriter: Periodic snapshot writer to JLD2 files
-# - ForceWriter: Periodic writer for lift/drag coefficients to CSV files
+# - ForceWriter: Periodic writer for lift/drag coefficients to JLD2 files
 # - file_save!: Conditional snapshot saving based on time intervals
 #
 # Output files use JLD2 format (Julia Data Format v2) which can be read back
@@ -23,6 +23,46 @@
 # =============================================================================
 
 using JLD2
+
+_to_host(a) = a isa Array ? a : Array(a)
+
+function _load_centerfield_state(filename::AbstractString, interval::Float64)
+    samples = 0
+    next_time = interval
+    try
+        jldopen(filename, "r") do file
+            groups = String[]
+            for key in keys(file)
+                if startswith(key, "snapshot_")
+                    push!(groups, key)
+                elseif occursin("/", key)
+                    head = split(key, '/')[1]
+                    startswith(head, "snapshot_") && push!(groups, head)
+                end
+            end
+            groups = unique(groups)
+            isempty(groups) && return
+            nums = Int[]
+            for group in groups
+                m = match(r"^snapshot_(\d+)$", group)
+                m === nothing && continue
+                push!(nums, parse(Int, m.captures[1]))
+            end
+            isempty(nums) && return
+            samples = maximum(nums)
+            time_key = "snapshot_$(samples)/time"
+            if haskey(file, time_key)
+                next_time = float(file[time_key]) + interval
+            else
+                next_time = (samples + 1) * interval
+            end
+        end
+    catch
+        samples = 0
+        next_time = interval
+    end
+    return samples, next_time
+end
 
 """
     CenterFieldWriter(filename::AbstractString="center_fields.jld2";
@@ -45,8 +85,15 @@ mutable struct CenterFieldWriter
                                overwrite::Bool=true,
                                strip_ghosts::Bool=true)
         interval > 0 || throw(ArgumentError("interval must be positive"))
-        overwrite && isfile(filename) && rm(filename)
-        return new(String(filename), float(interval), float(interval), 0, strip_ghosts)
+        if overwrite && isfile(filename)
+            rm(filename)
+        end
+        samples = 0
+        next_time = float(interval)
+        if !overwrite && isfile(filename)
+            samples, next_time = _load_centerfield_state(filename, float(interval))
+        end
+        return new(String(filename), float(interval), next_time, samples, strip_ghosts)
     end
 end
 
@@ -71,9 +118,9 @@ function file_save!(writer::CenterFieldWriter, sim::AbstractSimulation)
 end
 
 function _write_snapshot!(writer::CenterFieldWriter, sim::AbstractSimulation)
-    vel = cell_center_velocity(sim; strip_ghosts=writer.strip_ghosts)
-    vort = cell_center_vorticity(sim; strip_ghosts=writer.strip_ghosts)
-    pres = cell_center_pressure(sim; strip_ghosts=writer.strip_ghosts)
+    vel = _to_host(cell_center_velocity(sim; strip_ghosts=writer.strip_ghosts))
+    vort = _to_host(cell_center_vorticity(sim; strip_ghosts=writer.strip_ghosts))
+    pres = _to_host(cell_center_pressure(sim; strip_ghosts=writer.strip_ghosts))
     time = sim_time(sim)
     jldopen(writer.filename, writer.samples == 0 ? "w" : "a") do file
         group = "snapshot_$(writer.samples + 1)"
@@ -173,9 +220,68 @@ mutable struct ForceWriter
             rm(filename)
         end
 
-        return new(String(filename), float(interval), float(interval), 0,
+        time_hist = Float64[]
+        Cd_hist = Float64[]
+        Cl_hist = Float64[]
+        Cd_p_hist = Float64[]
+        Cd_v_hist = Float64[]
+        Cl_p_hist = Float64[]
+        Cl_v_hist = Float64[]
+        samples = 0
+        next_time = float(interval)
+
+        if !overwrite && isfile(filename)
+            try
+                jldopen(filename, "r") do file
+                    required = ("time", "Cd", "Cl", "Cd_pressure", "Cd_viscous",
+                                "Cl_pressure", "Cl_viscous")
+                    all(haskey(file, key) for key in required) || return
+                    time_hist = Float64.(file["time"])
+                    Cd_hist = Float64.(file["Cd"])
+                    Cl_hist = Float64.(file["Cl"])
+                    Cd_p_hist = Float64.(file["Cd_pressure"])
+                    Cd_v_hist = Float64.(file["Cd_viscous"])
+                    Cl_p_hist = Float64.(file["Cl_pressure"])
+                    Cl_v_hist = Float64.(file["Cl_viscous"])
+                    lengths = (length(time_hist), length(Cd_hist), length(Cl_hist),
+                               length(Cd_p_hist), length(Cd_v_hist), length(Cl_p_hist),
+                               length(Cl_v_hist))
+                    min_len = minimum(lengths)
+                    if min_len == 0
+                        time_hist = Float64[]
+                        Cd_hist = Float64[]
+                        Cl_hist = Float64[]
+                        Cd_p_hist = Float64[]
+                        Cd_v_hist = Float64[]
+                        Cl_p_hist = Float64[]
+                        Cl_v_hist = Float64[]
+                        return
+                    end
+                    time_hist = time_hist[1:min_len]
+                    Cd_hist = Cd_hist[1:min_len]
+                    Cl_hist = Cl_hist[1:min_len]
+                    Cd_p_hist = Cd_p_hist[1:min_len]
+                    Cd_v_hist = Cd_v_hist[1:min_len]
+                    Cl_p_hist = Cl_p_hist[1:min_len]
+                    Cl_v_hist = Cl_v_hist[1:min_len]
+                end
+            catch
+                time_hist = Float64[]
+                Cd_hist = Float64[]
+                Cl_hist = Float64[]
+                Cd_p_hist = Float64[]
+                Cd_v_hist = Float64[]
+                Cl_p_hist = Float64[]
+                Cl_v_hist = Float64[]
+            end
+        end
+
+        samples = length(time_hist)
+        next_time = samples == 0 ? float(interval) : time_hist[end] + float(interval)
+
+        return new(String(filename), float(interval), next_time, samples,
                    float(reference_area),
-                   Float64[], Float64[], Float64[], Float64[], Float64[], Float64[], Float64[])
+                   time_hist, Cd_hist, Cl_hist, Cd_p_hist, Cd_v_hist, Cl_p_hist, Cl_v_hist)
     end
 end
 
