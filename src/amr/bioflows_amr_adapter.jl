@@ -8,7 +8,7 @@
 # - AMR types: Use separate u, v, w, p arrays without ghost cells
 #
 # Key conversions:
-# - flow_to_staggered_grid: Create StaggeredGrid from Flow dimensions
+# - flow_to_staggered_grid: Create StaggeredGrid from Flow dimensions/spacing
 # - flow_to_solution_state: Extract velocity/pressure from Flow
 # - update_flow_from_state!: Copy solution back to Flow
 # - create_refined_grid: Initialize RefinedGrid from Flow
@@ -39,7 +39,7 @@ Adapter that wraps a BioFlows Flow and provides grid information for AMR.
 # Fields
 - `flow`: Reference to the BioFlows Flow struct
 - `L`: Length scale of the simulation
-- `dx`: Grid spacing (assumed uniform)
+- `dx`: Grid spacing in the x-direction (uses `flow.Δx[1]`)
 """
 struct FlowToGridAdapter{N,T}
     flow::Flow{N,T}
@@ -53,11 +53,8 @@ end
 Create an adapter for the given flow with length scale L.
 """
 function FlowToGridAdapter(flow::Flow{N,T}, L::Number) where {N,T}
-    # Compute grid spacing from domain size
-    # Flow has shape (nx+2, nz+2) for 2D including ghost cells
-    dims = size(flow.p)
-    nx = dims[1] - 2  # Remove ghost cells
-    dx = T(L / nx)    # Assume square cells
+    # Use flow spacing to preserve anisotropy.
+    dx = T(flow.Δx[1])
     FlowToGridAdapter{N,T}(flow, T(L), dx)
 end
 
@@ -75,16 +72,16 @@ function flow_to_staggered_grid(adapter::FlowToGridAdapter{N,T}) where {N,T}
     if N == 2
         nx = dims[1] - 2
         nz = dims[2] - 2
-        dx = adapter.dx
-        dz = dx  # Assume isotropic
+        dx = T(flow.Δx[1])
+        dz = T(flow.Δx[2])
         return StaggeredGrid(nx, nz, dx, dz)
     else  # N == 3
         nx = dims[1] - 2
         ny = dims[2] - 2
         nz = dims[3] - 2
-        dx = adapter.dx
-        dy = dx
-        dz = dx
+        dx = T(flow.Δx[1])
+        dy = T(flow.Δx[2])
+        dz = T(flow.Δx[3])
         return StaggeredGrid(nx, ny, nz, dx, dy, dz)
     end
 end
