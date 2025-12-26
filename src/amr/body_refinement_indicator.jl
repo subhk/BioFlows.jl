@@ -46,49 +46,59 @@ function compute_body_refinement_indicator(flow::Flow{N,T}, body::AbstractBody;
 end
 
 # Helper for 2D velocity gradient
-@inline function _velocity_gradient_2d(u, I)
+@inline function _velocity_gradient_2d(u, I, inv_dx, inv_dz, inv4_dx, inv4_dz)
     # ∂u/∂x
-    dudx = u[I, 1] - u[I-δ(1,I), 1]
+    dudx = (u[I, 1] - u[I-δ(1,I), 1]) * inv_dx
     # ∂u/∂z (central average)
     dudz = (u[I+δ(2,I), 1] + u[I+δ(2,I)-δ(1,I), 1] -
-            u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) / 4
+            u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) * inv4_dz
     # ∂w/∂x (central average)
     dwdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)-δ(2,I), 2] -
-            u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) / 4
+            u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) * inv4_dx
     # ∂w/∂z
-    dwdz = u[I, 2] - u[I-δ(2,I), 2]
+    dwdz = (u[I, 2] - u[I-δ(2,I), 2]) * inv_dz
 
     sqrt(dudx^2 + dudz^2 + dwdx^2 + dwdz^2)
 end
 
 """
-    compute_velocity_gradient_indicator(flow::Flow)
+    compute_velocity_gradient_indicator(flow::Flow; threshold=nothing)
 
 Compute a refinement indicator based on velocity gradient magnitude.
 High gradients indicate regions that benefit from finer resolution.
+Derivatives are scaled by `flow.Δx`.
 
 # Returns
-- Array of same size as `flow.p` with gradient magnitude values
+- Array of same size as `flow.p` with gradient magnitude values.
+  If `threshold` is provided, values are binarized to 0/1.
 """
-function compute_velocity_gradient_indicator(flow::Flow{N,T}) where {N,T}
+function compute_velocity_gradient_indicator(flow::Flow{N,T};
+                                             threshold::Union{Nothing,Real}=nothing) where {N,T}
     indicator = similar(flow.p)
     fill!(indicator, zero(T))
     u = flow.u
+    Δx = flow.Δx
 
     if N == 2
+        inv_dx = inv(Δx[1])
+        inv_dz = inv(Δx[2])
+        inv4_dx = inv(4 * Δx[1])
+        inv4_dz = inv(4 * Δx[2])
         for I in inside(flow.p)
-            indicator[I] = _velocity_gradient_2d(u, I)
+            indicator[I] = _velocity_gradient_2d(u, I, inv_dx, inv_dz, inv4_dx, inv4_dz)
         end
     else  # N == 3
+        invΔx = ntuple(d -> inv(Δx[d]), N)
+        inv4Δx = ntuple(d -> inv(4 * Δx[d]), N)
         for I in inside(flow.p)
             grad_sq = zero(T)
             for i in 1:N
                 for j in 1:N
                     if i == j
-                        du = u[I, i] - u[I-δ(j,I), i]
+                        du = (u[I, i] - u[I-δ(j,I), i]) * invΔx[j]
                     else
                         du = (u[I+δ(j,I), i] + u[I+δ(j,I)-δ(i,I), i] -
-                              u[I-δ(j,I), i] - u[I-δ(j,I)-δ(i,I), i]) / 4
+                              u[I-δ(j,I), i] - u[I-δ(j,I)-δ(i,I), i]) * inv4Δx[j]
                     end
                     grad_sq += du^2
                 end
@@ -97,62 +107,85 @@ function compute_velocity_gradient_indicator(flow::Flow{N,T}) where {N,T}
         end
     end
 
+    if threshold !== nothing
+        thresh = T(threshold)
+        for I in inside(indicator)
+            indicator[I] = indicator[I] > thresh ? one(T) : zero(T)
+        end
+    end
+
     return indicator
 end
 
 # Helper for 2D vorticity
-@inline function _vorticity_2d(u, I)
+@inline function _vorticity_2d(u, I, inv4_dx, inv4_dz)
     # ∂w/∂x at cell center
     dwdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)-δ(2,I), 2] -
-            u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) / 4
+            u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) * inv4_dx
     # ∂u/∂z at cell center
     dudz = (u[I+δ(2,I), 1] + u[I+δ(2,I)-δ(1,I), 1] -
-            u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) / 4
+            u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) * inv4_dz
     abs(dwdx - dudz)
 end
 
 """
-    compute_vorticity_indicator(flow::Flow)
+    compute_vorticity_indicator(flow::Flow; threshold=nothing)
 
 Compute a refinement indicator based on vorticity magnitude.
 Useful for capturing vortex shedding and wake structures.
+Derivatives are scaled by `flow.Δx`.
 
 # Returns
-- Array of same size as `flow.p` with vorticity magnitude
+- Array of same size as `flow.p` with vorticity magnitude.
+  If `threshold` is provided, values are binarized to 0/1.
 """
-function compute_vorticity_indicator(flow::Flow{N,T}) where {N,T}
+function compute_vorticity_indicator(flow::Flow{N,T};
+                                     threshold::Union{Nothing,Real}=nothing) where {N,T}
     indicator = similar(flow.p)
     fill!(indicator, zero(T))
     u = flow.u
+    Δx = flow.Δx
 
     if N == 2
+        inv4_dx = inv(4 * Δx[1])
+        inv4_dz = inv(4 * Δx[2])
         for I in inside(flow.p)
-            indicator[I] = _vorticity_2d(u, I)
+            indicator[I] = _vorticity_2d(u, I, inv4_dx, inv4_dz)
         end
     else  # N == 3
+        inv4_dx = inv(4 * Δx[1])
+        inv4_dy = inv(4 * Δx[2])
+        inv4_dz = inv(4 * Δx[3])
         for I in inside(flow.p)
             # ωₓ = ∂w/∂y - ∂v/∂z
             dwdy = (u[I+δ(2,I), 3] + u[I+δ(2,I)-δ(3,I), 3] -
-                    u[I-δ(2,I), 3] - u[I-δ(2,I)-δ(3,I), 3]) / 4
+                    u[I-δ(2,I), 3] - u[I-δ(2,I)-δ(3,I), 3]) * inv4_dy
             dvdz = (u[I+δ(3,I), 2] + u[I+δ(3,I)-δ(2,I), 2] -
-                    u[I-δ(3,I), 2] - u[I-δ(3,I)-δ(2,I), 2]) / 4
+                    u[I-δ(3,I), 2] - u[I-δ(3,I)-δ(2,I), 2]) * inv4_dz
             omega_x = dwdy - dvdz
 
             # ωᵧ = ∂u/∂z - ∂w/∂x
             dudz = (u[I+δ(3,I), 1] + u[I+δ(3,I)-δ(1,I), 1] -
-                    u[I-δ(3,I), 1] - u[I-δ(3,I)-δ(1,I), 1]) / 4
+                    u[I-δ(3,I), 1] - u[I-δ(3,I)-δ(1,I), 1]) * inv4_dz
             dwdx = (u[I+δ(1,I), 3] + u[I+δ(1,I)-δ(3,I), 3] -
-                    u[I-δ(1,I), 3] - u[I-δ(1,I)-δ(3,I), 3]) / 4
+                    u[I-δ(1,I), 3] - u[I-δ(1,I)-δ(3,I), 3]) * inv4_dx
             omega_y = dudz - dwdx
 
             # ωᵤ = ∂v/∂x - ∂u/∂y
             dvdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)-δ(2,I), 2] -
-                    u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) / 4
+                    u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) * inv4_dx
             dudy = (u[I+δ(2,I), 1] + u[I+δ(2,I)-δ(1,I), 1] -
-                    u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) / 4
+                    u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) * inv4_dy
             omega_z = dvdx - dudy
 
             indicator[I] = sqrt(omega_x^2 + omega_y^2 + omega_z^2)
+        end
+    end
+
+    if threshold !== nothing
+        thresh = T(threshold)
+        for I in inside(indicator)
+            indicator[I] = indicator[I] > thresh ? one(T) : zero(T)
         end
     end
 
@@ -204,20 +237,9 @@ function compute_combined_indicator(flow::Flow{N,T}, body::AbstractBody;
     grad_ind = compute_velocity_gradient_indicator(flow)
     vort_ind = compute_vorticity_indicator(flow)
 
-    # Normalize gradient and vorticity indicators to [0, 1]
-    grad_max = maximum(grad_ind)
-    vort_max = maximum(vort_ind)
-
-    if grad_max > 0
-        grad_ind ./= grad_max
-    end
-    if vort_max > 0
-        vort_ind ./= vort_max
-    end
-
     # Threshold-based activation
-    gt = T(gradient_threshold / max(grad_max, one(T)))
-    vt = T(vorticity_threshold / max(vort_max, one(T)))
+    gt = T(gradient_threshold)
+    vt = T(vorticity_threshold)
 
     # Combine with weights
     combined = similar(flow.p)
