@@ -209,9 +209,10 @@ function compute_fluid_load!(body::FlexibleBodyFSI{T}, flow, t::Real) where T
         z_body = body.z_center + w_local
         h_local = body.h_func(s)
 
-        # Sample pressure above and below the body
-        p_above = sample_pressure(flow, x_pos, z_body + h_local + 0.5)
-        p_below = sample_pressure(flow, x_pos, z_body - h_local - 0.5)
+        # Sample pressure above and below the body (half-cell offset)
+        z_offset = T(0.5) * flow.Δx[2]
+        p_above = sample_pressure(flow, x_pos, z_body + h_local + z_offset)
+        p_below = sample_pressure(flow, x_pos, z_body - h_local - z_offset)
 
         # Pressure load (force per unit length in z-direction)
         # Positive pressure below pushes up, positive pressure above pushes down
@@ -239,8 +240,8 @@ function sample_pressure(flow, x::Real, z::Real)
     Δz = flow.Δx[2]
 
     # Grid indices (1-based, cell-centered)
-    i_float = x / Δx + 0.5
-    j_float = z / Δz + 0.5
+    i_float = x / Δx + 1.5
+    j_float = z / Δz + 1.5
 
     # Clamp to valid range
     i_float = clamp(i_float, 1.0, Float64(nx))
@@ -301,10 +302,16 @@ function fsi_step!(body::FlexibleBodyFSI{T}, flow, t::Real, Δt::Real;
         step!(beam, T(Δt))
     else
         # Implicit coupling with sub-iterations
-        w_prev = copy(beam.w)
+        u_base = copy(beam.u)
+        u_dot_base = copy(beam.u_dot)
+        u_ddot_base = copy(beam.u_ddot)
+        u_iter = copy(beam.u)
+        u_dot_iter = copy(beam.u_dot)
+        u_ddot_iter = copy(beam.u_ddot)
 
         for iter in 1:body.sub_iterations
-            # Compute fluid load
+            # Compute fluid load using current iterate geometry
+            beam.u .= u_iter
             compute_fluid_load!(body, flow, t)
 
             # Set active forcing
@@ -312,20 +319,30 @@ function fsi_step!(body::FlexibleBodyFSI{T}, flow, t::Real, Δt::Real;
                 set_active_forcing!(beam, body.active_forcing, t)
             end
 
-            # Advance beam
+            # Advance beam from the same base state for this time step
+            beam.u .= u_base
+            beam.u_dot .= u_dot_base
+            beam.u_ddot .= u_ddot_base
             step!(beam, T(Δt))
 
-            # Apply under-relaxation
-            beam.w .= body.relaxation .* beam.w .+ (1 - body.relaxation) .* w_prev
+            # Apply under-relaxation to the full state
+            ω = body.relaxation
+            u_prev = copy(u_iter)
+            u_iter .= ω .* beam.u .+ (one(T) - ω) .* u_iter
+            u_dot_iter .= ω .* beam.u_dot .+ (one(T) - ω) .* u_dot_iter
+            u_ddot_iter .= ω .* beam.u_ddot .+ (one(T) - ω) .* u_ddot_iter
 
             # Check convergence
-            Δw = maximum(abs.(beam.w - w_prev))
+            Δw = maximum(abs.(u_iter[1:2:end] .- u_prev[1:2:end]))
             if Δw < body.tolerance
                 break
             end
-
-            w_prev .= beam.w
         end
+
+        # Store relaxed state
+        beam.u .= u_iter
+        beam.u_dot .= u_dot_iter
+        beam.u_ddot .= u_ddot_iter
     end
 
     return body
@@ -442,6 +459,7 @@ function FSISimulation(dims::Tuple{Int,Int}, domain::Tuple{Real,Real};
 
     # Initial measure
     measure!(flow, auto_body; t=zero(T))
+    update!(poisson)
 
     FSISimulation{T, typeof(flow), typeof(poisson), typeof(fsi_body)}(
         flow, poisson, fsi_body, zero(T)
@@ -476,6 +494,7 @@ function sim_step!(sim::FSISimulation{T}; explicit_fsi::Bool=false) where T
     # Update body for next step
     auto_body = create_fsi_body(body)
     measure!(flow, auto_body; t=t_new)
+    update!(poisson)
 
     sim.t = t_new
 
