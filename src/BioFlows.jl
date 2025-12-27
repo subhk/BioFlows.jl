@@ -81,7 +81,7 @@ export MeanFlow,update!,uu!,uu
 
 # AMR (Adaptive Mesh Refinement) functionality
 _silent_include("amr/amr_types.jl")
-_silent_include("amr/bioflows_amr_adapter.jl")
+_silent_include("amr/amr_adapter.jl")
 _silent_include("amr/body_refinement_indicator.jl")
 export StaggeredGrid, SolutionState, RefinedGrid, GridType, TwoDimensional, ThreeDimensional
 export is_2d, is_3d, num_refined_cells, refinement_level, domain_size, cell_volume

@@ -20,7 +20,7 @@ BioFlows.jl/
 │   ├── amr/                      # Adaptive Mesh Refinement
 │   │   ├── amr_types.jl          # Core AMR data structures
 │   │   ├── amr_project.jl        # AMR projection and momentum step
-│   │   ├── bioflows_amr_adapter.jl  # Flow-to-grid adapters
+│   │   ├── amr_adapter.jl           # Flow-to-grid adapters
 │   │   ├── body_refinement_indicator.jl  # Refinement criteria
 │   │   ├── composite_poisson.jl  # Multi-level pressure solver
 │   │   ├── composite_solver.jl   # Composite grid solver
@@ -308,7 +308,7 @@ BioFlows.jl
     │
     ├── amr/ (depends on Flow, Poisson)
     │   ├── amr_types.jl
-    │   ├── bioflows_amr_adapter.jl
+    │   ├── amr_adapter.jl
     │   ├── body_refinement_indicator.jl
     │   ├── refined_fields.jl
     │   ├── patch_poisson.jl
