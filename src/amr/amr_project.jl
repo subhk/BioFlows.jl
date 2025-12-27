@@ -38,6 +38,10 @@ at both base and refined levels.
 AMR-aware projection step using composite Poisson solver.
 Projects velocity to divergence-free state at all refinement levels.
 
+Uses the same "unit spacing" convention as the standard project!() for
+consistency with the unit-spacing Poisson solver. The AMR patches use
+ratio-scaled operators which are internally consistent.
+
 Matches the standard project! convention:
 - Poisson equation: L·p = ρ·div(u)
 - Velocity correction: u -= (L/ρ)·∇p
@@ -53,7 +57,7 @@ function amr_project!(flow::Flow{D,T}, cp::CompositePoisson{T}, w::Real=1) where
     inv_ρ = inv(ρ)
 
     # 1. Set divergence source on base grid: RHS = ρ * div(u)
-    # This matches the standard project! convention
+    # Uses unit-spacing divergence for consistency with unit-spacing Laplacian
     @inside flow.σ[I] = ρ * div(I, flow.u)
     cp.base.z .= flow.σ
 
@@ -96,9 +100,14 @@ end
 """
     set_all_patch_divergence!(cp, u_coarse, ρ)
 
-Set divergence source term on all patches.
+Set divergence source term on all patches using unit-spacing convention.
 RHS = ρ * div(u) to match standard projection convention.
 Uses refined patch velocity when available; otherwise falls back to coarse.
+
+# Arguments
+- `cp`: CompositePoisson solver
+- `u_coarse`: Coarse velocity field
+- `ρ`: Fluid density
 """
 function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractArray{T}, ρ::T) where T
     for (anchor, patch) in cp.patches
@@ -108,7 +117,7 @@ function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractAr
 
         for I in inside(patch)
             if vel_patch !== nothing
-                # Use fine velocity directly when available.
+                # Use fine velocity directly when available
                 patch.z[I] = ρ * div(I, vel_patch.u)
             else
                 fi, fj = I.I
@@ -121,7 +130,7 @@ function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractAr
                 ic = clamp(ic, 2, size(u_coarse, 1) - 1)
                 jc = clamp(jc, 2, size(u_coarse, 2) - 1)
 
-                # RHS = ρ * div(u) to match standard convention
+                # RHS = ρ * div(u) with unit spacing
                 patch.z[I] = ρ * div(CartesianIndex(ic, jc), u_coarse)
             end
         end
@@ -155,43 +164,89 @@ function interpolate_velocity_to_patches!(refined_velocity::RefinedVelocityField
 end
 
 """
-    correct_base_velocity!(flow, p, L, inv_ρ)
+    correct_base_velocity!(flow, p, L, inv_ρ, Δx)
 
-Correct base velocity using pressure gradient.
-Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * ∇p
-Uses the same formula as standard project!: u -= L*∂(d,I,p)/ρ
+Correct base velocity using pressure gradient with proper grid spacing.
+Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * (Δp/Δx)
+Uses the same formula as standard project! with physical Δx scaling.
+
+# Arguments
+- `flow`: Flow object
+- `p`: Pressure field
+- `L`: Laplacian coefficient array
+- `inv_ρ`: Inverse density (1/ρ)
+- `Δx`: Grid spacing tuple
 """
 function correct_base_velocity!(flow::Flow{D,T}, p::AbstractArray{T},
-                                L::AbstractArray{T}, inv_ρ::T) where {D,T}
-    # Use the same formula as standard project!
-    # a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)/ρ where ∂(i,I,x) = x[I+δ(i,I)] - x[I]
+                                L::AbstractArray{T}, inv_ρ::T, Δx::NTuple{D,T}) where {D,T}
+    # Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * Δp / Δx
+    # ∂(d,I,p) gives finite difference Δp = p[I] - p[I-δ(d,I)]
+    # Divide by Δx[d] to get gradient ∇p = Δp/Δx
     for d in 1:D
-        @loop flow.u[I, d] -= inv_ρ * L[I, d] * ∂(d, I, p) over I ∈ inside(p)
+        inv_Δx = one(T) / Δx[d]
+        @loop flow.u[I, d] -= inv_ρ * L[I, d] * ∂(d, I, p) * inv_Δx over I ∈ inside(p)
     end
 end
 
 """
-    correct_all_refined_velocity!(cp, inv_ρ)
+    correct_all_refined_velocity!(cp, inv_ρ, Δx_coarse)
 
-Correct velocity on all refined patches.
-Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * ∇p
-Uses the same formula as standard project!.
+Correct velocity on all refined patches with proper grid spacing.
+Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * (Δp/Δx)
+
+For refined patches, Δx_fine = Δx_coarse / ratio.
+
+# Arguments
+- `cp`: CompositePoisson solver
+- `inv_ρ`: Inverse density (1/ρ)
+- `Δx_coarse`: Coarse grid spacing tuple
 """
-function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T) where T
+function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T, Δx_coarse::NTuple{2,T}) where T
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
 
         p, L = patch.x, patch.L
+        ratio = refinement_ratio(patch)
 
-        # Use the same formula as standard project!
-        # ∂(d,I,p) = p[I] - p[I-δ(d,I)]
+        # Fine grid spacing: Δx_fine = Δx_coarse / ratio
+        inv_Δx_fine_1 = T(ratio) / Δx_coarse[1]  # 1/Δx_fine[1] = ratio/Δx_coarse[1]
+        inv_Δx_fine_2 = T(ratio) / Δx_coarse[2]  # 1/Δx_fine[2] = ratio/Δx_coarse[2]
+
+        # Velocity correction: u -= (L/ρ) * Δp / Δx
         for I in inside(patch)
             fi, fj = I.I
+            # x-velocity correction with proper Δx scaling
+            vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj]) * inv_Δx_fine_1
+            # z-velocity correction with proper Δx scaling
+            vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1]) * inv_Δx_fine_2
+        end
+    end
+end
+
+# 3D version
+function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T, Δx_coarse::NTuple{3,T}) where T
+    for (anchor, patch) in cp.patches_3d
+        vel_patch = get_patch(cp.refined_velocity, anchor)
+        vel_patch === nothing && continue
+
+        p, L = patch.x, patch.L
+        ratio = refinement_ratio(patch)
+
+        # Fine grid spacing: 1/Δx_fine = ratio/Δx_coarse
+        inv_Δx_fine_1 = T(ratio) / Δx_coarse[1]
+        inv_Δx_fine_2 = T(ratio) / Δx_coarse[2]
+        inv_Δx_fine_3 = T(ratio) / Δx_coarse[3]
+
+        # Velocity correction: u -= (L/ρ) * Δp / Δx
+        for I in inside(patch)
+            fi, fj, fk = I.I
             # x-velocity correction
-            vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
+            vel_patch.u[fi, fj, fk, 1] -= inv_ρ * L[fi, fj, fk, 1] * (p[fi, fj, fk] - p[fi-1, fj, fk]) * inv_Δx_fine_1
+            # y-velocity correction
+            vel_patch.u[fi, fj, fk, 2] -= inv_ρ * L[fi, fj, fk, 2] * (p[fi, fj, fk] - p[fi, fj-1, fk]) * inv_Δx_fine_2
             # z-velocity correction
-            vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
+            vel_patch.u[fi, fj, fk, 3] -= inv_ρ * L[fi, fj, fk, 3] * (p[fi, fj, fk] - p[fi, fj, fk-1]) * inv_Δx_fine_3
         end
     end
 end
@@ -270,6 +325,7 @@ end
     check_amr_divergence(flow, cp; verbose=false)
 
 Check maximum divergence at base and all refined levels.
+Uses physical grid spacing for proper divergence computation.
 Useful for verification.
 
 # Returns
@@ -277,10 +333,12 @@ Useful for verification.
 """
 function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
                               verbose::Bool=false) where {D,T}
-    # Base grid divergence
+    Δx = flow.Δx
+
+    # Base grid divergence with physical Δx
     base_div = zero(T)
     for I in inside(flow.p)
-        base_div = max(base_div, abs(div(I, flow.u)))
+        base_div = max(base_div, abs(div_aniso(I, flow.u, Δx)))
     end
 
     if verbose
@@ -289,14 +347,18 @@ function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
 
     max_div = base_div
 
-    # Patch divergences
+    # Patch divergences with fine Δx
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
 
+        ratio = refinement_ratio(patch)
+        # Fine grid spacing
+        Δx_fine = ntuple(d -> Δx[d] / ratio, D)
+
         patch_div = zero(T)
         for I in inside(patch)
-            patch_div = max(patch_div, abs(div(I, vel_patch.u)))
+            patch_div = max(patch_div, abs(div_aniso(I, vel_patch.u, Δx_fine)))
         end
 
         if verbose

@@ -416,21 +416,26 @@ Updates: u = u* - (Δt/ρ)·∇p
 
 The pressure field `p` has units of Pa (kg/(m·s²)).
 
-Uses physical grid spacing Δx for proper divergence and gradient computation.
-For anisotropic grids (Δx ≠ Δy ≠ Δz), each direction is scaled appropriately.
+Note: The Poisson solver uses a "unit spacing" convention internally where both
+the Laplacian and divergence operators use consistent finite difference scaling.
+For isotropic grids (Δx = Δy = Δz), this gives correct physics because the Δx
+factors cancel. For anisotropic grids, use div_aniso and scale accordingly.
+
+The physical Δx is properly accounted for in:
+- CFL time step computation (Flow.jl CFL function)
+- Convection-diffusion operators (conv_diff! uses physical Δx)
+- Force computations (Metrics.jl uses prod(Δx) for integration)
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
     ρ = a.ρ
-    Δx = a.Δx
-    # Divergence with physical grid spacing: ∇·u = Σ (∂u_i/∂x_i) / Δx[i]
-    @inside b.z[I] = ρ*div_aniso(I,a.u,Δx)
+    # Use unit-spacing divergence for consistency with unit-spacing Laplacian
+    @inside b.z[I] = ρ*div(I,a.u)
     b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
-    # Velocity correction: u -= (1/ρ) * L * ∇p, where ∇p = ∂p/∂x = Δp/Δx
+    # Velocity correction with unit-spacing gradient (consistent with Laplacian)
     for i ∈ 1:n
-        inv_Δx = one(eltype(a.u)) / Δx[i]
-        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)*inv_Δx/ρ over I ∈ inside(b.x)
+        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)/ρ over I ∈ inside(b.x)
     end
     b.x ./= dt  # Unscale to recover actual pressure
 end
