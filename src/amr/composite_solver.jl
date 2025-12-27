@@ -590,7 +590,7 @@ end
     divergence_at_all_levels(flow, cp)
 
 Compute maximum divergence at base and all refined levels.
-Returns tuple (base_div, patch_divs) for verification.
+Returns tuple (base_div, patch_divs_2d, patch_divs_3d) for verification.
 """
 function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) where {D,T}
     # Base grid divergence
@@ -599,8 +599,8 @@ function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) wher
         base_div = max(base_div, abs(div(I, flow.u)))
     end
 
-    # Patch divergences
-    patch_divs = Dict{Tuple{Int,Int}, T}()
+    # 2D patch divergences
+    patch_divs_2d = Dict{Tuple{Int,Int}, T}()
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
@@ -609,10 +609,23 @@ function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) wher
         for I in inside(patch)
             max_div = max(max_div, abs(div(I, vel_patch.u)))
         end
-        patch_divs[anchor] = max_div
+        patch_divs_2d[anchor] = max_div
     end
 
-    return base_div, patch_divs
+    # 3D patch divergences
+    patch_divs_3d = Dict{Tuple{Int,Int,Int}, T}()
+    for (anchor, patch) in cp.patches_3d
+        vel_patch = get_patch(cp.refined_velocity, anchor)
+        vel_patch === nothing && continue
+
+        max_div = zero(T)
+        for I in inside(patch)
+            max_div = max(max_div, abs(div(I, vel_patch.u)))
+        end
+        patch_divs_3d[anchor] = max_div
+    end
+
+    return base_div, patch_divs_2d, patch_divs_3d
 end
 
 """
@@ -623,6 +636,11 @@ Return total iterations from last solve across all components.
 function total_solve_iterations(cp::CompositePoisson)
     total = isempty(cp.n) ? 0 : Int(cp.n[end])
     for (_, patch) in cp.patches
+        if !isempty(patch.n)
+            total += Int(patch.n[end])
+        end
+    end
+    for (_, patch) in cp.patches_3d
         if !isempty(patch.n)
             total += Int(patch.n[end])
         end
