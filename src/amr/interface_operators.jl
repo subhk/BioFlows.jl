@@ -358,6 +358,11 @@ end
 Compute divergence on fine patch for source term.
 Uses fine velocity if available, otherwise interpolates from coarse.
 
+The divergence is scaled by 1/Δx = ratio to account for finer grid spacing:
+    ∇·u = ∂u/∂x + ∂w/∂z = (Δu/Δx) + (Δw/Δz)
+
+With Δx = 1/ratio on fine grid: ∇·u = (Δu + Δw) * ratio
+
 # Arguments
 - `patch`: PatchPoisson (z array will be filled with divergence)
 - `u_coarse`: Coarse velocity array
@@ -369,19 +374,22 @@ function compute_fine_divergence!(patch::PatchPoisson{T},
                                    u_fine::Union{Nothing, AbstractArray{T}},
                                    anchor::NTuple{2,Int}) where T
     ratio = refinement_ratio(patch)
+    inv_Δx = T(ratio)  # 1/Δx = ratio (since Δx = 1/ratio)
     ai, aj = anchor
 
     if u_fine !== nothing
         # Use fine velocity directly
         for I in inside(patch)
             fi, fj = I.I
-            # Divergence: du/dx + dw/dz
+            # Divergence: (du/dx + dw/dz) with proper grid spacing
+            # ∂u/∂x ≈ Δu / Δx = Δu * ratio
             dudx = u_fine[fi, fj, 1] - u_fine[fi-1, fj, 1]
             dwdz = u_fine[fi, fj, 2] - u_fine[fi, fj-1, 2]
-            patch.z[I] = dudx + dwdz
+            patch.z[I] = (dudx + dwdz) * inv_Δx
         end
     else
         # Interpolate divergence from coarse (less accurate but works without fine velocity)
+        # Note: coarse divergence already uses coarse Δx=1, so we still scale for fine grid
         for I in inside(patch)
             fi, fj = I.I
             # Map to coarse location
@@ -392,9 +400,10 @@ function compute_fine_divergence!(patch::PatchPoisson{T},
             ic = clamp(ic, 2, size(u_coarse, 1) - 1)
             jc = clamp(jc, 2, size(u_coarse, 2) - 1)
 
-            # Coarse divergence at (ic, jc)
+            # Coarse divergence at (ic, jc) - already physical (Δx_c = 1)
             div_coarse = (u_coarse[ic, jc, 1] - u_coarse[ic-1, jc, 1]) +
                          (u_coarse[ic, jc, 2] - u_coarse[ic, jc-1, 2])
+            # No additional scaling needed when interpolating physical divergence
             patch.z[I] = div_coarse
         end
     end
@@ -403,7 +412,15 @@ end
 """
     correct_fine_velocity!(u_fine, patch, anchor)
 
-Correct fine velocity using fine pressure gradient: u -= L*∇p
+Correct fine velocity using fine pressure gradient: u -= L*∇p/ρ
+
+The physical velocity correction is: u -= L * (∂p/∂x) / ρ
+With Δx = 1/ratio: ∂p/∂x = Δp / Δx = Δp * ratio
+
+Since patch.L is scaled by ratio² for the Laplacian, but velocity correction
+only needs gradient scaling, we use: L_scaled * Δp / ratio = L * ratio * Δp
+
+Note: ρ scaling is handled by the caller (typically in project! or similar)
 
 # Arguments
 - `u_fine`: Fine velocity array to update
@@ -413,12 +430,17 @@ Correct fine velocity using fine pressure gradient: u -= L*∇p
 function correct_fine_velocity!(u_fine::AbstractArray{T},
                                  patch::PatchPoisson{T},
                                  anchor::NTuple{2,Int}) where T
+    ratio = refinement_ratio(patch)
+    # L_scaled = L * ratio², but we want L * ratio for velocity correction
+    # So: L_scaled / ratio = L * ratio
+    scale = one(T) / ratio
+
     for I in inside(patch)
         fi, fj = I.I
-        # x-velocity correction
-        u_fine[fi, fj, 1] -= patch.L[fi, fj, 1] * (patch.x[fi, fj] - patch.x[fi-1, fj])
-        # z-velocity correction (at staggered location)
-        u_fine[fi, fj, 2] -= patch.L[fi, fj, 2] * (patch.x[fi, fj] - patch.x[fi, fj-1])
+        # x-velocity correction: u -= L_scaled/ratio * Δp = L * ratio * Δp
+        u_fine[fi, fj, 1] -= scale * patch.L[fi, fj, 1] * (patch.x[fi, fj] - patch.x[fi-1, fj])
+        # z-velocity correction
+        u_fine[fi, fj, 2] -= scale * patch.L[fi, fj, 2] * (patch.x[fi, fj] - patch.x[fi, fj-1])
     end
 end
 
