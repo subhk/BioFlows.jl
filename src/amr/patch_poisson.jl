@@ -40,11 +40,15 @@ Inherits the matrix structure A = L + D + L' from the base solver.
 - `anchor`: Coarse cell anchor (bottom-left corner in coarse grid)
 - `coarse_extent`: Number of coarse cells covered
 - `fine_dims`: Fine grid interior dimensions
+- `Δx`: Grid spacing (relative to coarse = 1, so Δx = 1/ratio)
 - `parent`: Reference to parent Poisson (coarse level or base)
+
+Note: The coefficients L are scaled by ratio² = (1/Δx)² to properly account for
+the finer grid spacing in the Laplacian operator: ∇²p = (1/Δx²) * Δ²p
 """
 struct PatchPoisson{T,S<:AbstractArray{T},V<:AbstractArray{T}} <: AbstractPoisson{T,S,V}
     # Standard Poisson fields
-    L :: V      # Lower diagonal coefficients
+    L :: V      # Lower diagonal coefficients (scaled by ratio²)
     D :: S      # Diagonal coefficients
     iD :: S     # 1/Diagonal
     x :: S      # Solution (pressure)
@@ -58,6 +62,7 @@ struct PatchPoisson{T,S<:AbstractArray{T},V<:AbstractArray{T}} <: AbstractPoisso
     anchor :: NTuple{2,Int}         # Coarse anchor (2D)
     coarse_extent :: NTuple{2,Int}  # Coarse cells covered
     fine_dims :: NTuple{2,Int}      # Fine interior dimensions
+    Δx :: T                         # Grid spacing (1/ratio relative to coarse)
 end
 
 """
@@ -71,6 +76,10 @@ Create a PatchPoisson solver for a 2D refined patch.
 - `level`: Refinement level (1, 2, or 3)
 - `μ₀_coarse`: Coarse grid μ₀ coefficient array
 - `T`: Element type (Float32 or Float64)
+
+Note: The Laplacian coefficients L are scaled by ratio² to account for the finer
+grid spacing. This ensures that pressure has consistent physical meaning when
+transferred between coarse and fine grids.
 """
 function PatchPoisson(anchor::NTuple{2,Int},
                       coarse_extent::NTuple{2,Int},
@@ -82,6 +91,9 @@ function PatchPoisson(anchor::NTuple{2,Int},
     # Fine grid with ghost cells
     nx, nz = fine_dims
     Ng = (nx + 2, nz + 2)
+
+    # Grid spacing relative to coarse (coarse = 1)
+    Δx = one(T) / ratio
 
     # Create arrays
     x = zeros(T, Ng)
@@ -95,12 +107,18 @@ function PatchPoisson(anchor::NTuple{2,Int},
     # Initialize L from coarse μ₀ (interpolated)
     initialize_patch_coefficients!(L, μ₀_coarse, anchor, coarse_extent, ratio)
 
-    # Compute diagonal
+    # Scale L by ratio² = 1/Δx² to account for finer grid spacing in Laplacian
+    # Laplacian: ∇²p = (1/Δx²) * (p[i-1] - 2p[i] + p[i+1])
+    # By scaling L, we get: L_scaled * Δ²p = (L/Δx²) * Δ²p = L * ∂²p/∂x²
+    ratio_sq = T(ratio * ratio)
+    L .*= ratio_sq
+
+    # Compute diagonal (now using scaled L)
     patch_set_diag!(D, iD, L, Ng)
 
     PatchPoisson{T, typeof(x), typeof(L)}(
         L, D, iD, x, ϵ, r, z, Int16[],
-        level, anchor, coarse_extent, fine_dims
+        level, anchor, coarse_extent, fine_dims, Δx
     )
 end
 
@@ -533,10 +551,14 @@ Inherits the matrix structure A = L + D + L' from the base solver.
 - `anchor`: Coarse cell anchor (3D)
 - `coarse_extent`: Number of coarse cells covered
 - `fine_dims`: Fine grid interior dimensions
+- `Δx`: Grid spacing (relative to coarse = 1, so Δx = 1/ratio)
+
+Note: The coefficients L are scaled by ratio² = (1/Δx)² to properly account for
+the finer grid spacing in the Laplacian operator.
 """
 struct PatchPoisson3D{T,S<:AbstractArray{T},V<:AbstractArray{T}} <: AbstractPoisson{T,S,V}
     # Standard Poisson fields
-    L :: V      # Lower diagonal coefficients
+    L :: V      # Lower diagonal coefficients (scaled by ratio²)
     D :: S      # Diagonal coefficients
     iD :: S     # 1/Diagonal
     x :: S      # Solution (pressure)
@@ -550,6 +572,7 @@ struct PatchPoisson3D{T,S<:AbstractArray{T},V<:AbstractArray{T}} <: AbstractPois
     anchor :: NTuple{3,Int}         # Coarse anchor (3D)
     coarse_extent :: NTuple{3,Int}  # Coarse cells covered
     fine_dims :: NTuple{3,Int}      # Fine interior dimensions
+    Δx :: T                         # Grid spacing (1/ratio relative to coarse)
 end
 
 """
@@ -563,6 +586,10 @@ Create a PatchPoisson3D solver for a 3D refined patch.
 - `level`: Refinement level (1, 2, or 3)
 - `μ₀_coarse`: Coarse grid μ₀ coefficient array
 - `T`: Element type (Float32 or Float64)
+
+Note: The Laplacian coefficients L are scaled by ratio² to account for the finer
+grid spacing. This ensures that pressure has consistent physical meaning when
+transferred between coarse and fine grids.
 """
 function PatchPoisson3D(anchor::NTuple{3,Int},
                         coarse_extent::NTuple{3,Int},
@@ -574,6 +601,9 @@ function PatchPoisson3D(anchor::NTuple{3,Int},
     # Fine grid with ghost cells
     nx, ny, nz = fine_dims
     Ng = (nx + 2, ny + 2, nz + 2)
+
+    # Grid spacing relative to coarse (coarse = 1)
+    Δx = one(T) / ratio
 
     # Create arrays
     x = zeros(T, Ng)
@@ -587,12 +617,17 @@ function PatchPoisson3D(anchor::NTuple{3,Int},
     # Initialize L from coarse μ₀ (interpolated)
     initialize_patch_coefficients_3d!(L, μ₀_coarse, anchor, coarse_extent, ratio)
 
-    # Compute diagonal
+    # Scale L by ratio² = 1/Δx² to account for finer grid spacing in Laplacian
+    # Laplacian: ∇²p = (1/Δx²) * (p[i-1] - 2p[i] + p[i+1])
+    ratio_sq = T(ratio * ratio)
+    L .*= ratio_sq
+
+    # Compute diagonal (now using scaled L)
     patch_set_diag_3d!(D, iD, L, Ng)
 
     PatchPoisson3D{T, typeof(x), typeof(L)}(
         L, D, iD, x, ϵ, r, z, Int16[],
-        level, anchor, coarse_extent, fine_dims
+        level, anchor, coarse_extent, fine_dims, Δx
     )
 end
 
