@@ -164,89 +164,53 @@ function interpolate_velocity_to_patches!(refined_velocity::RefinedVelocityField
 end
 
 """
-    correct_base_velocity!(flow, p, L, inv_ρ, Δx)
+    correct_base_velocity!(flow, p, L, inv_ρ)
 
-Correct base velocity using pressure gradient with proper grid spacing.
-Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * (Δp/Δx)
-Uses the same formula as standard project! with physical Δx scaling.
+Correct base velocity using pressure gradient with unit-spacing convention.
+Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * Δp
+Uses the same formula as standard project!.
 
 # Arguments
 - `flow`: Flow object
 - `p`: Pressure field
 - `L`: Laplacian coefficient array
 - `inv_ρ`: Inverse density (1/ρ)
-- `Δx`: Grid spacing tuple
 """
 function correct_base_velocity!(flow::Flow{D,T}, p::AbstractArray{T},
-                                L::AbstractArray{T}, inv_ρ::T, Δx::NTuple{D,T}) where {D,T}
-    # Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * Δp / Δx
-    # ∂(d,I,p) gives finite difference Δp = p[I] - p[I-δ(d,I)]
-    # Divide by Δx[d] to get gradient ∇p = Δp/Δx
+                                L::AbstractArray{T}, inv_ρ::T) where {D,T}
+    # Velocity correction with unit-spacing gradient (consistent with Laplacian)
+    # a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)/ρ where ∂(i,I,x) = x[I] - x[I-δ(i,I)]
     for d in 1:D
-        inv_Δx = one(T) / Δx[d]
-        @loop flow.u[I, d] -= inv_ρ * L[I, d] * ∂(d, I, p) * inv_Δx over I ∈ inside(p)
+        @loop flow.u[I, d] -= inv_ρ * L[I, d] * ∂(d, I, p) over I ∈ inside(p)
     end
 end
 
 """
-    correct_all_refined_velocity!(cp, inv_ρ, Δx_coarse)
+    correct_all_refined_velocity!(cp, inv_ρ)
 
-Correct velocity on all refined patches with proper grid spacing.
-Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * (Δp/Δx)
-
-For refined patches, Δx_fine = Δx_coarse / ratio.
+Correct velocity on all refined patches using unit-spacing convention.
+Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * Δp
+Uses the same formula as standard project!.
 
 # Arguments
 - `cp`: CompositePoisson solver
 - `inv_ρ`: Inverse density (1/ρ)
-- `Δx_coarse`: Coarse grid spacing tuple
 """
-function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T, Δx_coarse::NTuple{2,T}) where T
+function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T) where T
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
 
         p, L = patch.x, patch.L
-        ratio = refinement_ratio(patch)
 
-        # Fine grid spacing: Δx_fine = Δx_coarse / ratio
-        inv_Δx_fine_1 = T(ratio) / Δx_coarse[1]  # 1/Δx_fine[1] = ratio/Δx_coarse[1]
-        inv_Δx_fine_2 = T(ratio) / Δx_coarse[2]  # 1/Δx_fine[2] = ratio/Δx_coarse[2]
-
-        # Velocity correction: u -= (L/ρ) * Δp / Δx
+        # Velocity correction with unit-spacing gradient
+        # ∂(d,I,p) = p[I] - p[I-δ(d,I)]
         for I in inside(patch)
             fi, fj = I.I
-            # x-velocity correction with proper Δx scaling
-            vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj]) * inv_Δx_fine_1
-            # z-velocity correction with proper Δx scaling
-            vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1]) * inv_Δx_fine_2
-        end
-    end
-end
-
-# 3D version
-function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T, Δx_coarse::NTuple{3,T}) where T
-    for (anchor, patch) in cp.patches_3d
-        vel_patch = get_patch(cp.refined_velocity, anchor)
-        vel_patch === nothing && continue
-
-        p, L = patch.x, patch.L
-        ratio = refinement_ratio(patch)
-
-        # Fine grid spacing: 1/Δx_fine = ratio/Δx_coarse
-        inv_Δx_fine_1 = T(ratio) / Δx_coarse[1]
-        inv_Δx_fine_2 = T(ratio) / Δx_coarse[2]
-        inv_Δx_fine_3 = T(ratio) / Δx_coarse[3]
-
-        # Velocity correction: u -= (L/ρ) * Δp / Δx
-        for I in inside(patch)
-            fi, fj, fk = I.I
             # x-velocity correction
-            vel_patch.u[fi, fj, fk, 1] -= inv_ρ * L[fi, fj, fk, 1] * (p[fi, fj, fk] - p[fi-1, fj, fk]) * inv_Δx_fine_1
-            # y-velocity correction
-            vel_patch.u[fi, fj, fk, 2] -= inv_ρ * L[fi, fj, fk, 2] * (p[fi, fj, fk] - p[fi, fj-1, fk]) * inv_Δx_fine_2
+            vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
             # z-velocity correction
-            vel_patch.u[fi, fj, fk, 3] -= inv_ρ * L[fi, fj, fk, 3] * (p[fi, fj, fk] - p[fi, fj, fk-1]) * inv_Δx_fine_3
+            vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
         end
     end
 end
@@ -325,7 +289,7 @@ end
     check_amr_divergence(flow, cp; verbose=false)
 
 Check maximum divergence at base and all refined levels.
-Uses physical grid spacing for proper divergence computation.
+Uses unit-spacing convention consistent with the Poisson solver.
 Useful for verification.
 
 # Returns
@@ -333,12 +297,10 @@ Useful for verification.
 """
 function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
                               verbose::Bool=false) where {D,T}
-    Δx = flow.Δx
-
-    # Base grid divergence with physical Δx
+    # Base grid divergence with unit spacing
     base_div = zero(T)
     for I in inside(flow.p)
-        base_div = max(base_div, abs(div_aniso(I, flow.u, Δx)))
+        base_div = max(base_div, abs(div(I, flow.u)))
     end
 
     if verbose
@@ -347,18 +309,14 @@ function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
 
     max_div = base_div
 
-    # Patch divergences with fine Δx
+    # Patch divergences with unit spacing
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
 
-        ratio = refinement_ratio(patch)
-        # Fine grid spacing
-        Δx_fine = ntuple(d -> Δx[d] / ratio, D)
-
         patch_div = zero(T)
         for I in inside(patch)
-            patch_div = max(patch_div, abs(div_aniso(I, vel_patch.u, Δx_fine)))
+            patch_div = max(patch_div, abs(div(I, vel_patch.u)))
         end
 
         if verbose
