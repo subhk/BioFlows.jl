@@ -41,14 +41,14 @@ Inherits the matrix structure A = L + D + L' from the base solver.
 - `coarse_extent`: Number of coarse cells covered
 - `fine_dims`: Fine grid interior dimensions
 - `Δx`: Grid spacing (relative to coarse = 1, so Δx = 1/ratio)
-- `parent`: Reference to parent Poisson (coarse level or base)
 
-Note: The coefficients L are scaled by ratio² = (1/Δx)² to properly account for
-the finer grid spacing in the Laplacian operator: ∇²p = (1/Δx²) * Δ²p
+Note: Uses the same "unit spacing" convention as the base Poisson solver.
+The L coefficients are NOT scaled by ratio² - the unit spacing convention
+is consistent throughout and the Δx factors cancel in the solve/correct cycle.
 """
 struct PatchPoisson{T,S<:AbstractArray{T},V<:AbstractArray{T}} <: AbstractPoisson{T,S,V}
     # Standard Poisson fields
-    L :: V      # Lower diagonal coefficients (scaled by ratio²)
+    L :: V      # Lower diagonal coefficients (unit spacing convention)
     D :: S      # Diagonal coefficients
     iD :: S     # 1/Diagonal
     x :: S      # Solution (pressure)
@@ -77,9 +77,9 @@ Create a PatchPoisson solver for a 2D refined patch.
 - `μ₀_coarse`: Coarse grid μ₀ coefficient array
 - `T`: Element type (Float32 or Float64)
 
-Note: The Laplacian coefficients L are scaled by ratio² to account for the finer
-grid spacing. This ensures that pressure has consistent physical meaning when
-transferred between coarse and fine grids.
+Uses the same "unit spacing" convention as the base Poisson solver.
+The L coefficients are NOT scaled by ratio² - this is consistent with
+the unit spacing convention used throughout the solver.
 """
 function PatchPoisson(anchor::NTuple{2,Int},
                       coarse_extent::NTuple{2,Int},
@@ -105,15 +105,10 @@ function PatchPoisson(anchor::NTuple{2,Int},
     L = ones(T, Ng..., 2)
 
     # Initialize L from coarse μ₀ (interpolated)
+    # Uses unit spacing convention - NO ratio² scaling
     initialize_patch_coefficients!(L, μ₀_coarse, anchor, coarse_extent, ratio)
 
-    # Scale L by ratio² = 1/Δx² to account for finer grid spacing in Laplacian
-    # Laplacian: ∇²p = (1/Δx²) * (p[i-1] - 2p[i] + p[i+1])
-    # By scaling L, we get: L_scaled * Δ²p = (L/Δx²) * Δ²p = L * ∂²p/∂x²
-    ratio_sq = T(ratio * ratio)
-    L .*= ratio_sq
-
-    # Compute diagonal (now using scaled L)
+    # Compute diagonal
     patch_set_diag!(D, iD, L, Ng)
 
     PatchPoisson{T, typeof(x), typeof(L)}(
