@@ -100,7 +100,10 @@ _silent_include("amr/composite_solver.jl")
 _silent_include("amr/patch_creation.jl")
 _silent_include("amr/amr_project.jl")
 export CompositePoisson, PatchPoisson, RefinedVelocityField, RefinedVelocityPatch
-export add_patch!, remove_patch!, get_patch, clear_patches!, has_patches, num_patches
+export add_patch!, remove_patch!, get_patch, clear_patches!, has_patch, has_patches, num_patches
+export interpolate_from_coarse!, restrict_to_coarse!, fill_ghost_cells!
+export refinement_ratio, fine_index_range, total_fine_cells
+export coarse_to_fine_index, fine_to_coarse_index
 export create_patches!, update_patches!, ensure_proper_nesting!
 export amr_project!, amr_mom_step!, check_amr_divergence, regrid_amr!
 export amr_cfl, synchronize_base_and_patches!, interpolate_velocity_to_patches!
