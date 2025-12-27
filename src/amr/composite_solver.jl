@@ -277,20 +277,31 @@ end
     correct_refined_velocity!(vel_patch, pois_patch, scale)
 
 Correct refined velocity using fine pressure gradient.
-Uses the same formula as standard project!.
+
+The physical velocity correction is: u -= scale * L * (∂p/∂x)
+With Δx = 1/ratio: ∂p/∂x = Δp / Δx = Δp * ratio
+
+Since pois_patch.L is scaled by ratio² for the Laplacian, but velocity correction
+only needs gradient scaling, we use: L_scaled / ratio = L * ratio
+
+So the net formula is: u -= scale * (L_scaled / ratio) * Δp = scale * L * ratio * Δp
 """
 function correct_refined_velocity!(vel_patch::RefinedVelocityPatch{T,2},
                                    pois_patch::PatchPoisson{T},
                                    scale::T) where T
     p, L = pois_patch.x, pois_patch.L
+    ratio = refinement_ratio(pois_patch)
+    # L_scaled = L * ratio², but we want L * ratio for velocity correction
+    # So: L_scaled / ratio = L * ratio
+    Δx_scale = one(T) / ratio
 
     # Use backward difference like standard project!
     for I in inside(pois_patch)
         fi, fj = I.I
-        # x-velocity correction: ∂(1,I,p) = p[I] - p[I-1]
-        vel_patch.u[fi, fj, 1] -= scale * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
-        # z-velocity correction: ∂(2,I,p) = p[I] - p[I-(0,1)]
-        vel_patch.u[fi, fj, 2] -= scale * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
+        # x-velocity correction: u -= scale * L_scaled/ratio * Δp = scale * L * ratio * Δp
+        vel_patch.u[fi, fj, 1] -= scale * Δx_scale * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
+        # z-velocity correction
+        vel_patch.u[fi, fj, 2] -= scale * Δx_scale * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
     end
 end
 
@@ -298,22 +309,33 @@ end
     correct_refined_velocity_3d!(vel_patch, pois_patch, scale)
 
 Correct refined 3D velocity using fine pressure gradient.
-Uses the same formula as standard project!.
+
+The physical velocity correction is: u -= scale * L * (∂p/∂x)
+With Δx = 1/ratio: ∂p/∂x = Δp / Δx = Δp * ratio
+
+Since pois_patch.L is scaled by ratio² for the Laplacian, but velocity correction
+only needs gradient scaling, we use: L_scaled / ratio = L * ratio
+
+So the net formula is: u -= scale * (L_scaled / ratio) * Δp = scale * L * ratio * Δp
 """
 function correct_refined_velocity_3d!(vel_patch::RefinedVelocityPatch{T,3},
                                        pois_patch::PatchPoisson3D{T},
                                        scale::T) where T
     p, L = pois_patch.x, pois_patch.L
+    ratio = refinement_ratio(pois_patch)
+    # L_scaled = L * ratio², but we want L * ratio for velocity correction
+    # So: L_scaled / ratio = L * ratio
+    Δx_scale = one(T) / ratio
 
     # Use backward difference like standard project!
     for I in inside(pois_patch)
         fi, fj, fk = I.I
-        # x-velocity correction
-        vel_patch.u[fi, fj, fk, 1] -= scale * L[fi, fj, fk, 1] * (p[fi, fj, fk] - p[fi-1, fj, fk])
+        # x-velocity correction: u -= scale * L_scaled/ratio * Δp = scale * L * ratio * Δp
+        vel_patch.u[fi, fj, fk, 1] -= scale * Δx_scale * L[fi, fj, fk, 1] * (p[fi, fj, fk] - p[fi-1, fj, fk])
         # y-velocity correction
-        vel_patch.u[fi, fj, fk, 2] -= scale * L[fi, fj, fk, 2] * (p[fi, fj, fk] - p[fi, fj-1, fk])
+        vel_patch.u[fi, fj, fk, 2] -= scale * Δx_scale * L[fi, fj, fk, 2] * (p[fi, fj, fk] - p[fi, fj-1, fk])
         # z-velocity correction
-        vel_patch.u[fi, fj, fk, 3] -= scale * L[fi, fj, fk, 3] * (p[fi, fj, fk] - p[fi, fj, fk-1])
+        vel_patch.u[fi, fj, fk, 3] -= scale * Δx_scale * L[fi, fj, fk, 3] * (p[fi, fj, fk] - p[fi, fj, fk-1])
     end
 end
 

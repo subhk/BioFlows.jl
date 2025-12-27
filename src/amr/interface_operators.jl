@@ -76,6 +76,9 @@ end
 Compute flux at a single interface between coarse and fine grids.
 Includes bounds checking for domain boundaries.
 
+Since patch.L is scaled by ratio² for the Laplacian, we divide the fine flux
+by ratio² to get the physical flux that can be compared with coarse flux.
+
 # Arguments
 - `patch`: PatchPoisson
 - `p_coarse`: Coarse pressure array
@@ -92,6 +95,8 @@ function compute_interface_flux(patch::PatchPoisson{T},
                                  anchor::NTuple{2,Int},
                                  side::Symbol) where T
     ratio = refinement_ratio(patch)
+    # Factor to unscale fine L (L_patch = L * ratio²)
+    inv_ratio_sq = one(T) / (ratio * ratio)
     ai, aj = anchor
     nx, nz = patch.fine_dims
     nc_i, nc_j = size(p_coarse, 1), size(p_coarse, 2)
@@ -115,11 +120,11 @@ function compute_interface_flux(patch::PatchPoisson{T},
                 c_flux = L_coarse[ic, jc, 1] * (p_coarse[ic, jc] - p_coarse[ic-1, jc])
                 coarse_flux += c_flux
 
-                # Fine fluxes
+                # Fine fluxes (unscale L by dividing by ratio²)
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fj >= 1 && fj <= nz + 2
-                        f_flux = patch.L[2, fj, 1] * (patch.x[2, fj] - patch.x[1, fj])
+                        f_flux = inv_ratio_sq * patch.L[2, fj, 1] * (patch.x[2, fj] - patch.x[1, fj])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -145,8 +150,8 @@ function compute_interface_flux(patch::PatchPoisson{T},
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fj >= 1 && fj <= nz + 2
-                        # Fine flux at right face: from last interior (nx+1) to ghost (nx+2)
-                        f_flux = patch.L[nx+2, fj, 1] * (patch.x[nx+2, fj] - patch.x[nx+1, fj])
+                        # Fine flux at right face (unscale L)
+                        f_flux = inv_ratio_sq * patch.L[nx+2, fj, 1] * (patch.x[nx+2, fj] - patch.x[nx+1, fj])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -170,7 +175,8 @@ function compute_interface_flux(patch::PatchPoisson{T},
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     if fi >= 1 && fi <= nx + 2
-                        f_flux = patch.L[fi, 2, 2] * (patch.x[fi, 2] - patch.x[fi, 1])
+                        # Fine flux (unscale L)
+                        f_flux = inv_ratio_sq * patch.L[fi, 2, 2] * (patch.x[fi, 2] - patch.x[fi, 1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -196,8 +202,8 @@ function compute_interface_flux(patch::PatchPoisson{T},
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     if fi >= 1 && fi <= nx + 2
-                        # Fine flux at top face: from last interior (nz+1) to ghost (nz+2)
-                        f_flux = patch.L[fi, nz+2, 2] * (patch.x[fi, nz+2] - patch.x[fi, nz+1])
+                        # Fine flux at top face (unscale L)
+                        f_flux = inv_ratio_sq * patch.L[fi, nz+2, 2] * (patch.x[fi, nz+2] - patch.x[fi, nz+1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -568,6 +574,9 @@ end
 Compute flux at a single 3D interface between coarse and fine grids.
 Includes bounds checking for domain boundaries.
 
+Since patch.L is scaled by ratio² for the Laplacian, we divide the fine flux
+by ratio² to get the physical flux that can be compared with coarse flux.
+
 # Arguments
 - `patch`: PatchPoisson3D
 - `p_coarse`: Coarse pressure array
@@ -584,6 +593,8 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                                     anchor::NTuple{3,Int},
                                     side::Symbol) where T
     ratio = refinement_ratio(patch)
+    # Factor to unscale fine L (L_patch = L * ratio²)
+    inv_ratio_sq = one(T) / (ratio * ratio)
     ai, aj, ak = anchor
     nx, ny, nz = patch.fine_dims
     nc_i, nc_j, nc_k = size(p_coarse, 1), size(p_coarse, 2), size(p_coarse, 3)
@@ -604,11 +615,12 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                 c_flux = L_coarse[ic, jc, kc, 1] * (p_coarse[ic, jc, kc] - p_coarse[ic-1, jc, kc])
                 coarse_flux += c_flux
 
+                # Fine fluxes (unscale L by dividing by ratio²)
                 for dj in 1:ratio, dk in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fj >= 1 && fj <= ny + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = patch.L[2, fj, fk, 1] * (patch.x[2, fj, fk] - patch.x[1, fj, fk])
+                        f_flux = inv_ratio_sq * patch.L[2, fj, fk, 1] * (patch.x[2, fj, fk] - patch.x[1, fj, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -632,7 +644,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fj >= 1 && fj <= ny + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = patch.L[nx+2, fj, fk, 1] * (patch.x[nx+2, fj, fk] - patch.x[nx+1, fj, fk])
+                        f_flux = inv_ratio_sq * patch.L[nx+2, fj, fk, 1] * (patch.x[nx+2, fj, fk] - patch.x[nx+1, fj, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -656,7 +668,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fi >= 1 && fi <= nx + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = patch.L[fi, 2, fk, 2] * (patch.x[fi, 2, fk] - patch.x[fi, 1, fk])
+                        f_flux = inv_ratio_sq * patch.L[fi, 2, fk, 2] * (patch.x[fi, 2, fk] - patch.x[fi, 1, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -680,7 +692,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fi >= 1 && fi <= nx + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = patch.L[fi, ny+2, fk, 2] * (patch.x[fi, ny+2, fk] - patch.x[fi, ny+1, fk])
+                        f_flux = inv_ratio_sq * patch.L[fi, ny+2, fk, 2] * (patch.x[fi, ny+2, fk] - patch.x[fi, ny+1, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -704,7 +716,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fi >= 1 && fi <= nx + 2 && fj >= 1 && fj <= ny + 2
-                        f_flux = patch.L[fi, fj, 2, 3] * (patch.x[fi, fj, 2] - patch.x[fi, fj, 1])
+                        f_flux = inv_ratio_sq * patch.L[fi, fj, 2, 3] * (patch.x[fi, fj, 2] - patch.x[fi, fj, 1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -728,7 +740,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fi >= 1 && fi <= nx + 2 && fj >= 1 && fj <= ny + 2
-                        f_flux = patch.L[fi, fj, nz+2, 3] * (patch.x[fi, fj, nz+2] - patch.x[fi, fj, nz+1])
+                        f_flux = inv_ratio_sq * patch.L[fi, fj, nz+2, 3] * (patch.x[fi, fj, nz+2] - patch.x[fi, fj, nz+1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -942,6 +954,11 @@ end
 Compute divergence on 3D fine patch for source term.
 Uses fine velocity if available, otherwise interpolates from coarse.
 
+The divergence is scaled by 1/Δx = ratio to account for finer grid spacing:
+    ∇·u = ∂u/∂x + ∂v/∂y + ∂w/∂z = (Δu + Δv + Δw) / Δx
+
+With Δx = 1/ratio on fine grid: ∇·u = (Δu + Δv + Δw) * ratio
+
 # Arguments
 - `patch`: PatchPoisson3D (z array will be filled with divergence)
 - `u_coarse`: Coarse velocity array
@@ -953,17 +970,18 @@ function compute_fine_divergence_3d!(patch::PatchPoisson3D{T},
                                       u_fine::Union{Nothing, AbstractArray{T}},
                                       anchor::NTuple{3,Int}) where T
     ratio = refinement_ratio(patch)
+    inv_Δx = T(ratio)  # 1/Δx = ratio (since Δx = 1/ratio)
     ai, aj, ak = anchor
 
     if u_fine !== nothing
         # Use fine velocity directly
         for I in inside(patch)
             fi, fj, fk = I.I
-            # Divergence: du/dx + dv/dy + dw/dz
+            # Divergence: (du/dx + dv/dy + dw/dz) with proper grid spacing
             dudx = u_fine[fi, fj, fk, 1] - u_fine[fi-1, fj, fk, 1]
             dvdy = u_fine[fi, fj, fk, 2] - u_fine[fi, fj-1, fk, 2]
             dwdz = u_fine[fi, fj, fk, 3] - u_fine[fi, fj, fk-1, 3]
-            patch.z[I] = dudx + dvdy + dwdz
+            patch.z[I] = (dudx + dvdy + dwdz) * inv_Δx
         end
     else
         # Interpolate divergence from coarse
@@ -980,10 +998,11 @@ function compute_fine_divergence_3d!(patch::PatchPoisson3D{T},
             jc = clamp(jc, 2, size(u_coarse, 2) - 1)
             kc = clamp(kc, 2, size(u_coarse, 3) - 1)
 
-            # Coarse divergence at (ic, jc, kc)
+            # Coarse divergence at (ic, jc, kc) - already physical (Δx_c = 1)
             div_coarse = (u_coarse[ic, jc, kc, 1] - u_coarse[ic-1, jc, kc, 1]) +
                          (u_coarse[ic, jc, kc, 2] - u_coarse[ic, jc-1, kc, 2]) +
                          (u_coarse[ic, jc, kc, 3] - u_coarse[ic, jc, kc-1, 3])
+            # No additional scaling needed when interpolating physical divergence
             patch.z[I] = div_coarse
         end
     end
@@ -992,7 +1011,15 @@ end
 """
     correct_fine_velocity_3d!(u_fine, patch, anchor)
 
-Correct 3D fine velocity using fine pressure gradient: u -= L*∇p
+Correct 3D fine velocity using fine pressure gradient: u -= L*∇p/ρ
+
+The physical velocity correction is: u -= L * (∂p/∂x) / ρ
+With Δx = 1/ratio: ∂p/∂x = Δp / Δx = Δp * ratio
+
+Since patch.L is scaled by ratio² for the Laplacian, but velocity correction
+only needs gradient scaling, we use: L_scaled * Δp / ratio = L * ratio * Δp
+
+Note: ρ scaling is handled by the caller (typically in project! or similar)
 
 # Arguments
 - `u_fine`: Fine velocity array to update
@@ -1002,13 +1029,18 @@ Correct 3D fine velocity using fine pressure gradient: u -= L*∇p
 function correct_fine_velocity_3d!(u_fine::AbstractArray{T},
                                     patch::PatchPoisson3D{T},
                                     anchor::NTuple{3,Int}) where T
+    ratio = refinement_ratio(patch)
+    # L_scaled = L * ratio², but we want L * ratio for velocity correction
+    # So: L_scaled / ratio = L * ratio
+    scale = one(T) / ratio
+
     for I in inside(patch)
         fi, fj, fk = I.I
-        # x-velocity correction
-        u_fine[fi, fj, fk, 1] -= patch.L[fi, fj, fk, 1] * (patch.x[fi, fj, fk] - patch.x[fi-1, fj, fk])
+        # x-velocity correction: u -= L_scaled/ratio * Δp = L * ratio * Δp
+        u_fine[fi, fj, fk, 1] -= scale * patch.L[fi, fj, fk, 1] * (patch.x[fi, fj, fk] - patch.x[fi-1, fj, fk])
         # y-velocity correction
-        u_fine[fi, fj, fk, 2] -= patch.L[fi, fj, fk, 2] * (patch.x[fi, fj, fk] - patch.x[fi, fj-1, fk])
+        u_fine[fi, fj, fk, 2] -= scale * patch.L[fi, fj, fk, 2] * (patch.x[fi, fj, fk] - patch.x[fi, fj-1, fk])
         # z-velocity correction
-        u_fine[fi, fj, fk, 3] -= patch.L[fi, fj, fk, 3] * (patch.x[fi, fj, fk] - patch.x[fi, fj, fk-1])
+        u_fine[fi, fj, fk, 3] -= scale * patch.L[fi, fj, fk, 3] * (patch.x[fi, fj, fk] - patch.x[fi, fj, fk-1])
     end
 end
