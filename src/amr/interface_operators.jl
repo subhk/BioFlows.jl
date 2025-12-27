@@ -95,13 +95,12 @@ function compute_interface_flux(patch::PatchPoisson{T},
                                  anchor::NTuple{2,Int},
                                  side::Symbol) where T
     ratio = refinement_ratio(patch)
-    # Factor to unscale fine L (L_patch = L * ratio²)
-    inv_ratio_sq = one(T) / (ratio * ratio)
     ai, aj = anchor
     nx, nz = patch.fine_dims
     nc_i, nc_j = size(p_coarse, 1), size(p_coarse, 2)
 
     # Compute coarse flux and fine fluxes
+    # Both use unit spacing convention, so fluxes are directly comparable
     fine_fluxes = T[]
     coarse_flux = zero(T)
 
@@ -120,11 +119,11 @@ function compute_interface_flux(patch::PatchPoisson{T},
                 c_flux = L_coarse[ic, jc, 1] * (p_coarse[ic, jc] - p_coarse[ic-1, jc])
                 coarse_flux += c_flux
 
-                # Fine fluxes (unscale L by dividing by ratio²)
+                # Fine fluxes (same unit spacing convention as coarse)
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fj >= 1 && fj <= nz + 2
-                        f_flux = inv_ratio_sq * patch.L[2, fj, 1] * (patch.x[2, fj] - patch.x[1, fj])
+                        f_flux = patch.L[2, fj, 1] * (patch.x[2, fj] - patch.x[1, fj])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -150,8 +149,8 @@ function compute_interface_flux(patch::PatchPoisson{T},
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fj >= 1 && fj <= nz + 2
-                        # Fine flux at right face (unscale L)
-                        f_flux = inv_ratio_sq * patch.L[nx+2, fj, 1] * (patch.x[nx+2, fj] - patch.x[nx+1, fj])
+                        # Fine flux at right face
+                        f_flux = patch.L[nx+2, fj, 1] * (patch.x[nx+2, fj] - patch.x[nx+1, fj])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -175,8 +174,8 @@ function compute_interface_flux(patch::PatchPoisson{T},
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     if fi >= 1 && fi <= nx + 2
-                        # Fine flux (unscale L)
-                        f_flux = inv_ratio_sq * patch.L[fi, 2, 2] * (patch.x[fi, 2] - patch.x[fi, 1])
+                        # Fine flux
+                        f_flux = patch.L[fi, 2, 2] * (patch.x[fi, 2] - patch.x[fi, 1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -202,8 +201,8 @@ function compute_interface_flux(patch::PatchPoisson{T},
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     if fi >= 1 && fi <= nx + 2
-                        # Fine flux at top face (unscale L)
-                        f_flux = inv_ratio_sq * patch.L[fi, nz+2, 2] * (patch.x[fi, nz+2] - patch.x[fi, nz+1])
+                        # Fine flux at top face
+                        f_flux = patch.L[fi, nz+2, 2] * (patch.x[fi, nz+2] - patch.x[fi, nz+1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -593,12 +592,11 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                                     anchor::NTuple{3,Int},
                                     side::Symbol) where T
     ratio = refinement_ratio(patch)
-    # Factor to unscale fine L (L_patch = L * ratio²)
-    inv_ratio_sq = one(T) / (ratio * ratio)
     ai, aj, ak = anchor
     nx, ny, nz = patch.fine_dims
     nc_i, nc_j, nc_k = size(p_coarse, 1), size(p_coarse, 2), size(p_coarse, 3)
 
+    # Both use unit spacing convention, so fluxes are directly comparable
     fine_fluxes = T[]
     coarse_flux = zero(T)
 
@@ -615,12 +613,12 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                 c_flux = L_coarse[ic, jc, kc, 1] * (p_coarse[ic, jc, kc] - p_coarse[ic-1, jc, kc])
                 coarse_flux += c_flux
 
-                # Fine fluxes (unscale L by dividing by ratio²)
+                # Fine fluxes (same unit spacing convention as coarse)
                 for dj in 1:ratio, dk in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fj >= 1 && fj <= ny + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = inv_ratio_sq * patch.L[2, fj, fk, 1] * (patch.x[2, fj, fk] - patch.x[1, fj, fk])
+                        f_flux = patch.L[2, fj, fk, 1] * (patch.x[2, fj, fk] - patch.x[1, fj, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -644,7 +642,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fj >= 1 && fj <= ny + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = inv_ratio_sq * patch.L[nx+2, fj, fk, 1] * (patch.x[nx+2, fj, fk] - patch.x[nx+1, fj, fk])
+                        f_flux = patch.L[nx+2, fj, fk, 1] * (patch.x[nx+2, fj, fk] - patch.x[nx+1, fj, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -668,7 +666,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fi >= 1 && fi <= nx + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = inv_ratio_sq * patch.L[fi, 2, fk, 2] * (patch.x[fi, 2, fk] - patch.x[fi, 1, fk])
+                        f_flux = patch.L[fi, 2, fk, 2] * (patch.x[fi, 2, fk] - patch.x[fi, 1, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -692,7 +690,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fi >= 1 && fi <= nx + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = inv_ratio_sq * patch.L[fi, ny+2, fk, 2] * (patch.x[fi, ny+2, fk] - patch.x[fi, ny+1, fk])
+                        f_flux = patch.L[fi, ny+2, fk, 2] * (patch.x[fi, ny+2, fk] - patch.x[fi, ny+1, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -716,7 +714,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fi >= 1 && fi <= nx + 2 && fj >= 1 && fj <= ny + 2
-                        f_flux = inv_ratio_sq * patch.L[fi, fj, 2, 3] * (patch.x[fi, fj, 2] - patch.x[fi, fj, 1])
+                        f_flux = patch.L[fi, fj, 2, 3] * (patch.x[fi, fj, 2] - patch.x[fi, fj, 1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -740,7 +738,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fi >= 1 && fi <= nx + 2 && fj >= 1 && fj <= ny + 2
-                        f_flux = inv_ratio_sq * patch.L[fi, fj, nz+2, 3] * (patch.x[fi, fj, nz+2] - patch.x[fi, fj, nz+1])
+                        f_flux = patch.L[fi, fj, nz+2, 3] * (patch.x[fi, fj, nz+2] - patch.x[fi, fj, nz+1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
