@@ -1063,7 +1063,8 @@ _silent_include("Output.jl")
 export pressure_force, viscous_force, total_force, curl, ω, ω_mag
 export vorticity_component, vorticity_magnitude
 export cell_center_velocity, cell_center_vorticity, cell_center_pressure
-export CenterFieldWriter, ForceWriter, file_save!
+export CenterFieldWriter, ForceWriter, GridWriter, file_save!
+export cell_center_coordinates, cell_center_coordinates_meshgrid, save_grid
 export force_components, force_coefficients, record_force!
 export compute_diagnostics, summarize_force_history
 
