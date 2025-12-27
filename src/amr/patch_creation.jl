@@ -128,13 +128,27 @@ function create_patches_3d!(cp::CompositePoisson{T}, rg::RefinedGrid, μ₀::Abs
         haskey(cells_by_level, level) || continue
         cells = cells_by_level[level]
 
-        # For 3D, use simpler single bounding box (can be improved to clusters)
-        anchor, extent = bounding_box_3d(cells)
-        extent = max.(extent, (2, 2, 2))
+        # Cluster cells into rectangular patches
+        clusters = cluster_cells_3d(cells)
 
-        # Store in patches_3d dict
-        # Note: 3D patches not fully implemented yet, store info for later
-        @warn "3D patch creation not fully implemented" maxlog=1
+        for cluster in clusters
+            anchor, extent = bounding_box_3d(cluster)
+            # Add padding if patch is too small (minimum 2x2x2 coarse cells)
+            extent = max.(extent, (2, 2, 2))
+
+            # Clamp to grid bounds (flow indices include a ghost offset)
+            nx, ny, nz = rg.base_grid.nx + 1, rg.base_grid.ny + 1, rg.base_grid.nz + 1
+            i_min = clamp(anchor[1], 2, nx)
+            j_min = clamp(anchor[2], 2, ny)
+            k_min = clamp(anchor[3], 2, nz)
+            i_max = clamp(anchor[1] + extent[1] - 1, 2, nx)
+            j_max = clamp(anchor[2] + extent[2] - 1, 2, ny)
+            k_max = clamp(anchor[3] + extent[3] - 1, 2, nz)
+            anchor = (i_min, j_min, k_min)
+            extent = (max(i_max - i_min + 1, 2), max(j_max - j_min + 1, 2), max(k_max - k_min + 1, 2))
+
+            add_patch_3d!(cp, anchor, extent, level, μ₀)
+        end
     end
 end
 
@@ -223,6 +237,54 @@ function bounding_box_3d(cells::Vector{Tuple{Int,Int,Int}})
     extent = (i_max - i_min + 1, j_max - j_min + 1, k_max - k_min + 1)
 
     return anchor, extent
+end
+
+"""
+    cluster_cells_3d(cells::Vector{Tuple{Int,Int,Int}})
+
+Cluster adjacent 3D cells into groups for patch creation.
+Uses connected component analysis with 6-connectivity.
+
+# Returns
+- Vector of cell clusters (each cluster is a vector of cell indices)
+"""
+function cluster_cells_3d(cells::Vector{Tuple{Int,Int,Int}})
+    isempty(cells) && return Vector{Vector{Tuple{Int,Int,Int}}}()
+
+    # Create a set for O(1) lookup
+    cell_set = Set(cells)
+
+    # Track which cells have been visited
+    visited = Set{Tuple{Int,Int,Int}}()
+    clusters = Vector{Vector{Tuple{Int,Int,Int}}}()
+
+    for cell in cells
+        cell in visited && continue
+
+        # BFS to find connected component
+        cluster = Tuple{Int,Int,Int}[]
+        queue = [cell]
+
+        while !isempty(queue)
+            current = popfirst!(queue)
+            current in visited && continue
+            push!(visited, current)
+            push!(cluster, current)
+
+            # Check 6-connected neighbors
+            i, j, k = current
+            for (di, dj, dk) in ((1,0,0), (-1,0,0), (0,1,0), (0,-1,0), (0,0,1), (0,0,-1))
+                neighbor = (i + di, j + dj, k + dk)
+                if neighbor in cell_set && !(neighbor in visited)
+                    push!(queue, neighbor)
+                end
+            end
+        end
+
+        !isempty(cluster) && push!(clusters, cluster)
+    end
+
+    return clusters
 end
 
 """
