@@ -187,6 +187,7 @@ Stores the base grid and tracking information for refined cells.
 - `base_grid`: The coarse/base level grid
 - `refined_cells_2d/3d`: Dict mapping Flow indices (including ghost offset) to refinement level
 - `refined_grids_2d/3d`: Dict mapping cell indices to local refined StaggeredGrid
+- `refined_states_2d/3d`: Dict mapping cell indices to local refined SolutionState
 - `interpolation_weights_2d/3d`: Pre-computed interpolation weights
 """
 mutable struct RefinedGrid{T<:AbstractFloat}
@@ -195,6 +196,8 @@ mutable struct RefinedGrid{T<:AbstractFloat}
     refined_cells_3d::Dict{Tuple{Int,Int,Int}, Int}
     refined_grids_2d::Dict{Tuple{Int,Int}, StaggeredGrid{T}}
     refined_grids_3d::Dict{Tuple{Int,Int,Int}, StaggeredGrid{T}}
+    refined_states_2d::Dict{Tuple{Int,Int}, SolutionState{T, Array{T,2}}}
+    refined_states_3d::Dict{Tuple{Int,Int,Int}, SolutionState{T, Array{T,3}}}
     interpolation_weights_2d::Dict{Tuple{Int,Int}, Vector{Tuple{Tuple{Int,Int}, T}}}
     interpolation_weights_3d::Dict{Tuple{Int,Int,Int}, Vector{Tuple{Tuple{Int,Int,Int}, T}}}
 end
@@ -211,6 +214,8 @@ function RefinedGrid(base_grid::StaggeredGrid{T}) where {T}
         Dict{Tuple{Int,Int,Int}, Int}(),
         Dict{Tuple{Int,Int}, StaggeredGrid{T}}(),
         Dict{Tuple{Int,Int,Int}, StaggeredGrid{T}}(),
+        Dict{Tuple{Int,Int}, SolutionState{T, Array{T,2}}}(),
+        Dict{Tuple{Int,Int,Int}, SolutionState{T, Array{T,3}}}(),
         Dict{Tuple{Int,Int}, Vector{Tuple{Tuple{Int,Int}, T}}}(),
         Dict{Tuple{Int,Int,Int}, Vector{Tuple{Tuple{Int,Int,Int}, T}}}()
     )

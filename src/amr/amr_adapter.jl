@@ -283,22 +283,95 @@ end
     interpolate_cell_2d!(state, i, j, local_grid, refined_grid)
 
 Perform bilinear interpolation for a single refined 2D cell.
+Creates refined SolutionState and stores in refined_grid.refined_states_2d.
+
+Uses staggered-aware interpolation:
+- u-velocity: offset by 0.5 in x-direction (at x-faces)
+- v-velocity: offset by 0.5 in z-direction (at z-faces)
+- pressure: no offset (at cell centers)
 """
-function interpolate_cell_2d!(state::SolutionState, i::Int, j::Int,
-                               local_grid::StaggeredGrid, refined_grid::RefinedGrid)
-    weights = get(refined_grid.interpolation_weights_2d, (i, j), nothing)
-    if weights === nothing
-        return  # No pre-computed weights, skip
+function interpolate_cell_2d!(state::SolutionState{T}, i::Int, j::Int,
+                               local_grid::StaggeredGrid{T}, refined_grid::RefinedGrid{T}) where {T}
+    level = get(refined_grid.refined_cells_2d, (i, j), 0)
+    if level == 0
+        return
     end
 
-    # Apply interpolation weights to velocity and pressure
-    # This is a placeholder - actual implementation depends on refinement strategy
-    for (neighbor_idx, weight) in weights
-        ni, nj = neighbor_idx
-        if 1 <= ni <= size(state.p, 1) && 1 <= nj <= size(state.p, 2)
-            # Weighted contribution from neighbor
-            # (Full implementation would handle staggered locations properly)
-        end
+    ratio = 2^level  # refinement ratio
+
+    # Create or get refined solution state for this cell
+    if !haskey(refined_grid.refined_states_2d, (i, j))
+        refined_grid.refined_states_2d[(i, j)] = SolutionState(local_grid)
+    end
+    refined_state = refined_grid.refined_states_2d[(i, j)]
+
+    # Coarse grid dimensions
+    nx_c, nz_c = size(state.p)
+
+    # Fine grid dimensions
+    nx_f = local_grid.nx
+    nz_f = local_grid.nz
+
+    # Interpolate u-velocity (at x-faces, staggered in x)
+    for fj in 1:nz_f, fi in 1:(nx_f+1)
+        # Fine grid position relative to coarse cell (i,j)
+        # Account for x-face staggering (faces at 0, dx, 2dx, ...)
+        xf = (T(fi) - T(1)) / ratio  # 0 to 1 across the cell
+        zf = (T(fj) - T(0.5)) / ratio  # 0.5/ratio to (nz_f-0.5)/ratio
+
+        # Bilinear interpolation from coarse u-velocity
+        # Coarse u at x-faces: indices 1:nx_c+1 in x, 1:nz_c in z
+        ic = clamp(i + floor(Int, xf), 1, nx_c)
+        jc = clamp(j + floor(Int, zf), 1, nz_c)
+        wx = xf - floor(xf)
+        wz = zf - floor(zf)
+
+        # Clamp indices for boundary safety
+        ic1 = clamp(ic + 1, 1, size(state.u, 1))
+        jc1 = clamp(jc + 1, 1, size(state.u, 2))
+
+        refined_state.u[fi, fj] = (one(T) - wx) * (one(T) - wz) * state.u[ic, jc] +
+                                   wx * (one(T) - wz) * state.u[ic1, jc] +
+                                   (one(T) - wx) * wz * state.u[ic, jc1] +
+                                   wx * wz * state.u[ic1, jc1]
+    end
+
+    # Interpolate v-velocity (at z-faces, staggered in z)
+    for fj in 1:(nz_f+1), fi in 1:nx_f
+        xf = (T(fi) - T(0.5)) / ratio
+        zf = (T(fj) - T(1)) / ratio  # z-face staggering
+
+        ic = clamp(i + floor(Int, xf), 1, nx_c)
+        jc = clamp(j + floor(Int, zf), 1, nz_c)
+        wx = xf - floor(xf)
+        wz = zf - floor(zf)
+
+        ic1 = clamp(ic + 1, 1, size(state.v, 1))
+        jc1 = clamp(jc + 1, 1, size(state.v, 2))
+
+        refined_state.v[fi, fj] = (one(T) - wx) * (one(T) - wz) * state.v[ic, jc] +
+                                   wx * (one(T) - wz) * state.v[ic1, jc] +
+                                   (one(T) - wx) * wz * state.v[ic, jc1] +
+                                   wx * wz * state.v[ic1, jc1]
+    end
+
+    # Interpolate pressure (at cell centers)
+    for fj in 1:nz_f, fi in 1:nx_f
+        xf = (T(fi) - T(0.5)) / ratio
+        zf = (T(fj) - T(0.5)) / ratio
+
+        ic = clamp(i + floor(Int, xf), 1, nx_c)
+        jc = clamp(j + floor(Int, zf), 1, nz_c)
+        wx = xf - floor(xf)
+        wz = zf - floor(zf)
+
+        ic1 = clamp(ic + 1, 1, nx_c)
+        jc1 = clamp(jc + 1, 1, nz_c)
+
+        refined_state.p[fi, fj] = (one(T) - wx) * (one(T) - wz) * state.p[ic, jc] +
+                                   wx * (one(T) - wz) * state.p[ic1, jc] +
+                                   (one(T) - wx) * wz * state.p[ic, jc1] +
+                                   wx * wz * state.p[ic1, jc1]
     end
 end
 
@@ -306,19 +379,116 @@ end
     interpolate_cell_3d!(state, i, j, k, local_grid, refined_grid)
 
 Perform trilinear interpolation for a single refined 3D cell.
+Creates refined SolutionState and stores in refined_grid.refined_states_3d.
+
+Uses staggered-aware interpolation:
+- u-velocity: offset by 0.5 in x-direction (at x-faces)
+- v-velocity: offset by 0.5 in y-direction (at y-faces)
+- w-velocity: offset by 0.5 in z-direction (at z-faces)
+- pressure: no offset (at cell centers)
 """
-function interpolate_cell_3d!(state::SolutionState, i::Int, j::Int, k::Int,
-                               local_grid::StaggeredGrid, refined_grid::RefinedGrid)
-    weights = get(refined_grid.interpolation_weights_3d, (i, j, k), nothing)
-    if weights === nothing
+function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
+                               local_grid::StaggeredGrid{T}, refined_grid::RefinedGrid{T}) where {T}
+    level = get(refined_grid.refined_cells_3d, (i, j, k), 0)
+    if level == 0
         return
     end
 
-    for (neighbor_idx, weight) in weights
-        ni, nj, nk = neighbor_idx
-        if 1 <= ni <= size(state.p, 1) && 1 <= nj <= size(state.p, 2) && 1 <= nk <= size(state.p, 3)
-            # Weighted contribution from neighbor
-        end
+    ratio = 2^level
+
+    # Create or get refined solution state
+    if !haskey(refined_grid.refined_states_3d, (i, j, k))
+        refined_grid.refined_states_3d[(i, j, k)] = SolutionState(local_grid)
+    end
+    refined_state = refined_grid.refined_states_3d[(i, j, k)]
+
+    # Coarse grid dimensions
+    nx_c, ny_c, nz_c = size(state.p)
+
+    # Fine grid dimensions
+    nx_f = local_grid.nx
+    ny_f = local_grid.ny
+    nz_f = local_grid.nz
+
+    # Helper for trilinear interpolation
+    @inline function trilinear(arr, ic, jc, kc, wx, wy, wz)
+        ic1 = clamp(ic + 1, 1, size(arr, 1))
+        jc1 = clamp(jc + 1, 1, size(arr, 2))
+        kc1 = clamp(kc + 1, 1, size(arr, 3))
+
+        c00 = (one(T) - wx) * arr[ic, jc, kc] + wx * arr[ic1, jc, kc]
+        c10 = (one(T) - wx) * arr[ic, jc1, kc] + wx * arr[ic1, jc1, kc]
+        c01 = (one(T) - wx) * arr[ic, jc, kc1] + wx * arr[ic1, jc, kc1]
+        c11 = (one(T) - wx) * arr[ic, jc1, kc1] + wx * arr[ic1, jc1, kc1]
+
+        c0 = (one(T) - wy) * c00 + wy * c10
+        c1 = (one(T) - wy) * c01 + wy * c11
+
+        return (one(T) - wz) * c0 + wz * c1
+    end
+
+    # Interpolate u-velocity (at x-faces)
+    for fk in 1:nz_f, fj in 1:ny_f, fi in 1:(nx_f+1)
+        xf = (T(fi) - T(1)) / ratio
+        yf = (T(fj) - T(0.5)) / ratio
+        zf = (T(fk) - T(0.5)) / ratio
+
+        ic = clamp(i + floor(Int, xf), 1, size(state.u, 1) - 1)
+        jc = clamp(j + floor(Int, yf), 1, ny_c)
+        kc = clamp(k + floor(Int, zf), 1, nz_c)
+        wx = clamp(xf - floor(xf), zero(T), one(T))
+        wy = clamp(yf - floor(yf), zero(T), one(T))
+        wz = clamp(zf - floor(zf), zero(T), one(T))
+
+        refined_state.u[fi, fj, fk] = trilinear(state.u, ic, jc, kc, wx, wy, wz)
+    end
+
+    # Interpolate v-velocity (at y-faces)
+    for fk in 1:nz_f, fj in 1:(ny_f+1), fi in 1:nx_f
+        xf = (T(fi) - T(0.5)) / ratio
+        yf = (T(fj) - T(1)) / ratio
+        zf = (T(fk) - T(0.5)) / ratio
+
+        ic = clamp(i + floor(Int, xf), 1, nx_c)
+        jc = clamp(j + floor(Int, yf), 1, size(state.v, 2) - 1)
+        kc = clamp(k + floor(Int, zf), 1, nz_c)
+        wx = clamp(xf - floor(xf), zero(T), one(T))
+        wy = clamp(yf - floor(yf), zero(T), one(T))
+        wz = clamp(zf - floor(zf), zero(T), one(T))
+
+        refined_state.v[fi, fj, fk] = trilinear(state.v, ic, jc, kc, wx, wy, wz)
+    end
+
+    # Interpolate w-velocity (at z-faces)
+    for fk in 1:(nz_f+1), fj in 1:ny_f, fi in 1:nx_f
+        xf = (T(fi) - T(0.5)) / ratio
+        yf = (T(fj) - T(0.5)) / ratio
+        zf = (T(fk) - T(1)) / ratio
+
+        ic = clamp(i + floor(Int, xf), 1, nx_c)
+        jc = clamp(j + floor(Int, yf), 1, ny_c)
+        kc = clamp(k + floor(Int, zf), 1, size(state.w, 3) - 1)
+        wx = clamp(xf - floor(xf), zero(T), one(T))
+        wy = clamp(yf - floor(yf), zero(T), one(T))
+        wz = clamp(zf - floor(zf), zero(T), one(T))
+
+        refined_state.w[fi, fj, fk] = trilinear(state.w, ic, jc, kc, wx, wy, wz)
+    end
+
+    # Interpolate pressure (at cell centers)
+    for fk in 1:nz_f, fj in 1:ny_f, fi in 1:nx_f
+        xf = (T(fi) - T(0.5)) / ratio
+        yf = (T(fj) - T(0.5)) / ratio
+        zf = (T(fk) - T(0.5)) / ratio
+
+        ic = clamp(i + floor(Int, xf), 1, nx_c)
+        jc = clamp(j + floor(Int, yf), 1, ny_c)
+        kc = clamp(k + floor(Int, zf), 1, nz_c)
+        wx = clamp(xf - floor(xf), zero(T), one(T))
+        wy = clamp(yf - floor(yf), zero(T), one(T))
+        wz = clamp(zf - floor(zf), zero(T), one(T))
+
+        refined_state.p[fi, fj, fk] = trilinear(state.p, ic, jc, kc, wx, wy, wz)
     end
 end
 
