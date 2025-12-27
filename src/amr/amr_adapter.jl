@@ -1,5 +1,5 @@
 # =============================================================================
-# BIOFLOWS AMR ADAPTER
+# AMR ADAPTER
 # =============================================================================
 # This adapter bridges BioFlows' Flow-based architecture with the AMR system.
 # The main challenge is that:
@@ -25,7 +25,7 @@
 # =============================================================================
 
 """
-    BioFlows AMR Adapter
+    AMR Adapter
 
 Bridge between BioFlows' Flow-based architecture and the AMR infrastructure.
 Provides conversion functions between Flow fields and StaggeredGrid/SolutionState types.
