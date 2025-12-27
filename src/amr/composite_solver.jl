@@ -423,6 +423,170 @@ function enforce_velocity_consistency!(u_coarse::AbstractArray{T},
 end
 
 """
+    enforce_velocity_consistency_3d!(u_coarse, refined_velocity, patches_3d)
+
+Ensure velocity flux is consistent at 3D coarse-fine interfaces.
+Fine fluxes should sum to match coarse flux across all 6 faces.
+"""
+function enforce_velocity_consistency_3d!(u_coarse::AbstractArray{T},
+                                           refined_velocity::RefinedVelocityField,
+                                           patches_3d::Dict) where T
+    for (anchor, patch) in patches_3d
+        vel_patch = get_patch(refined_velocity, anchor)
+        vel_patch === nothing && continue
+
+        ratio = refinement_ratio(patch)
+        ratio2 = ratio * ratio
+        ai, aj, ak = anchor
+        nx, ny, nz = patch.fine_dims
+
+        # X-minus interface
+        ic = ai
+        if ic >= 2
+            for cj_idx in 1:patch.coarse_extent[2], ck_idx in 1:patch.coarse_extent[3]
+                jc = aj + cj_idx - 1
+                kc = ak + ck_idx - 1
+                coarse_flux = u_coarse[ic, jc, kc, 1]
+
+                fine_sum = zero(T)
+                for dj in 1:ratio, dk in 1:ratio
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    fk = (ck_idx - 1) * ratio + dk + 1
+                    fine_sum += vel_patch.u[2, fj, fk, 1]
+                end
+
+                correction = (coarse_flux * ratio2 - fine_sum) / ratio2
+                for dj in 1:ratio, dk in 1:ratio
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    fk = (ck_idx - 1) * ratio + dk + 1
+                    vel_patch.u[2, fj, fk, 1] += correction
+                end
+            end
+        end
+
+        # X-plus interface
+        ic = ai + patch.coarse_extent[1]
+        if ic <= size(u_coarse, 1) - 1
+            for cj_idx in 1:patch.coarse_extent[2], ck_idx in 1:patch.coarse_extent[3]
+                jc = aj + cj_idx - 1
+                kc = ak + ck_idx - 1
+                coarse_flux = u_coarse[ic, jc, kc, 1]
+
+                fine_sum = zero(T)
+                for dj in 1:ratio, dk in 1:ratio
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    fk = (ck_idx - 1) * ratio + dk + 1
+                    fine_sum += vel_patch.u[nx+1, fj, fk, 1]
+                end
+
+                correction = (coarse_flux * ratio2 - fine_sum) / ratio2
+                for dj in 1:ratio, dk in 1:ratio
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    fk = (ck_idx - 1) * ratio + dk + 1
+                    vel_patch.u[nx+1, fj, fk, 1] += correction
+                end
+            end
+        end
+
+        # Y-minus interface
+        jc = aj
+        if jc >= 2
+            for ci_idx in 1:patch.coarse_extent[1], ck_idx in 1:patch.coarse_extent[3]
+                ic = ai + ci_idx - 1
+                kc = ak + ck_idx - 1
+                coarse_flux = u_coarse[ic, jc, kc, 2]
+
+                fine_sum = zero(T)
+                for di in 1:ratio, dk in 1:ratio
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    fk = (ck_idx - 1) * ratio + dk + 1
+                    fine_sum += vel_patch.u[fi, 2, fk, 2]
+                end
+
+                correction = (coarse_flux * ratio2 - fine_sum) / ratio2
+                for di in 1:ratio, dk in 1:ratio
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    fk = (ck_idx - 1) * ratio + dk + 1
+                    vel_patch.u[fi, 2, fk, 2] += correction
+                end
+            end
+        end
+
+        # Y-plus interface
+        jc = aj + patch.coarse_extent[2]
+        if jc <= size(u_coarse, 2) - 1
+            for ci_idx in 1:patch.coarse_extent[1], ck_idx in 1:patch.coarse_extent[3]
+                ic = ai + ci_idx - 1
+                kc = ak + ck_idx - 1
+                coarse_flux = u_coarse[ic, jc, kc, 2]
+
+                fine_sum = zero(T)
+                for di in 1:ratio, dk in 1:ratio
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    fk = (ck_idx - 1) * ratio + dk + 1
+                    fine_sum += vel_patch.u[fi, ny+1, fk, 2]
+                end
+
+                correction = (coarse_flux * ratio2 - fine_sum) / ratio2
+                for di in 1:ratio, dk in 1:ratio
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    fk = (ck_idx - 1) * ratio + dk + 1
+                    vel_patch.u[fi, ny+1, fk, 2] += correction
+                end
+            end
+        end
+
+        # Z-minus interface
+        kc = ak
+        if kc >= 2
+            for ci_idx in 1:patch.coarse_extent[1], cj_idx in 1:patch.coarse_extent[2]
+                ic = ai + ci_idx - 1
+                jc = aj + cj_idx - 1
+                coarse_flux = u_coarse[ic, jc, kc, 3]
+
+                fine_sum = zero(T)
+                for di in 1:ratio, dj in 1:ratio
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    fine_sum += vel_patch.u[fi, fj, 2, 3]
+                end
+
+                correction = (coarse_flux * ratio2 - fine_sum) / ratio2
+                for di in 1:ratio, dj in 1:ratio
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    vel_patch.u[fi, fj, 2, 3] += correction
+                end
+            end
+        end
+
+        # Z-plus interface
+        kc = ak + patch.coarse_extent[3]
+        if kc <= size(u_coarse, 3) - 1
+            for ci_idx in 1:patch.coarse_extent[1], cj_idx in 1:patch.coarse_extent[2]
+                ic = ai + ci_idx - 1
+                jc = aj + cj_idx - 1
+                coarse_flux = u_coarse[ic, jc, kc, 3]
+
+                fine_sum = zero(T)
+                for di in 1:ratio, dj in 1:ratio
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    fine_sum += vel_patch.u[fi, fj, nz+1, 3]
+                end
+
+                correction = (coarse_flux * ratio2 - fine_sum) / ratio2
+                for di in 1:ratio, dj in 1:ratio
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    vel_patch.u[fi, fj, nz+1, 3] += correction
+                end
+            end
+        end
+    end
+end
+
+"""
     divergence_at_all_levels(flow, cp)
 
 Compute maximum divergence at base and all refined levels.
