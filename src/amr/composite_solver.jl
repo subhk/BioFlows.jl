@@ -169,6 +169,9 @@ function project!(flow::Flow{D,T}, cp::CompositePoisson{T},
     for (_, patch) in cp.patches
         patch.x .*= dt
     end
+    for (_, patch) in cp.patches_3d
+        patch.x .*= dt
+    end
 
     # 3. Interpolate velocity to refined patches
     interpolate_velocity_to_patches!(cp.refined_velocity, flow.u)
@@ -178,6 +181,11 @@ function project!(flow::Flow{D,T}, cp::CompositePoisson{T},
         vel_patch = get_patch(cp.refined_velocity, anchor)
         u_fine = vel_patch === nothing ? nothing : vel_patch.u
         set_patch_divergence!(patch, flow.u, u_fine, anchor, ρ)
+    end
+    for (anchor, patch) in cp.patches_3d
+        vel_patch = get_patch(cp.refined_velocity, anchor)
+        u_fine = vel_patch === nothing ? nothing : vel_patch.u
+        set_patch_divergence_3d!(patch, flow.u, u_fine, anchor, ρ)
     end
 
     # 5. Solve composite Poisson system
@@ -193,13 +201,23 @@ function project!(flow::Flow{D,T}, cp::CompositePoisson{T},
             correct_refined_velocity!(vel_patch, patch, inv_ρ)
         end
     end
+    for (anchor, patch) in cp.patches_3d
+        vel_patch = get_patch(cp.refined_velocity, anchor)
+        if vel_patch !== nothing
+            correct_refined_velocity_3d!(vel_patch, patch, inv_ρ)
+        end
+    end
 
     # 8. Enforce interface velocity consistency
     enforce_velocity_consistency!(flow.u, cp.refined_velocity, cp.patches)
+    enforce_velocity_consistency_3d!(flow.u, cp.refined_velocity, cp.patches_3d)
 
     # 9. Unscale pressure for storage
     cp.base.x ./= dt
     for (_, patch) in cp.patches
+        patch.x ./= dt
+    end
+    for (_, patch) in cp.patches_3d
         patch.x ./= dt
     end
 
@@ -219,6 +237,21 @@ function set_patch_divergence!(patch::PatchPoisson{T},
                                anchor::NTuple{2,Int},
                                ρ::T) where T
     compute_fine_divergence!(patch, u_coarse, u_fine, anchor)
+    @inside patch.z[I] *= ρ
+end
+
+"""
+    set_patch_divergence_3d!(patch, u_coarse, u_fine, anchor, ρ)
+
+Set divergence source term on 3D patch.
+Uses fine velocity when available, otherwise interpolates from coarse.
+"""
+function set_patch_divergence_3d!(patch::PatchPoisson3D{T},
+                                   u_coarse::AbstractArray{T},
+                                   u_fine::Union{Nothing, AbstractArray{T}},
+                                   anchor::NTuple{3,Int},
+                                   ρ::T) where T
+    compute_fine_divergence_3d!(patch, u_coarse, u_fine, anchor)
     @inside patch.z[I] *= ρ
 end
 
@@ -254,6 +287,29 @@ function correct_refined_velocity!(vel_patch::RefinedVelocityPatch{T,2},
         vel_patch.u[fi, fj, 1] -= scale * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
         # z-velocity correction: ∂(2,I,p) = p[I] - p[I-(0,1)]
         vel_patch.u[fi, fj, 2] -= scale * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
+    end
+end
+
+"""
+    correct_refined_velocity_3d!(vel_patch, pois_patch, scale)
+
+Correct refined 3D velocity using fine pressure gradient.
+Uses the same formula as standard project!.
+"""
+function correct_refined_velocity_3d!(vel_patch::RefinedVelocityPatch{T,3},
+                                       pois_patch::PatchPoisson3D{T},
+                                       scale::T) where T
+    p, L = pois_patch.x, pois_patch.L
+
+    # Use backward difference like standard project!
+    for I in inside(pois_patch)
+        fi, fj, fk = I.I
+        # x-velocity correction
+        vel_patch.u[fi, fj, fk, 1] -= scale * L[fi, fj, fk, 1] * (p[fi, fj, fk] - p[fi-1, fj, fk])
+        # y-velocity correction
+        vel_patch.u[fi, fj, fk, 2] -= scale * L[fi, fj, fk, 2] * (p[fi, fj, fk] - p[fi, fj-1, fk])
+        # z-velocity correction
+        vel_patch.u[fi, fj, fk, 3] -= scale * L[fi, fj, fk, 3] * (p[fi, fj, fk] - p[fi, fj, fk-1])
     end
 end
 
