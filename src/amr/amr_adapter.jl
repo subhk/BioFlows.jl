@@ -506,14 +506,18 @@ end
 
 Project refined solution back to coarse grid using conservative averaging.
 This ensures mass and momentum conservation.
+
+For velocities: averages fine face values to corresponding coarse faces
+For pressure: volume-weighted average of all fine cells to coarse cell
 """
-function project_refined_to_coarse!(state::SolutionState, refined_grid::RefinedGrid)
+function project_refined_to_coarse!(state::SolutionState{T},
+                                     refined_grid::RefinedGrid{T}) where {T}
     base_grid = refined_grid.base_grid
 
     if is_2d(base_grid)
         for ((i, j), level) in refined_grid.refined_cells_2d
             if level > 0
-                # Average refined cell values back to coarse cell
+                # Conservative averaging of refined cell values back to coarse cell
                 project_cell_2d!(state, i, j, refined_grid)
             end
         end
