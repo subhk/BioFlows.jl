@@ -169,6 +169,38 @@ function add_patch!(cp::CompositePoisson{T},
 end
 
 """
+    add_patch_3d!(cp, anchor, extent, level, μ₀)
+
+Add a 3D patch at the given anchor.
+
+# Arguments
+- `cp`: CompositePoisson
+- `anchor`: Coarse cell anchor (i, j, k)
+- `extent`: Coarse cells covered (nx, ny, nz)
+- `level`: Refinement level
+- `μ₀`: Coarse coefficient array (flow.μ₀)
+
+# Returns
+- Created PatchPoisson3D
+"""
+function add_patch_3d!(cp::CompositePoisson{T},
+                       anchor::Tuple{Int,Int,Int},
+                       extent::Tuple{Int,Int,Int},
+                       level::Int,
+                       μ₀::AbstractArray) where T
+    level = clamp(level, 1, cp.max_level)
+
+    # Create PatchPoisson3D
+    patch = PatchPoisson3D(anchor, extent, level, μ₀, T)
+    cp.patches_3d[anchor] = patch
+
+    # Create corresponding velocity patch
+    add_patch!(cp.refined_velocity, anchor, extent, level)
+
+    return patch
+end
+
+"""
     remove_patch!(cp, anchor)
 
 Remove a 2D patch.
@@ -179,20 +211,47 @@ function remove_patch!(cp::CompositePoisson, anchor::Tuple{Int,Int})
 end
 
 """
+    remove_patch_3d!(cp, anchor)
+
+Remove a 3D patch.
+"""
+function remove_patch_3d!(cp::CompositePoisson, anchor::Tuple{Int,Int,Int})
+    delete!(cp.patches_3d, anchor)
+    remove_patch!(cp.refined_velocity, anchor)
+end
+
+"""
     get_patch(cp, anchor)
 
-Get a patch by anchor, or nothing if not found.
+Get a 2D patch by anchor, or nothing if not found.
 """
 get_patch(cp::CompositePoisson, anchor::Tuple{Int,Int}) =
     get(cp.patches, anchor, nothing)
 
 """
+    get_patch_3d(cp, anchor)
+
+Get a 3D patch by anchor, or nothing if not found.
+"""
+get_patch_3d(cp::CompositePoisson, anchor::Tuple{Int,Int,Int}) =
+    get(cp.patches_3d, anchor, nothing)
+
+"""
     patches_at_level(cp, level)
 
-Iterator over patches at a specific refinement level.
+Iterator over 2D patches at a specific refinement level.
 """
 function patches_at_level(cp::CompositePoisson, level::Int)
     Iterators.filter(((k, v),) -> v.level == level, cp.patches)
+end
+
+"""
+    patches_at_level_3d(cp, level)
+
+Iterator over 3D patches at a specific refinement level.
+"""
+function patches_at_level_3d(cp::CompositePoisson, level::Int)
+    Iterators.filter(((k, v),) -> v.level == level, cp.patches_3d)
 end
 
 """
@@ -208,6 +267,7 @@ function update!(cp::CompositePoisson)
 
     # Re-interpolate patch coefficients from updated μ₀ (critical for flexible bodies!)
     if !isnothing(cp.μ₀_ref) && has_patches(cp)
+        # Update 2D patches
         for (anchor, patch) in cp.patches
             # Re-initialize L from updated μ₀
             ratio = refinement_ratio(patch)
@@ -215,9 +275,18 @@ function update!(cp::CompositePoisson)
             # Then recompute diagonal
             update_coefficients!(patch)
         end
+        # Update 3D patches
+        for (anchor, patch) in cp.patches_3d
+            ratio = refinement_ratio(patch)
+            initialize_patch_coefficients_3d!(patch.L, cp.μ₀_ref, anchor, patch.coarse_extent, ratio)
+            update_coefficients!(patch)
+        end
     else
         # Fallback: just update diagonal (less accurate for moving bodies)
         for (_, patch) in cp.patches
+            update_coefficients!(patch)
+        end
+        for (_, patch) in cp.patches_3d
             update_coefficients!(patch)
         end
     end

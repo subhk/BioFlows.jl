@@ -369,3 +369,264 @@ function reset!(writer::ForceWriter)
     empty!(writer.Cl_pressure_history)
     empty!(writer.Cl_viscous_history)
 end
+
+# =============================================================================
+# GRID COORDINATE UTILITIES
+# =============================================================================
+# Functions for computing and saving cell-center coordinates.
+# Grid files are essential for visualization tools like ParaView, VisIt, etc.
+# =============================================================================
+
+"""
+    cell_center_coordinates(sim; strip_ghosts=true)
+
+Compute the cell-center coordinates for the simulation grid.
+
+# Returns
+For 2D simulations: `(x, z)` where each is a 1D array of coordinates
+For 3D simulations: `(x, y, z)` where each is a 1D array of coordinates
+
+# Example
+```julia
+x, z = cell_center_coordinates(sim)  # 2D
+x, y, z = cell_center_coordinates(sim)  # 3D
+```
+"""
+function cell_center_coordinates(sim::AbstractSimulation; strip_ghosts::Bool=true)
+    flow = sim.flow
+    Δx = flow.Δx
+    p_size = size(flow.p)
+    spatial_dims = ndims(flow.p)
+
+    if strip_ghosts
+        # Interior dimensions (excluding ghost cells)
+        dims = ntuple(i -> p_size[i] - 2, spatial_dims)
+        # Cell centers start at Δx/2 from origin
+        coords = ntuple(spatial_dims) do i
+            n = dims[i]
+            dx = Δx[i]
+            collect(range(dx/2, step=dx, length=n))
+        end
+    else
+        # Full dimensions including ghost cells
+        dims = p_size
+        # Ghost cells extend before origin
+        coords = ntuple(spatial_dims) do i
+            n = dims[i]
+            dx = Δx[i]
+            # First ghost cell center at -Δx/2
+            collect(range(-dx/2, step=dx, length=n))
+        end
+    end
+
+    return coords
+end
+
+"""
+    cell_center_coordinates_meshgrid(sim; strip_ghosts=true)
+
+Compute the cell-center coordinates as full meshgrid arrays.
+Each output array has the same shape as the pressure field.
+
+# Returns
+For 2D: `(X, Z)` where X[i,j] and Z[i,j] give coordinates of cell (i,j)
+For 3D: `(X, Y, Z)` where X[i,j,k], Y[i,j,k], Z[i,j,k] give coordinates
+
+# Example
+```julia
+X, Z = cell_center_coordinates_meshgrid(sim)  # 2D
+```
+"""
+function cell_center_coordinates_meshgrid(sim::AbstractSimulation; strip_ghosts::Bool=true)
+    coords = cell_center_coordinates(sim; strip_ghosts=strip_ghosts)
+    spatial_dims = length(coords)
+
+    if spatial_dims == 2
+        x, z = coords
+        nx, nz = length(x), length(z)
+        X = [x[i] for i in 1:nx, j in 1:nz]
+        Z = [z[j] for i in 1:nx, j in 1:nz]
+        return (X, Z)
+    else  # 3D
+        x, y, z = coords
+        nx, ny, nz = length(x), length(y), length(z)
+        X = [x[i] for i in 1:nx, j in 1:ny, k in 1:nz]
+        Y = [y[j] for i in 1:nx, j in 1:ny, k in 1:nz]
+        Z = [z[k] for i in 1:nx, j in 1:ny, k in 1:nz]
+        return (X, Y, Z)
+    end
+end
+
+"""
+    save_grid(filename::AbstractString, sim::AbstractSimulation;
+              strip_ghosts::Bool=true, format::Symbol=:jld2)
+
+Save the grid coordinates to a file.
+
+# Arguments
+- `filename`: Output file path
+- `sim`: Simulation object
+- `strip_ghosts`: If true, exclude ghost cells (default: true)
+- `format`: Output format, `:jld2` (default) or `:vtk`
+
+# JLD2 Output Format
+The file contains:
+- `x`, `z` (2D) or `x`, `y`, `z` (3D): 1D coordinate arrays
+- `X`, `Z` (2D) or `X`, `Y`, `Z` (3D): Full meshgrid arrays
+- `dx`, `dz` (2D) or `dx`, `dy`, `dz` (3D): Grid spacing
+- `nx`, `nz` (2D) or `nx`, `ny`, `nz` (3D): Grid dimensions
+- `ndims`: Number of spatial dimensions
+
+# Example
+```julia
+save_grid("grid.jld2", sim)
+
+# Load later
+using JLD2
+grid = load("grid.jld2")
+x, z = grid["x"], grid["z"]
+```
+"""
+function save_grid(filename::AbstractString, sim::AbstractSimulation;
+                   strip_ghosts::Bool=true, format::Symbol=:jld2)
+    if format == :jld2
+        _save_grid_jld2(filename, sim; strip_ghosts=strip_ghosts)
+    elseif format == :vtk
+        _save_grid_vtk(filename, sim; strip_ghosts=strip_ghosts)
+    else
+        throw(ArgumentError("Unknown format: $format. Use :jld2 or :vtk"))
+    end
+end
+
+function _save_grid_jld2(filename::AbstractString, sim::AbstractSimulation;
+                          strip_ghosts::Bool=true)
+    coords = cell_center_coordinates(sim; strip_ghosts=strip_ghosts)
+    meshgrid = cell_center_coordinates_meshgrid(sim; strip_ghosts=strip_ghosts)
+    Δx = sim.flow.Δx
+    spatial_dims = length(coords)
+
+    jldopen(filename, "w") do file
+        file["ndims"] = spatial_dims
+
+        if spatial_dims == 2
+            file["x"] = coords[1]
+            file["z"] = coords[2]
+            file["X"] = meshgrid[1]
+            file["Z"] = meshgrid[2]
+            file["dx"] = Δx[1]
+            file["dz"] = Δx[2]
+            file["nx"] = length(coords[1])
+            file["nz"] = length(coords[2])
+        else  # 3D
+            file["x"] = coords[1]
+            file["y"] = coords[2]
+            file["z"] = coords[3]
+            file["X"] = meshgrid[1]
+            file["Y"] = meshgrid[2]
+            file["Z"] = meshgrid[3]
+            file["dx"] = Δx[1]
+            file["dy"] = Δx[2]
+            file["dz"] = Δx[3]
+            file["nx"] = length(coords[1])
+            file["ny"] = length(coords[2])
+            file["nz"] = length(coords[3])
+        end
+    end
+end
+
+function _save_grid_vtk(filename::AbstractString, sim::AbstractSimulation;
+                         strip_ghosts::Bool=true)
+    coords = cell_center_coordinates(sim; strip_ghosts=strip_ghosts)
+    spatial_dims = length(coords)
+
+    # Ensure .vtk extension
+    if !endswith(filename, ".vtk")
+        filename = filename * ".vtk"
+    end
+
+    open(filename, "w") do io
+        # VTK legacy header
+        println(io, "# vtk DataFile Version 3.0")
+        println(io, "BioFlows Grid - Cell Centers")
+        println(io, "ASCII")
+
+        if spatial_dims == 2
+            x, z = coords
+            nx, nz = length(x), length(z)
+
+            println(io, "DATASET RECTILINEAR_GRID")
+            println(io, "DIMENSIONS $nx $nz 1")
+
+            println(io, "X_COORDINATES $nx float")
+            for xi in x
+                println(io, xi)
+            end
+
+            println(io, "Y_COORDINATES $nz float")
+            for zi in z
+                println(io, zi)
+            end
+
+            println(io, "Z_COORDINATES 1 float")
+            println(io, "0.0")
+        else  # 3D
+            x, y, z = coords
+            nx, ny, nz = length(x), length(y), length(z)
+
+            println(io, "DATASET RECTILINEAR_GRID")
+            println(io, "DIMENSIONS $nx $ny $nz")
+
+            println(io, "X_COORDINATES $nx float")
+            for xi in x
+                println(io, xi)
+            end
+
+            println(io, "Y_COORDINATES $ny float")
+            for yi in y
+                println(io, yi)
+            end
+
+            println(io, "Z_COORDINATES $nz float")
+            for zi in z
+                println(io, zi)
+            end
+        end
+    end
+end
+
+"""
+    GridWriter(filename::AbstractString="grid.jld2";
+               strip_ghosts::Bool=true)
+
+Helper that saves grid coordinates once at the beginning of a simulation.
+Call `file_save!` to write the grid file.
+
+# Example
+```julia
+grid_writer = GridWriter("grid.jld2")
+file_save!(grid_writer, sim)  # Call once at start
+```
+"""
+mutable struct GridWriter
+    filename::String
+    strip_ghosts::Bool
+    saved::Bool
+
+    function GridWriter(filename::AbstractString="grid.jld2";
+                        strip_ghosts::Bool=true)
+        return new(String(filename), strip_ghosts, false)
+    end
+end
+
+"""
+    file_save!(writer::GridWriter, sim)
+
+Save the grid coordinates if not already saved. Returns the writer.
+"""
+function file_save!(writer::GridWriter, sim::AbstractSimulation)
+    if !writer.saved
+        save_grid(writer.filename, sim; strip_ghosts=writer.strip_ghosts)
+        writer.saved = true
+    end
+    return writer
+end
