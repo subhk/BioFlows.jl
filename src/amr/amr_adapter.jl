@@ -254,25 +254,34 @@ flow_index_to_cell_index(I::CartesianIndex{3}) = (I[1] - 1, I[2] - 1, I[3] - 1)
 """
     interpolate_to_refined!(flow::Flow, refined_grid::RefinedGrid, state::SolutionState)
 
-Interpolate coarse solution to refined cells using divergence-free interpolation.
-Updates the solution state with refined values where applicable.
+Interpolate coarse solution to refined cells using staggered-aware bilinear/trilinear
+interpolation. Creates refined SolutionStates stored in refined_grid.refined_states_2d/3d.
+
+For each refined cell, this:
+1. Creates a local refined SolutionState if not already present
+2. Interpolates velocity components accounting for staggered grid locations
+3. Interpolates pressure at cell centers
 """
-function interpolate_to_refined!(flow::Flow{N,T}, refined_grid::RefinedGrid,
-                                  state::SolutionState) where {N,T}
+function interpolate_to_refined!(flow::Flow{N,T}, refined_grid::RefinedGrid{T},
+                                  state::SolutionState{T}) where {N,T}
     if N == 2
         for ((i, j), level) in refined_grid.refined_cells_2d
             if level > 0
-                # Get local refined grid
-                local_grid = refined_grid.refined_grids_2d[(i, j)]
-                # Bilinear interpolation of velocity to refined locations
-                interpolate_cell_2d!(state, i, j, local_grid, refined_grid)
+                # Get local refined grid structure
+                local_grid = get(refined_grid.refined_grids_2d, (i, j), nothing)
+                if local_grid !== nothing
+                    # Bilinear interpolation of velocity and pressure to refined locations
+                    interpolate_cell_2d!(state, i, j, local_grid, refined_grid)
+                end
             end
         end
     else
         for ((i, j, k), level) in refined_grid.refined_cells_3d
             if level > 0
-                local_grid = refined_grid.refined_grids_3d[(i, j, k)]
-                interpolate_cell_3d!(state, i, j, k, local_grid, refined_grid)
+                local_grid = get(refined_grid.refined_grids_3d, (i, j, k), nothing)
+                if local_grid !== nothing
+                    interpolate_cell_3d!(state, i, j, k, local_grid, refined_grid)
+                end
             end
         end
     end
@@ -523,17 +532,165 @@ end
     project_cell_2d!(state, i, j, refined_grid)
 
 Conservative projection of a single 2D refined cell to coarse grid.
+Uses volume-weighted averaging for pressure and face-averaged fluxes for velocities.
 """
-function project_cell_2d!(state::SolutionState, i::Int, j::Int, refined_grid::RefinedGrid)
-    # Volume-weighted average of refined cell values
-    # This is a placeholder - actual implementation integrates over refined subcells
+function project_cell_2d!(state::SolutionState{T}, i::Int, j::Int,
+                           refined_grid::RefinedGrid{T}) where {T}
+    # Get refined state for this cell
+    refined_state = get(refined_grid.refined_states_2d, (i, j), nothing)
+    if refined_state === nothing
+        return
+    end
+
+    level = get(refined_grid.refined_cells_2d, (i, j), 0)
+    if level == 0
+        return
+    end
+
+    ratio = 2^level
+    inv_ratio = one(T) / ratio
+    inv_ratio2 = inv_ratio * inv_ratio  # For area averaging
+
+    # Fine grid dimensions
+    nx_f = size(refined_state.p, 1)
+    nz_f = size(refined_state.p, 2)
+
+    # Project u-velocity: average fine u-values at the coarse x-face
+    # For each coarse x-face, average the fine x-faces along z-direction
+    # Left face of coarse cell (i,j) -> fine face at fi=1
+    if 1 <= i <= size(state.u, 1)
+        sum_u = zero(T)
+        for fj in 1:nz_f
+            sum_u += refined_state.u[1, fj]
+        end
+        state.u[i, j] = sum_u * inv_ratio
+    end
+
+    # Right face of coarse cell (i,j) -> fine face at fi=nx_f+1
+    if 1 <= i+1 <= size(state.u, 1)
+        sum_u = zero(T)
+        for fj in 1:nz_f
+            sum_u += refined_state.u[nx_f+1, fj]
+        end
+        state.u[i+1, j] = sum_u * inv_ratio
+    end
+
+    # Project v-velocity: average fine v-values at the coarse z-face
+    # Bottom face of coarse cell (i,j) -> fine face at fj=1
+    if 1 <= j <= size(state.v, 2)
+        sum_v = zero(T)
+        for fi in 1:nx_f
+            sum_v += refined_state.v[fi, 1]
+        end
+        state.v[i, j] = sum_v * inv_ratio
+    end
+
+    # Top face of coarse cell (i,j) -> fine face at fj=nz_f+1
+    if 1 <= j+1 <= size(state.v, 2)
+        sum_v = zero(T)
+        for fi in 1:nx_f
+            sum_v += refined_state.v[fi, nz_f+1]
+        end
+        state.v[i, j+1] = sum_v * inv_ratio
+    end
+
+    # Project pressure: volume-weighted average of all fine cells
+    sum_p = zero(T)
+    for fj in 1:nz_f, fi in 1:nx_f
+        sum_p += refined_state.p[fi, fj]
+    end
+    state.p[i, j] = sum_p * inv_ratio2
 end
 
 """
     project_cell_3d!(state, i, j, k, refined_grid)
 
 Conservative projection of a single 3D refined cell to coarse grid.
+Uses volume-weighted averaging for pressure and face-averaged fluxes for velocities.
 """
-function project_cell_3d!(state::SolutionState, i::Int, j::Int, k::Int, refined_grid::RefinedGrid)
-    # Volume-weighted average of refined cell values
+function project_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
+                           refined_grid::RefinedGrid{T}) where {T}
+    # Get refined state for this cell
+    refined_state = get(refined_grid.refined_states_3d, (i, j, k), nothing)
+    if refined_state === nothing
+        return
+    end
+
+    level = get(refined_grid.refined_cells_3d, (i, j, k), 0)
+    if level == 0
+        return
+    end
+
+    ratio = 2^level
+    inv_ratio2 = one(T) / (ratio * ratio)   # For face averaging
+    inv_ratio3 = inv_ratio2 / ratio          # For volume averaging
+
+    # Fine grid dimensions
+    nx_f = size(refined_state.p, 1)
+    ny_f = size(refined_state.p, 2)
+    nz_f = size(refined_state.p, 3)
+
+    # Project u-velocity: average fine u-values at coarse x-faces
+    # Left face (i,j,k) -> fine face at fi=1
+    if 1 <= i <= size(state.u, 1)
+        sum_u = zero(T)
+        for fk in 1:nz_f, fj in 1:ny_f
+            sum_u += refined_state.u[1, fj, fk]
+        end
+        state.u[i, j, k] = sum_u * inv_ratio2
+    end
+
+    # Right face (i+1,j,k) -> fine face at fi=nx_f+1
+    if 1 <= i+1 <= size(state.u, 1)
+        sum_u = zero(T)
+        for fk in 1:nz_f, fj in 1:ny_f
+            sum_u += refined_state.u[nx_f+1, fj, fk]
+        end
+        state.u[i+1, j, k] = sum_u * inv_ratio2
+    end
+
+    # Project v-velocity: average fine v-values at coarse y-faces
+    # Front face (i,j,k) -> fine face at fj=1
+    if 1 <= j <= size(state.v, 2)
+        sum_v = zero(T)
+        for fk in 1:nz_f, fi in 1:nx_f
+            sum_v += refined_state.v[fi, 1, fk]
+        end
+        state.v[i, j, k] = sum_v * inv_ratio2
+    end
+
+    # Back face (i,j+1,k) -> fine face at fj=ny_f+1
+    if 1 <= j+1 <= size(state.v, 2)
+        sum_v = zero(T)
+        for fk in 1:nz_f, fi in 1:nx_f
+            sum_v += refined_state.v[fi, ny_f+1, fk]
+        end
+        state.v[i, j+1, k] = sum_v * inv_ratio2
+    end
+
+    # Project w-velocity: average fine w-values at coarse z-faces
+    # Bottom face (i,j,k) -> fine face at fk=1
+    if 1 <= k <= size(state.w, 3)
+        sum_w = zero(T)
+        for fj in 1:ny_f, fi in 1:nx_f
+            sum_w += refined_state.w[fi, fj, 1]
+        end
+        state.w[i, j, k] = sum_w * inv_ratio2
+    end
+
+    # Top face (i,j,k+1) -> fine face at fk=nz_f+1
+    if 1 <= k+1 <= size(state.w, 3)
+        sum_w = zero(T)
+        for fj in 1:ny_f, fi in 1:nx_f
+            sum_w += refined_state.w[fi, fj, nz_f+1]
+        end
+        state.w[i, j, k+1] = sum_w * inv_ratio2
+    end
+
+    # Project pressure: volume-weighted average of all fine cells
+    sum_p = zero(T)
+    for fk in 1:nz_f, fj in 1:ny_f, fi in 1:nx_f
+        sum_p += refined_state.p[fi, fj, fk]
+    end
+    state.p[i, j, k] = sum_p * inv_ratio3
 end
