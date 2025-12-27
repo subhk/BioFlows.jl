@@ -84,7 +84,7 @@ For multi-level AMR, processes patches from coarse to fine levels.
 function patch_defect_correction!(cp::CompositePoisson{T}) where T
     base_level = cp.base.levels[1]
 
-    # Process patches by level (coarse to fine)
+    # Process 2D patches by level (coarse to fine)
     for level in 1:cp.max_level
         for (anchor, patch) in patches_at_level(cp, level)
             # Determine parent pressure (base for level 1, parent patch for higher levels)
@@ -108,6 +108,30 @@ function patch_defect_correction!(cp::CompositePoisson{T}) where T
 
             # 5. Restrict correction to parent level
             restrict_pressure_to_coarse!(p_parent, patch, anchor)
+        end
+
+        # Process 3D patches at this level
+        for (anchor, patch) in patches_at_level_3d(cp, level)
+            p_parent = base_level.x
+            L_parent = base_level.L
+
+            # 1. Prolongate parent pressure to patch ghost cells
+            prolongate_pressure_to_boundary_3d!(patch, p_parent, anchor)
+
+            # 2. Compute patch residual (defect)
+            patch_residual_3d!(patch)
+
+            # 3. Local smoothing on patch (use PCG for good convergence)
+            for _ in 1:4
+                patch_pcg_3d!(patch; it=2)
+            end
+
+            # 4. Compute and apply flux correction
+            fluxes = compute_all_interface_fluxes_3d(patch, p_parent, L_parent, anchor)
+            apply_flux_correction_3d!(patch, fluxes)
+
+            # 5. Restrict correction to parent level
+            restrict_pressure_to_coarse_3d!(p_parent, patch, anchor)
         end
     end
 
