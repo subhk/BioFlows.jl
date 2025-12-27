@@ -38,13 +38,11 @@ at both base and refined levels.
 AMR-aware projection step using composite Poisson solver.
 Projects velocity to divergence-free state at all refinement levels.
 
-Uses the same "unit spacing" convention as the standard project!() for
-consistency with the unit-spacing Poisson solver. The AMR patches use
-ratio-scaled operators which are internally consistent.
+Uses physical grid spacing Δx = L/N throughout for proper scaling:
+- RHS: ρ * h * div(u) where h is the physical grid spacing
+- Correction: u -= L * ∂p / (ρ * Δx) for physical pressure gradient
 
-Matches the standard project! convention:
-- Poisson equation: L·p = ρ·div(u)
-- Velocity correction: u -= (L/ρ)·∇p
+For AMR patches, the fine grid spacing h_fine = h_coarse / ratio is used.
 
 # Arguments
 - `flow`: Flow object (base grid velocity and fields)
@@ -54,11 +52,14 @@ Matches the standard project! convention:
 function amr_project!(flow::Flow{D,T}, cp::CompositePoisson{T}, w::Real=1) where {D,T}
     dt = T(w * flow.Δt[end])
     ρ = flow.ρ
-    inv_ρ = inv(ρ)
+    Δx = flow.Δx
+    # Physical grid spacing (use minimum for anisotropic grids)
+    h = T(minimum(Δx))
 
-    # 1. Set divergence source on base grid: RHS = ρ * div(u)
-    # Uses unit-spacing divergence for consistency with unit-spacing Laplacian
-    @inside flow.σ[I] = ρ * div(I, flow.u)
+    # 1. Set divergence source on base grid: RHS = ρ * h * div(u)
+    # Physical Poisson: ∇²p = ρ * ∇·u
+    # With unit-spacing Laplacian: Δ²p = h² * ∇²p = h * ρ * div_unit
+    @inside flow.σ[I] = ρ * h * div(I, flow.u)
     cp.base.z .= flow.σ
 
     # 2. Scale pressure initial guess for warm start (like standard project!)
@@ -71,17 +72,17 @@ function amr_project!(flow::Flow{D,T}, cp::CompositePoisson{T}, w::Real=1) where
     # 3. Interpolate velocity to refined patches (before divergence/solve)
     interpolate_velocity_to_patches!(cp.refined_velocity, flow.u)
 
-    # 4. Set divergence on refined patches (using same ρ scaling)
-    set_all_patch_divergence!(cp, flow.u, ρ)
+    # 4. Set divergence on refined patches (using physical h scaling)
+    set_all_patch_divergence!(cp, flow.u, ρ, h)
 
     # 5. Solve composite Poisson system
     solver!(cp)
 
-    # 6. Correct base grid velocity: u -= (L/ρ) * ∇p
-    correct_base_velocity!(flow, cp.base.x, cp.base.L, inv_ρ)
+    # 6. Correct base grid velocity: u -= L * ∂p / (ρ * Δx)
+    correct_base_velocity!(flow, cp.base.x, cp.base.L, ρ, Δx)
 
     # 7. Correct refined velocity on patches
-    correct_all_refined_velocity!(cp, inv_ρ)
+    correct_all_refined_velocity!(cp, ρ, Δx)
 
     # 8. Enforce interface consistency (flux matching)
     enforce_all_interface_consistency!(flow.u, cp)
@@ -98,27 +99,31 @@ function amr_project!(flow::Flow{D,T}, cp::CompositePoisson{T}, w::Real=1) where
 end
 
 """
-    set_all_patch_divergence!(cp, u_coarse, ρ)
+    set_all_patch_divergence!(cp, u_coarse, ρ, h_coarse)
 
-Set divergence source term on all patches using unit-spacing convention.
-RHS = ρ * div(u) to match standard projection convention.
+Set divergence source term on all patches using physical grid spacing.
+RHS = ρ * h_fine * div(u) where h_fine = h_coarse / ratio.
 Uses refined patch velocity when available; otherwise falls back to coarse.
 
 # Arguments
 - `cp`: CompositePoisson solver
 - `u_coarse`: Coarse velocity field
 - `ρ`: Fluid density
+- `h_coarse`: Coarse grid physical spacing
 """
-function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractArray{T}, ρ::T) where T
+function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractArray{T}, ρ::T, h_coarse::T) where T
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         ratio = refinement_ratio(patch)
+        # Fine grid spacing: h_fine = h_coarse / ratio
+        h_fine = h_coarse / T(ratio)
         ai, aj = anchor
 
         for I in inside(patch)
             if vel_patch !== nothing
                 # Use fine velocity directly when available
-                patch.z[I] = ρ * div(I, vel_patch.u)
+                # RHS = ρ * h_fine * div_unit(u_fine)
+                patch.z[I] = ρ * h_fine * div(I, vel_patch.u)
             else
                 fi, fj = I.I
 
@@ -130,8 +135,8 @@ function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractAr
                 ic = clamp(ic, 2, size(u_coarse, 1) - 1)
                 jc = clamp(jc, 2, size(u_coarse, 2) - 1)
 
-                # RHS = ρ * div(u) with unit spacing
-                patch.z[I] = ρ * div(CartesianIndex(ic, jc), u_coarse)
+                # RHS = ρ * h_coarse * div_unit(u_coarse) (use coarse spacing when using coarse velocity)
+                patch.z[I] = ρ * h_coarse * div(CartesianIndex(ic, jc), u_coarse)
             end
         end
     end
@@ -164,53 +169,58 @@ function interpolate_velocity_to_patches!(refined_velocity::RefinedVelocityField
 end
 
 """
-    correct_base_velocity!(flow, p, L, inv_ρ)
+    correct_base_velocity!(flow, p, L, ρ, Δx)
 
-Correct base velocity using pressure gradient with unit-spacing convention.
-Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * Δp
-Uses the same formula as standard project!.
+Correct base velocity using pressure gradient with physical Δx scaling.
+Velocity correction: u -= L * ∂p / (ρ * Δx[d]) for physical pressure gradient.
 
 # Arguments
 - `flow`: Flow object
 - `p`: Pressure field
 - `L`: Laplacian coefficient array
-- `inv_ρ`: Inverse density (1/ρ)
+- `ρ`: Fluid density
+- `Δx`: Physical grid spacing tuple
 """
 function correct_base_velocity!(flow::Flow{D,T}, p::AbstractArray{T},
-                                L::AbstractArray{T}, inv_ρ::T) where {D,T}
-    # Velocity correction with unit-spacing gradient (consistent with Laplacian)
-    # a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)/ρ where ∂(i,I,x) = x[I] - x[I-δ(i,I)]
+                                L::AbstractArray{T}, ρ::T, Δx::NTuple{D,T}) where {D,T}
+    # Physical velocity correction: u -= (1/ρ) * ∇p = (1/ρ) * (1/Δx) * ∂p
+    # With unit-spacing difference ∂, physical gradient is ∂p/Δx[d]
     for d in 1:D
-        @loop flow.u[I, d] -= inv_ρ * L[I, d] * ∂(d, I, p) over I ∈ inside(p)
+        inv_ρΔx = inv(ρ * Δx[d])
+        @loop flow.u[I, d] -= L[I, d] * ∂(d, I, p) * inv_ρΔx over I ∈ inside(p)
     end
 end
 
 """
-    correct_all_refined_velocity!(cp, inv_ρ)
+    correct_all_refined_velocity!(cp, ρ, Δx)
 
-Correct velocity on all refined patches using unit-spacing convention.
-Velocity correction: u -= (L/ρ) * ∇p = inv_ρ * L * Δp
-Uses the same formula as standard project!.
+Correct velocity on all refined patches using physical Δx scaling.
+Velocity correction: u -= L * ∂p / (ρ * Δx_fine) where Δx_fine = Δx / ratio.
 
 # Arguments
 - `cp`: CompositePoisson solver
-- `inv_ρ`: Inverse density (1/ρ)
+- `ρ`: Fluid density
+- `Δx`: Coarse grid physical spacing tuple
 """
-function correct_all_refined_velocity!(cp::CompositePoisson{T}, inv_ρ::T) where T
+function correct_all_refined_velocity!(cp::CompositePoisson{T}, ρ::T, Δx::NTuple{D,T}) where {D,T}
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
 
         p, L = patch.x, patch.L
+        ratio = refinement_ratio(patch)
 
-        # Velocity correction with unit-spacing gradient
-        # ∂(d,I,p) = p[I] - p[I-δ(d,I)]
+        # Fine grid spacing: Δx_fine = Δx / ratio
+        inv_ρΔx_fine_x = inv(ρ * Δx[1] / T(ratio))
+        inv_ρΔx_fine_z = inv(ρ * Δx[2] / T(ratio))
+
+        # Physical velocity correction: u -= L * ∂p / (ρ * Δx_fine)
         for I in inside(patch)
             fi, fj = I.I
             # x-velocity correction
-            vel_patch.u[fi, fj, 1] -= inv_ρ * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
+            vel_patch.u[fi, fj, 1] -= L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj]) * inv_ρΔx_fine_x
             # z-velocity correction
-            vel_patch.u[fi, fj, 2] -= inv_ρ * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
+            vel_patch.u[fi, fj, 2] -= L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1]) * inv_ρΔx_fine_z
         end
     end
 end
@@ -289,11 +299,12 @@ end
     check_amr_divergence(flow, cp; verbose=false)
 
 Check maximum divergence at base and all refined levels.
-Uses unit-spacing convention consistent with the Poisson solver.
+Returns unit-spacing divergence (Δu) for diagnostics. To get physical
+divergence (∇·u), divide by the appropriate Δx for each level.
 Useful for verification.
 
 # Returns
-- Maximum divergence across all levels
+- Maximum unit-spacing divergence across all levels
 """
 function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
                               verbose::Bool=false) where {D,T}

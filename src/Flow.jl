@@ -414,28 +414,38 @@ Project velocity onto divergence-free space using pressure Poisson equation.
 Solves: ∇²p = ρ·∇·u*/Δt
 Updates: u = u* - (Δt/ρ)·∇p
 
-The pressure field `p` has units of Pa (kg/(m·s²)).
+The pressure field `p` has physical units of Pa (kg/(m·s²)).
 
-Note: The Poisson solver uses a "unit spacing" convention internally where both
-the Laplacian and divergence operators use consistent finite difference scaling.
-For isotropic grids (Δx = Δy = Δz), this gives correct physics because the Δx
-factors cancel. For anisotropic grids, use div_aniso and scale accordingly.
+The physical grid spacing Δx = L/N is properly incorporated:
+- RHS: ρ * Δx * div_unit(u) balances the unit-spacing Laplacian (which gives Δx² * ∇²p)
+- Correction: u -= L * ∂p / (ρ * Δx[i]) applies physical gradient (∇p = ∂p/Δx)
 
-The physical Δx is properly accounted for in:
+For isotropic grids (Δx = Δy = Δz = h), the resulting pressure has physical units.
+For anisotropic grids, the minimum grid spacing is used for consistency.
+
+The physical Δx is used throughout:
 - CFL time step computation (Flow.jl CFL function)
 - Convection-diffusion operators (conv_diff! uses physical Δx)
-- Force computations (Metrics.jl uses prod(Δx) for integration)
+- Pressure projection (this function)
+- Force computations (Metrics.jl integrates over physical domain)
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
     ρ = a.ρ
-    # Use unit-spacing divergence for consistency with unit-spacing Laplacian
-    @inside b.z[I] = ρ*div(I,a.u)
+    Δx = a.Δx
+    # For isotropic grids, use Δx[1]. For anisotropic, use minimum for stability.
+    h = minimum(Δx)
+    # Physical Poisson: ∇²p = ρ * ∇·u
+    # With unit-spacing Laplacian (gives Δx² * ∇²p), RHS must be scaled:
+    # Δ²p = h² * ∇²p = h² * ρ * ∇·u = h * ρ * (h * ∇·u) = h * ρ * div_unit
+    @inside b.z[I] = ρ * h * div(I, a.u)
     b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
-    # Velocity correction with unit-spacing gradient (consistent with Laplacian)
+    # Physical velocity correction: u -= (1/ρ) * ∇p = (1/ρ) * (1/Δx) * ∂p
+    # With unit-spacing difference ∂, physical gradient is ∂p/Δx[i]
     for i ∈ 1:n
-        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)/ρ over I ∈ inside(b.x)
+        inv_ρΔx = inv(ρ * Δx[i])
+        @loop a.u[I,i] -= b.L[I,i] * ∂(i, I, b.x) * inv_ρΔx over I ∈ inside(b.x)
     end
     b.x ./= dt  # Unscale to recover actual pressure
 end

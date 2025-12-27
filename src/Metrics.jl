@@ -157,12 +157,13 @@ opposite to the outward normal n̂.
 
 Returns force in Newtons per unit span (N/m) for 2D, or Newtons (N) for 3D.
 
-Note: The Poisson solver uses unit spacing internally, so the stored pressure
-is `p_stored = p_physical / Δx`. The force integral accounts for this:
-    F = -Σ p_stored * n̂ * K(d) * Δx²  (for 2D)
-    F = -Σ p_stored * n̂ * K(d) * Δx³  (for 3D)
+The pressure field `p` has physical units (Pa = kg/(m·s²)) from the projection
+step which uses physical grid spacing Δx = L/N. The force integral uses the
+physical surface element ds:
+    F = -Σ p * n̂ * K(d) * ds
+where ds = Δx for 2D (per unit span) or Δx² for 3D.
 
-This gives F = -Σ p_physical * n̂ * K(d) * Δx = -∮ p_physical * n̂ * ds.
+For isotropic grids: scale = prod(Δx)^((D-1)/D) = Δx for 2D, Δx² for 3D.
 """
 _sim_kernel_width(sim) = try
     getproperty(sim, :ϵ)
@@ -175,12 +176,11 @@ function pressure_force(p,Δx,df,body,t=0; ϵ=1)
     D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
-    # The stored pressure is scaled by 1/Δx from the unit-spacing Poisson solver.
-    # To get physical pressure: p_physical = p_stored * Δx
-    # Surface element: ds = Δx for 2D, Δx² for 3D
-    # Combined scale factor: Δx * ds = Δx² for 2D, Δx³ for 3D = prod(Δx)
-    scale = prod(Δx)  # Δx² for 2D (isotropic), Δx³ for 3D
-    # Compute contribution at each cell: F = -Σ p * n̂ * scale (negative because pressure acts inward)
+    # Pressure has physical units (Pa) from the projection step.
+    # Surface element: ds = Δx for 2D (per unit span), Δx² for 3D
+    # For isotropic grid: scale = prod(Δx)^((D-1)/D)
+    scale = prod(Δx)^((D-1)/D)  # Δx for 2D, Δx² for 3D (isotropic)
+    # Compute contribution at each cell: F = -Σ p * n̂ * ds (negative because pressure acts inward)
     @loop df[I,:] .= -p[I]*nds(body,loc(0,I,Tp),t,ϵ)*scale over I ∈ inside(p)
     # Sum over all spatial dimensions to get total force vector
     sum(To,df,dims=ntuple(i->i,D))[:] |> Array
@@ -206,11 +206,10 @@ The positive sign comes from the Cauchy stress decomposition:
 Returns force in Newtons per unit span (N/m) for 2D, or Newtons (N) for 3D.
 The viscous stress τ = 2μS = 2ρνS where μ = ρν is dynamic viscosity (Pa·s).
 
-Note: The strain rate S is computed using unit-spacing derivatives, so
-`S_stored = S_physical * Δx`. The force integral accounts for this:
-    F = +Σ 2μ * S_stored * n̂ * K(d)  (no ds factor needed)
-
-This gives F = +Σ 2μ * S_physical * Δx * n̂ * K(d) = +∮ 2μ * S_physical * n̂ * ds.
+The strain rate S uses unit-spacing derivatives: S_unit = S_physical * Δx.
+The force integral properly accounts for this:
+    F = +Σ 2μ * (S_unit / Δx) * n̂ * ds * K(d)
+where ds = Δx for 2D, Δx² for 3D. Combined: (S_unit / Δx) * ds = S_unit for 2D.
 """
 viscous_force(sim) = viscous_force(sim.flow,sim.body; ϵ=_sim_kernel_width(sim))
 viscous_force(flow,body; ϵ=1) = viscous_force(flow.u,flow.ν,flow.ρ,flow.Δx,flow.f,body,time(flow); ϵ)
@@ -219,10 +218,10 @@ function viscous_force(u,ν,ρ,Δx,df,body,t=0; ϵ=1)
     Tu = eltype(u); To = promote_type(Float64,Tu)
     μ = ρ * ν  # dynamic viscosity (Pa·s)
     df .= zero(Tu)
-    # The stored strain rate S uses unit-spacing derivatives: S_stored = S_physical * Δx
-    # To get physical strain rate: S_physical = S_stored / Δx
+    # The stored strain rate S uses unit-spacing derivatives: S_unit = S_physical * Δx
+    # Physical strain rate: S_physical = S_unit / Δx
     # Surface element: ds = Δx for 2D, Δx² for 3D
-    # Combined: (S_stored / Δx) * ds = S_stored for 2D, S_stored * Δx for 3D
+    # Combined: (S_unit / Δx) * ds = S_unit for 2D, S_unit * Δx for 3D
     # For isotropic grid: scale = Δx^(D-2) = 1 for 2D, Δx for 3D
     scale = prod(Δx)^((D-2)/D)  # 1 for 2D, Δx for 3D (isotropic)
     # F = +∮ 2μS·n̂ ds (viscous traction on body from fluid)
@@ -247,7 +246,8 @@ Integrates: M = -∮ (r - x₀) × (p n̂) ds
 The negative sign matches the pressure force convention.
 Returns moment in N·m/m (2D) or N·m (3D).
 
-Note: Uses same scaling as pressure_force to account for unit-spacing Poisson solver.
+The pressure field has physical units (Pa) from the projection step.
+Uses same surface element scaling as pressure_force.
 """
 pressure_moment(x₀,sim) = pressure_moment(x₀,sim.flow,sim.body; ϵ=_sim_kernel_width(sim))
 pressure_moment(x₀,flow,body; ϵ=1) = pressure_moment(x₀,flow.p,flow.Δx,flow.f,body,time(flow); ϵ)
@@ -255,7 +255,9 @@ function pressure_moment(x₀,p,Δx,df,body,t=0; ϵ=1)
     D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
-    # Same scaling as pressure_force: prod(Δx) = Δx² for 2D, Δx³ for 3D
+    # Surface element: ds = Δx for 2D, Δx² for 3D
+    # For moment, we also multiply by lever arm which has units of Δx
+    # Combined: ds * arm = Δx² for 2D, Δx³ for 3D
     scale = prod(Δx)
     if D == 2
         @loop (x = loc(0,I,Tp);
