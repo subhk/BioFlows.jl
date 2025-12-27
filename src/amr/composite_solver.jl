@@ -158,10 +158,14 @@ function project!(flow::Flow{D,T}, cp::CompositePoisson{T},
                   refined_grid, w::Real=1) where {D,T}
     dt = T(w * flow.Δt[end])
     ρ = flow.ρ
-    inv_ρ = inv(ρ)
+    Δx = flow.Δx
+    # Physical grid spacing (use minimum for anisotropic grids)
+    h = T(minimum(Δx))
 
-    # 1. Set divergence on base grid
-    @inside flow.σ[I] = ρ * div(I, flow.u)
+    # 1. Set divergence on base grid with physical h scaling
+    # Physical Poisson: ∇²p = ρ * ∇·u
+    # With unit-spacing Laplacian: Δ²p = h² * ∇²p = h * ρ * div_unit
+    @inside flow.σ[I] = ρ * h * div(I, flow.u)
     cp.base.z .= flow.σ
 
     # 2. Scale pressure initial guess for warm start
