@@ -180,35 +180,35 @@ function project!(flow::Flow{D,T}, cp::CompositePoisson{T},
     # 3. Interpolate velocity to refined patches
     interpolate_velocity_to_patches!(cp.refined_velocity, flow.u)
 
-    # 4. Set divergence on refined patches
+    # 4. Set divergence on refined patches with physical h scaling
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         u_fine = vel_patch === nothing ? nothing : vel_patch.u
-        set_patch_divergence!(patch, flow.u, u_fine, anchor, ρ)
+        set_patch_divergence!(patch, flow.u, u_fine, anchor, ρ, h)
     end
     for (anchor, patch) in cp.patches_3d
         vel_patch = get_patch(cp.refined_velocity, anchor)
         u_fine = vel_patch === nothing ? nothing : vel_patch.u
-        set_patch_divergence_3d!(patch, flow.u, u_fine, anchor, ρ)
+        set_patch_divergence_3d!(patch, flow.u, u_fine, anchor, ρ, h)
     end
 
     # 5. Solve composite Poisson system
     solver!(cp)
 
-    # 6. Correct base grid velocity
-    correct_velocity!(flow, cp.base.x, cp.base.L, inv_ρ)
+    # 6. Correct base grid velocity with physical Δx scaling
+    correct_velocity!(flow, cp.base.x, cp.base.L, ρ, Δx)
 
-    # 7. Correct refined velocity patches
+    # 7. Correct refined velocity patches with physical Δx scaling
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         if vel_patch !== nothing
-            correct_refined_velocity!(vel_patch, patch, inv_ρ)
+            correct_refined_velocity!(vel_patch, patch, ρ, Δx)
         end
     end
     for (anchor, patch) in cp.patches_3d
         vel_patch = get_patch(cp.refined_velocity, anchor)
         if vel_patch !== nothing
-            correct_refined_velocity_3d!(vel_patch, patch, inv_ρ)
+            correct_refined_velocity_3d!(vel_patch, patch, ρ, Δx)
         end
     end
 
@@ -230,116 +230,116 @@ function project!(flow::Flow{D,T}, cp::CompositePoisson{T},
 end
 
 """
-    set_patch_divergence!(patch, u_coarse, u_fine, anchor, ρ)
+    set_patch_divergence!(patch, u_coarse, u_fine, anchor, ρ, h_coarse)
 
-Set divergence source term on patch.
+Set divergence source term on patch with physical h scaling.
 Uses fine velocity when available, otherwise interpolates from coarse.
+RHS = ρ * h_fine * div where h_fine = h_coarse / ratio.
 """
 function set_patch_divergence!(patch::PatchPoisson{T},
                                u_coarse::AbstractArray{T},
                                u_fine::Union{Nothing, AbstractArray{T}},
                                anchor::NTuple{2,Int},
-                               ρ::T) where T
-    compute_fine_divergence!(patch, u_coarse, u_fine, anchor)
+                               ρ::T,
+                               h_coarse::T) where T
+    ratio = refinement_ratio(patch)
+    h_fine = h_coarse / T(ratio)
+    compute_fine_divergence!(patch, u_coarse, u_fine, anchor, h_coarse)
     for I in inside(patch)
-        patch.z[I] *= ρ
+        patch.z[I] *= ρ * h_fine
     end
 end
 
 """
-    set_patch_divergence_3d!(patch, u_coarse, u_fine, anchor, ρ)
+    set_patch_divergence_3d!(patch, u_coarse, u_fine, anchor, ρ, h_coarse)
 
-Set divergence source term on 3D patch.
+Set divergence source term on 3D patch with physical h scaling.
 Uses fine velocity when available, otherwise interpolates from coarse.
+RHS = ρ * h_fine * div where h_fine = h_coarse / ratio.
 """
 function set_patch_divergence_3d!(patch::PatchPoisson3D{T},
                                    u_coarse::AbstractArray{T},
                                    u_fine::Union{Nothing, AbstractArray{T}},
                                    anchor::NTuple{3,Int},
-                                   ρ::T) where T
-    compute_fine_divergence_3d!(patch, u_coarse, u_fine, anchor)
+                                   ρ::T,
+                                   h_coarse::T) where T
+    ratio = refinement_ratio(patch)
+    h_fine = h_coarse / T(ratio)
+    compute_fine_divergence_3d!(patch, u_coarse, u_fine, anchor, h_coarse)
     for I in inside(patch)
-        patch.z[I] *= ρ
+        patch.z[I] *= ρ * h_fine
     end
 end
 
 """
-    correct_velocity!(flow, p, L, scale)
+    correct_velocity!(flow, p, L, ρ, Δx)
 
-Correct velocity using pressure gradient: u -= scale * L * ∇p
-Uses the same formula as standard project!.
+Correct velocity using pressure gradient with physical Δx scaling.
+Velocity correction: u -= L * ∂p / (ρ * Δx[d]) for each direction d.
 """
 function correct_velocity!(flow::Flow{D,T}, p::AbstractArray{T},
-                           L::AbstractArray{T}, scale::T) where {D,T}
-    # Use the same formula as standard project!: u -= L*∂(d,I,p)*scale
+                           L::AbstractArray{T}, ρ::T, Δx::NTuple{D,T}) where {D,T}
+    # Physical velocity correction: u -= (1/ρ) * ∇p = (1/ρ) * (1/Δx) * ∂p
     for d in 1:D
-        @loop flow.u[I, d] -= scale * L[I, d] * ∂(d, I, p) over I ∈ inside(p)
+        inv_ρΔx = inv(ρ * Δx[d])
+        @loop flow.u[I, d] -= L[I, d] * ∂(d, I, p) * inv_ρΔx over I ∈ inside(p)
     end
 end
 
 """
-    correct_refined_velocity!(vel_patch, pois_patch, scale)
+    correct_refined_velocity!(vel_patch, pois_patch, ρ, Δx)
 
-Correct refined velocity using fine pressure gradient.
-
-The physical velocity correction is: u -= scale * L * (∂p/∂x)
-With Δx = 1/ratio: ∂p/∂x = Δp / Δx = Δp * ratio
-
-Since pois_patch.L is scaled by ratio² for the Laplacian, but velocity correction
-only needs gradient scaling, we use: L_scaled / ratio = L * ratio
-
-So the net formula is: u -= scale * (L_scaled / ratio) * Δp = scale * L * ratio * Δp
+Correct refined velocity using fine pressure gradient with physical Δx scaling.
+Velocity correction: u -= L * ∂p / (ρ * Δx_fine) where Δx_fine = Δx / ratio.
 """
 function correct_refined_velocity!(vel_patch::RefinedVelocityPatch{T,2},
                                    pois_patch::PatchPoisson{T},
-                                   scale::T) where T
+                                   ρ::T,
+                                   Δx::NTuple{2,T}) where T
     p, L = pois_patch.x, pois_patch.L
     ratio = refinement_ratio(pois_patch)
-    # L_scaled = L * ratio², but we want L * ratio for velocity correction
-    # So: L_scaled / ratio = L * ratio
-    Δx_scale = one(T) / ratio
 
-    # Use backward difference like standard project!
+    # Fine grid spacing: Δx_fine = Δx / ratio
+    inv_ρΔx_fine_x = inv(ρ * Δx[1] / T(ratio))
+    inv_ρΔx_fine_z = inv(ρ * Δx[2] / T(ratio))
+
+    # Physical velocity correction: u -= L * ∂p / (ρ * Δx_fine)
     for I in inside(pois_patch)
         fi, fj = I.I
-        # x-velocity correction: u -= scale * L_scaled/ratio * Δp = scale * L * ratio * Δp
-        vel_patch.u[fi, fj, 1] -= scale * Δx_scale * L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj])
+        # x-velocity correction
+        vel_patch.u[fi, fj, 1] -= L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj]) * inv_ρΔx_fine_x
         # z-velocity correction
-        vel_patch.u[fi, fj, 2] -= scale * Δx_scale * L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1])
+        vel_patch.u[fi, fj, 2] -= L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1]) * inv_ρΔx_fine_z
     end
 end
 
 """
-    correct_refined_velocity_3d!(vel_patch, pois_patch, scale)
+    correct_refined_velocity_3d!(vel_patch, pois_patch, ρ, Δx)
 
-Correct refined 3D velocity using fine pressure gradient.
-
-The physical velocity correction is: u -= scale * L * (∂p/∂x)
-With Δx = 1/ratio: ∂p/∂x = Δp / Δx = Δp * ratio
-
-Since pois_patch.L is scaled by ratio² for the Laplacian, but velocity correction
-only needs gradient scaling, we use: L_scaled / ratio = L * ratio
-
-So the net formula is: u -= scale * (L_scaled / ratio) * Δp = scale * L * ratio * Δp
+Correct refined 3D velocity using fine pressure gradient with physical Δx scaling.
+Velocity correction: u -= L * ∂p / (ρ * Δx_fine) where Δx_fine = Δx / ratio.
 """
 function correct_refined_velocity_3d!(vel_patch::RefinedVelocityPatch{T,3},
                                        pois_patch::PatchPoisson3D{T},
-                                       scale::T) where T
+                                       ρ::T,
+                                       Δx::NTuple{D,T}) where {D,T}
     p, L = pois_patch.x, pois_patch.L
     ratio = refinement_ratio(pois_patch)
-    # L_scaled = L * ratio², but we want L * ratio for velocity correction
-    # So: L_scaled / ratio = L * ratio
-    Δx_scale = one(T) / ratio
 
-    # Use backward difference like standard project!
+    # Fine grid spacing: Δx_fine = Δx / ratio
+    inv_ρΔx_fine_x = inv(ρ * Δx[1] / T(ratio))
+    inv_ρΔx_fine_y = inv(ρ * Δx[2] / T(ratio))
+    inv_ρΔx_fine_z = inv(ρ * Δx[3] / T(ratio))
+
+    # Physical velocity correction: u -= L * ∂p / (ρ * Δx_fine)
     for I in inside(pois_patch)
         fi, fj, fk = I.I
-        # x-velocity correction: u -= scale * L_scaled/ratio * Δp = scale * L * ratio * Δp
-        vel_patch.u[fi, fj, fk, 1] -= scale * Δx_scale * L[fi, fj, fk, 1] * (p[fi, fj, fk] - p[fi-1, fj, fk])
+        # x-velocity correction
+        vel_patch.u[fi, fj, fk, 1] -= L[fi, fj, fk, 1] * (p[fi, fj, fk] - p[fi-1, fj, fk]) * inv_ρΔx_fine_x
         # y-velocity correction
-        vel_patch.u[fi, fj, fk, 2] -= scale * Δx_scale * L[fi, fj, fk, 2] * (p[fi, fj, fk] - p[fi, fj-1, fk])
+        vel_patch.u[fi, fj, fk, 2] -= L[fi, fj, fk, 2] * (p[fi, fj, fk] - p[fi, fj-1, fk]) * inv_ρΔx_fine_y
         # z-velocity correction
-        vel_patch.u[fi, fj, fk, 3] -= scale * Δx_scale * L[fi, fj, fk, 3] * (p[fi, fj, fk] - p[fi, fj, fk-1])
+        vel_patch.u[fi, fj, fk, 3] -= L[fi, fj, fk, 3] * (p[fi, fj, fk] - p[fi, fj, fk-1]) * inv_ρΔx_fine_z
     end
 end
 

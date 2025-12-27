@@ -377,24 +377,22 @@ With Δx = 1/ratio on fine grid: ∇·u = (Δu + Δw) * ratio
 function compute_fine_divergence!(patch::PatchPoisson{T},
                                    u_coarse::AbstractArray{T},
                                    u_fine::Union{Nothing, AbstractArray{T}},
-                                   anchor::NTuple{2,Int}) where T
+                                   anchor::NTuple{2,Int},
+                                   h_coarse::T=one(T)) where T
     ratio = refinement_ratio(patch)
-    inv_Δx = T(ratio)  # 1/Δx = ratio (since Δx = 1/ratio)
     ai, aj = anchor
 
     if u_fine !== nothing
-        # Use fine velocity directly
+        # Use fine velocity directly - compute unit-spacing divergence
         for I in inside(patch)
             fi, fj = I.I
-            # Divergence: (du/dx + dw/dz) with proper grid spacing
-            # ∂u/∂x ≈ Δu / Δx = Δu * ratio
+            # Unit-spacing divergence on fine grid
             dudx = u_fine[fi, fj, 1] - u_fine[fi-1, fj, 1]
             dwdz = u_fine[fi, fj, 2] - u_fine[fi, fj-1, 2]
-            patch.z[I] = (dudx + dwdz) * inv_Δx
+            patch.z[I] = dudx + dwdz
         end
     else
-        # Interpolate divergence from coarse (less accurate but works without fine velocity)
-        # Note: coarse divergence already uses coarse Δx=1, so we still scale for fine grid
+        # Interpolate from coarse - compute unit-spacing divergence on coarse
         for I in inside(patch)
             fi, fj = I.I
             # Map to coarse location
@@ -405,10 +403,9 @@ function compute_fine_divergence!(patch::PatchPoisson{T},
             ic = clamp(ic, 2, size(u_coarse, 1) - 1)
             jc = clamp(jc, 2, size(u_coarse, 2) - 1)
 
-            # Coarse divergence at (ic, jc) - already physical (Δx_c = 1)
+            # Coarse divergence (unit-spacing)
             div_coarse = (u_coarse[ic, jc, 1] - u_coarse[ic-1, jc, 1]) +
                          (u_coarse[ic, jc, 2] - u_coarse[ic, jc-1, 2])
-            # No additional scaling needed when interpolating physical divergence
             patch.z[I] = div_coarse
         end
     end
@@ -966,23 +963,23 @@ With Δx = 1/ratio on fine grid: ∇·u = (Δu + Δv + Δw) * ratio
 function compute_fine_divergence_3d!(patch::PatchPoisson3D{T},
                                       u_coarse::AbstractArray{T},
                                       u_fine::Union{Nothing, AbstractArray{T}},
-                                      anchor::NTuple{3,Int}) where T
+                                      anchor::NTuple{3,Int},
+                                      h_coarse::T=one(T)) where T
     ratio = refinement_ratio(patch)
-    inv_Δx = T(ratio)  # 1/Δx = ratio (since Δx = 1/ratio)
     ai, aj, ak = anchor
 
     if u_fine !== nothing
-        # Use fine velocity directly
+        # Use fine velocity directly - compute unit-spacing divergence
         for I in inside(patch)
             fi, fj, fk = I.I
-            # Divergence: (du/dx + dv/dy + dw/dz) with proper grid spacing
+            # Unit-spacing divergence on fine grid
             dudx = u_fine[fi, fj, fk, 1] - u_fine[fi-1, fj, fk, 1]
             dvdy = u_fine[fi, fj, fk, 2] - u_fine[fi, fj-1, fk, 2]
             dwdz = u_fine[fi, fj, fk, 3] - u_fine[fi, fj, fk-1, 3]
-            patch.z[I] = (dudx + dvdy + dwdz) * inv_Δx
+            patch.z[I] = dudx + dvdy + dwdz
         end
     else
-        # Interpolate divergence from coarse
+        # Interpolate from coarse - compute unit-spacing divergence on coarse
         for I in inside(patch)
             fi, fj, fk = I.I
             # Map to coarse location
@@ -996,11 +993,10 @@ function compute_fine_divergence_3d!(patch::PatchPoisson3D{T},
             jc = clamp(jc, 2, size(u_coarse, 2) - 1)
             kc = clamp(kc, 2, size(u_coarse, 3) - 1)
 
-            # Coarse divergence at (ic, jc, kc) - already physical (Δx_c = 1)
+            # Coarse divergence (unit-spacing)
             div_coarse = (u_coarse[ic, jc, kc, 1] - u_coarse[ic-1, jc, kc, 1]) +
                          (u_coarse[ic, jc, kc, 2] - u_coarse[ic, jc-1, kc, 2]) +
                          (u_coarse[ic, jc, kc, 3] - u_coarse[ic, jc, kc-1, 3])
-            # No additional scaling needed when interpolating physical divergence
             patch.z[I] = div_coarse
         end
     end
