@@ -68,11 +68,27 @@ end
     CenterFieldWriter(filename::AbstractString="center_fields.jld2";
                       interval::Real=0.1,
                       overwrite::Bool=true,
-                      strip_ghosts::Bool=true)
+                      strip_ghosts::Bool=true,
+                      save_grid::Bool=true,
+                      grid_filename::AbstractString="")
 
 Helper that saves cell-centred velocity, vorticity, and pressure fields to a
 JLD2 file at fixed convective-time intervals. Call [`file_save!`](@ref) after
 each `sim_step!` to trigger writes.
+
+# Arguments
+- `filename`: Output JLD2 file path for field data
+- `interval`: Time interval between saves (default: 0.1)
+- `overwrite`: If true, overwrite existing file (default: true)
+- `strip_ghosts`: If true, exclude ghost cells from output (default: true)
+- `save_grid`: If true, save grid coordinates with first snapshot (default: true)
+- `grid_filename`: Custom grid file name (default: same as filename with "_grid" suffix)
+
+# Grid Output
+When `save_grid=true`, a separate grid file is created containing:
+- Cell-center coordinates (x, z for 2D; x, y, z for 3D)
+- Grid spacing (dx, dz for 2D; dx, dy, dz for 3D)
+- Grid dimensions (nx, nz for 2D; nx, ny, nz for 3D)
 """
 mutable struct CenterFieldWriter
     filename::String
@@ -80,10 +96,15 @@ mutable struct CenterFieldWriter
     next_time::Float64
     samples::Int
     strip_ghosts::Bool
+    save_grid::Bool
+    grid_filename::String
+    grid_saved::Bool
     function CenterFieldWriter(filename::AbstractString="center_fields.jld2";
                                interval::Real=0.1,
                                overwrite::Bool=true,
-                               strip_ghosts::Bool=true)
+                               strip_ghosts::Bool=true,
+                               save_grid::Bool=true,
+                               grid_filename::AbstractString="")
         interval > 0 || throw(ArgumentError("interval must be positive"))
         if overwrite && isfile(filename)
             rm(filename)
@@ -93,7 +114,14 @@ mutable struct CenterFieldWriter
         if !overwrite && isfile(filename)
             samples, next_time = _load_centerfield_state(filename, float(interval))
         end
-        return new(String(filename), float(interval), next_time, samples, strip_ghosts)
+        # Default grid filename: replace .jld2 with _grid.jld2
+        if isempty(grid_filename)
+            base = replace(filename, r"\.jld2$" => "")
+            grid_filename = base * "_grid.jld2"
+        end
+        grid_saved = !save_grid  # If not saving grid, mark as already saved
+        return new(String(filename), float(interval), next_time, samples,
+                   strip_ghosts, save_grid, String(grid_filename), grid_saved)
     end
 end
 
@@ -118,6 +146,12 @@ function file_save!(writer::CenterFieldWriter, sim::AbstractSimulation)
 end
 
 function _write_snapshot!(writer::CenterFieldWriter, sim::AbstractSimulation)
+    # Save grid file on first snapshot if requested
+    if writer.save_grid && !writer.grid_saved
+        save_grid(writer.grid_filename, sim; strip_ghosts=writer.strip_ghosts)
+        writer.grid_saved = true
+    end
+
     vel = _to_host(cell_center_velocity(sim; strip_ghosts=writer.strip_ghosts))
     vort = _to_host(cell_center_vorticity(sim; strip_ghosts=writer.strip_ghosts))
     pres = _to_host(cell_center_pressure(sim; strip_ghosts=writer.strip_ghosts))
