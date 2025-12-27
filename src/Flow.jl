@@ -416,19 +416,21 @@ Updates: u = u* - (Δt/ρ)·∇p
 
 The pressure field `p` has units of Pa (kg/(m·s²)).
 
-Note: The Poisson solver uses unit spacing internally (Δx=1 in computational coordinates).
-For isotropic grids (Δx = Δy = Δz), this works correctly because all operators use
-the same implicit scaling. For anisotropic grids (Δx ≠ Δy), see the warning in the
-Simulation constructor - the pressure solver accuracy may be reduced.
+Uses physical grid spacing Δx for proper divergence and gradient computation.
+For anisotropic grids (Δx ≠ Δy ≠ Δz), each direction is scaled appropriately.
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
     ρ = a.ρ
-    @inside b.z[I] = ρ*div(I,a.u)  # RHS scaled by ρ for actual pressure
+    Δx = a.Δx
+    # Divergence with physical grid spacing: ∇·u = Σ (∂u_i/∂x_i) / Δx[i]
+    @inside b.z[I] = ρ*div_aniso(I,a.u,Δx)
     b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
+    # Velocity correction: u -= (1/ρ) * L * ∇p, where ∇p = ∂p/∂x = Δp/Δx
     for i ∈ 1:n
-        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)/ρ over I ∈ inside(b.x)  # Divide gradient by ρ
+        inv_Δx = one(eltype(a.u)) / Δx[i]
+        @loop a.u[I,i] -= b.L[I,i]*∂(i,I,b.x)*inv_Δx/ρ over I ∈ inside(b.x)
     end
     b.x ./= dt  # Unscale to recover actual pressure
 end
