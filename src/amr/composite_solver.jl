@@ -237,7 +237,9 @@ function set_patch_divergence!(patch::PatchPoisson{T},
                                anchor::NTuple{2,Int},
                                ρ::T) where T
     compute_fine_divergence!(patch, u_coarse, u_fine, anchor)
-    @inside patch.z[I] *= ρ
+    for I in inside(patch)
+        patch.z[I] *= ρ
+    end
 end
 
 """

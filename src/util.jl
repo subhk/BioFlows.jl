@@ -101,19 +101,18 @@ L₂ norm of array `a` excluding ghosts.
 L₂(a) = sum(abs2,@inbounds(a[I]) for I ∈ inside(a))
 
 """
-    @inside <expr>
+    @inside <arr[I] = value>
 
-Simple macro to automate efficient loops over cells excluding ghosts. For example,
+Simple macro to automate efficient loops over cells excluding ghosts.
+The expression must be an assignment with an indexed array on the left side.
 
-```julia
-@inside p[I] = sum(loc(0,I))
-```
+For example
+
+    @inside p[I] = sum(loc(0,I))
 
 becomes
 
-```julia
-@loop p[I] = sum(loc(0,I)) over I ∈ inside(p)
-```
+    @loop p[I] = sum(loc(0,I)) over I ∈ inside(p)
 
 See [`@loop`](@ref).
 """
