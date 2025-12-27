@@ -51,10 +51,16 @@ end
     FlowToGridAdapter(flow::Flow, L::Number)
 
 Create an adapter for the given flow with length scale L.
+
+The grid spacing `dx` is computed as `L / nx` where `nx` is the number of
+interior cells in the x-direction. This gives the non-dimensional grid spacing
+based on the characteristic length L.
 """
 function FlowToGridAdapter(flow::Flow{N,T}, L::Number) where {N,T}
-    # Use flow spacing to preserve anisotropy.
-    dx = T(flow.Δx[1])
+    # Compute non-dimensional grid spacing: L / nx
+    # Interior grid size is (size(p) - 2) due to ghost cells
+    nx = size(flow.p, 1) - 2
+    dx = T(L) / T(nx)
     FlowToGridAdapter{N,T}(flow, T(L), dx)
 end
 
