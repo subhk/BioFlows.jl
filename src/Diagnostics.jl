@@ -28,25 +28,44 @@ _strip_ghosts(A, spatial_dims) = begin
 end
 
 """
-    vorticity_component(sim, component; strip_ghosts=true)
+    vorticity_component(sim, component; strip_ghosts=true, physical=false)
 
 Return the requested vorticity component evaluated at cell centres.
 For 2D simulations use `component=3` to obtain the out-of-plane vorticity.
+
+# Arguments
+- `physical=false`: If true, return physical vorticity in units of 1/s (scaled by Δx).
+                    If false, return unit-spacing vorticity (raw differences).
 """
-function vorticity_component(sim::AbstractSimulation, component::Integer; strip_ghosts::Bool=true)
+function vorticity_component(sim::AbstractSimulation, component::Integer;
+                             strip_ghosts::Bool=true, physical::Bool=false)
     ω_field = similar(sim.flow.p)
-    @inside ω_field[I] = curl(component, I, sim.flow.u)
+    if physical
+        Δx = sim.flow.Δx
+        @inside ω_field[I] = curl(component, I, sim.flow.u, Δx)
+    else
+        @inside ω_field[I] = curl(component, I, sim.flow.u)
+    end
     return strip_ghosts ? _strip_ghosts(ω_field, ndims(sim.flow.p)) : ω_field
 end
 
 """
-    vorticity_magnitude(sim; strip_ghosts=true)
+    vorticity_magnitude(sim; strip_ghosts=true, physical=false)
 
 Compute the vorticity magnitude field for the current simulation state.
+
+# Arguments
+- `physical=false`: If true, return physical vorticity magnitude in units of 1/s (scaled by Δx).
+                    If false, return unit-spacing vorticity magnitude (raw differences).
 """
-function vorticity_magnitude(sim::AbstractSimulation; strip_ghosts::Bool=true)
+function vorticity_magnitude(sim::AbstractSimulation; strip_ghosts::Bool=true, physical::Bool=false)
     ω_field = similar(sim.flow.p)
-    @inside ω_field[I] = ω_mag(I, sim.flow.u)
+    if physical
+        Δx = sim.flow.Δx
+        @inside ω_field[I] = ω_mag(I, sim.flow.u, Δx)
+    else
+        @inside ω_field[I] = ω_mag(I, sim.flow.u)
+    end
     return strip_ghosts ? _strip_ghosts(ω_field, ndims(sim.flow.p)) : ω_field
 end
 
@@ -78,22 +97,37 @@ function cell_center_pressure(sim::AbstractSimulation; strip_ghosts::Bool=true)
 end
 
 """
-    cell_center_vorticity(sim; strip_ghosts=true)
+    cell_center_vorticity(sim; strip_ghosts=true, physical=false)
 
 Return the vorticity at cell centres. For 2D simulations this returns a scalar
 field (the `ω₃` component); for 3D it returns the full vector with the last
 dimension indexing components.
+
+# Arguments
+- `physical=false`: If true, return physical vorticity in units of 1/s (scaled by Δx).
+                    If false, return unit-spacing vorticity (raw differences).
 """
-function cell_center_vorticity(sim::AbstractSimulation; strip_ghosts::Bool=true)
+function cell_center_vorticity(sim::AbstractSimulation; strip_ghosts::Bool=true, physical::Bool=false)
     spatial_dims = ndims(sim.flow.p)
+    Δx = sim.flow.Δx
     if spatial_dims == 2
         ω_field = similar(sim.flow.p)
-        @inside ω_field[I] = curl(3, I, sim.flow.u)
+        if physical
+            @inside ω_field[I] = curl(3, I, sim.flow.u, Δx)
+        else
+            @inside ω_field[I] = curl(3, I, sim.flow.u)
+        end
         return strip_ghosts ? _strip_ghosts(ω_field, spatial_dims) : ω_field
     else
         ω_field = similar(sim.flow.p, (size(sim.flow.p)..., 3))
-        for comp in 1:3
-            @loop ω_field[I, comp] = ω(I, sim.flow.u)[comp] over I ∈ inside(sim.flow.p)
+        if physical
+            for comp in 1:3
+                @loop ω_field[I, comp] = ω(I, sim.flow.u, Δx)[comp] over I ∈ inside(sim.flow.p)
+            end
+        else
+            for comp in 1:3
+                @loop ω_field[I, comp] = ω(I, sim.flow.u)[comp] over I ∈ inside(sim.flow.p)
+            end
         end
         return strip_ghosts ? _strip_ghosts(ω_field, spatial_dims) : ω_field
     end

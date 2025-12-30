@@ -83,31 +83,73 @@ end
 """
     curl(i,I,u)
 
-Compute component `i` of ``𝛁×𝐮`` at the __edge__ of cell `I`.
+Compute component `i` of ``𝛁×𝐮`` at the __edge__ of cell `I` using unit spacing.
 For example `curl(3,CartesianIndex(2,2,2),u)` will compute
 `ω₃(x=1.5,y=1.5,z=2)` as this edge produces the highest
 accuracy for this mix of cross derivatives on a staggered grid.
+
+Note: Returns unit-spacing vorticity (Δu). For physical vorticity (1/s),
+use `curl(i,I,u,Δx)` which divides by the grid spacing.
 """
 curl(i,I,u) = permute((j,k)->∂(j,CI(I,k),u), i)
+
+"""
+    curl(i,I,u,Δx)
+
+Compute component `i` of ``𝛁×𝐮`` at the __edge__ of cell `I` with physical Δx scaling.
+Returns vorticity in physical units (1/s).
+"""
+curl(i,I,u,Δx) = permute((j,k)->∂(j,CI(I,k),u)/Δx[k], i)
+
 """
     ω(I::CartesianIndex{3},u)
 
-Compute 3-vector ``𝛚=𝛁×𝐮`` at the center of cell `I`.
+Compute 3-vector ``𝛚=𝛁×𝐮`` at the center of cell `I` using unit spacing.
+For physical vorticity (1/s), use `ω(I,u,Δx)`.
 """
 ω(I::CartesianIndex{3},u) = fSV(i->permute((j,k)->∂(k,j,I,u),i),3)
+
+"""
+    ω(I::CartesianIndex{3},u,Δx)
+
+Compute 3-vector ``𝛚=𝛁×𝐮`` at the center of cell `I` with physical Δx scaling.
+Returns vorticity in physical units (1/s).
+"""
+ω(I::CartesianIndex{3},u,Δx) = fSV(i->permute((j,k)->∂(k,j,I,u)/Δx[j],i),3)
+
 """
     ω_mag(I::CartesianIndex{3},u)
 
-Compute ``∥𝛚∥`` at the center of cell `I`.
+Compute ``∥𝛚∥`` at the center of cell `I` using unit spacing.
+For physical vorticity magnitude (1/s), use `ω_mag(I,u,Δx)`.
 """
 ω_mag(I::CartesianIndex{3},u) = norm2(ω(I,u))
+
+"""
+    ω_mag(I::CartesianIndex{3},u,Δx)
+
+Compute ``∥𝛚∥`` at the center of cell `I` with physical Δx scaling.
+Returns vorticity magnitude in physical units (1/s).
+"""
+ω_mag(I::CartesianIndex{3},u,Δx) = norm2(ω(I,u,Δx))
+
 """
     ω_mag(I::CartesianIndex{2},u)
 
-Compute ``|ω₃|`` at the center of cell `I` for 2D flows.
+Compute ``|ω₃|`` at the center of cell `I` for 2D flows using unit spacing.
 In 2D, vorticity has only the out-of-plane component.
+For physical vorticity magnitude (1/s), use `ω_mag(I,u,Δx)`.
 """
 ω_mag(I::CartesianIndex{2},u) = abs(curl(3,I,u))
+
+"""
+    ω_mag(I::CartesianIndex{2},u,Δx)
+
+Compute ``|ω₃|`` at the center of cell `I` for 2D flows with physical Δx scaling.
+Returns vorticity magnitude in physical units (1/s).
+"""
+ω_mag(I::CartesianIndex{2},u,Δx) = abs(curl(3,I,u,Δx))
+
 """
     ω_θ(I::CartesianIndex{3},z,center,u)
 
