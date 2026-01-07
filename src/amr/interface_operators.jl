@@ -604,8 +604,9 @@ end
 Compute flux at a single 3D interface between coarse and fine grids.
 Includes bounds checking for domain boundaries.
 
-Since patch.L is scaled by ratio² for the Laplacian, we divide the fine flux
-by ratio² to get the physical flux that can be compared with coarse flux.
+Both coarse and fine grids use the "unit spacing" convention where L coefficients
+are NOT scaled by ratio². This means fluxes computed as L * Δp are directly
+comparable between coarse and fine grids.
 
 # Arguments
 - `patch`: PatchPoisson3D
@@ -983,10 +984,11 @@ end
 Compute divergence on 3D fine patch for source term.
 Uses fine velocity if available, otherwise interpolates from coarse.
 
-The divergence is scaled by 1/Δx = ratio to account for finer grid spacing:
-    ∇·u = ∂u/∂x + ∂v/∂y + ∂w/∂z = (Δu + Δv + Δw) / Δx
+Uses "unit spacing" convention consistent with the Poisson solver:
+    div = (u[i] - u[i-1]) + (v[j] - v[j-1]) + (w[k] - w[k-1])
 
-With Δx = 1/ratio on fine grid: ∇·u = (Δu + Δv + Δw) * ratio
+This is the discrete divergence without physical Δx scaling. The Poisson solver
+operates in this convention, so the divergence source term must match.
 
 # Arguments
 - `patch`: PatchPoisson3D (z array will be filled with divergence)
