@@ -392,10 +392,11 @@ end
 Compute divergence on fine patch for source term.
 Uses fine velocity if available, otherwise interpolates from coarse.
 
-The divergence is scaled by 1/Δx = ratio to account for finer grid spacing:
-    ∇·u = ∂u/∂x + ∂w/∂z = (Δu/Δx) + (Δw/Δz)
+Uses "unit spacing" convention consistent with the Poisson solver:
+    div = (u[i] - u[i-1]) + (w[j] - w[j-1])
 
-With Δx = 1/ratio on fine grid: ∇·u = (Δu + Δw) * ratio
+This is the discrete divergence without physical Δx scaling. The Poisson solver
+operates in this convention, so the divergence source term must match.
 
 # Arguments
 - `patch`: PatchPoisson (z array will be filled with divergence)
@@ -446,10 +447,11 @@ end
 Correct fine velocity using fine pressure gradient: u -= L*∇p/ρ
 
 The physical velocity correction is: u -= L * (∂p/∂x) / ρ
-With Δx = 1/ratio: ∂p/∂x = Δp / Δx = Δp * ratio
+With fine grid spacing Δx = 1/ratio (relative to coarse):
+    ∂p/∂x = Δp / Δx = Δp * ratio
 
-Since patch.L is scaled by ratio² for the Laplacian, but velocity correction
-only needs gradient scaling, we use: L_scaled * Δp / ratio = L * ratio * Δp
+Since patch.L uses the "unit spacing" convention (NOT scaled by ratio²),
+the velocity correction becomes: u -= L * ratio * Δp
 
 Note: ρ scaling is handled by the caller (typically in project! or similar)
 
@@ -462,13 +464,12 @@ function correct_fine_velocity!(u_fine::AbstractArray{T},
                                  patch::PatchPoisson{T},
                                  anchor::NTuple{2,Int}) where T
     ratio = refinement_ratio(patch)
-    # L_scaled = L * ratio², but we want L * ratio for velocity correction
-    # So: L_scaled / ratio = L * ratio
-    scale = one(T) / ratio
+    # L uses unit spacing (not scaled), gradient needs ratio factor for physical Δx
+    scale = T(ratio)
 
     for I in inside(patch)
         fi, fj = I.I
-        # x-velocity correction: u -= L_scaled/ratio * Δp = L * ratio * Δp
+        # x-velocity correction: u -= L * ratio * Δp
         u_fine[fi, fj, 1] -= scale * patch.L[fi, fj, 1] * (patch.x[fi, fj] - patch.x[fi-1, fj])
         # z-velocity correction
         u_fine[fi, fj, 2] -= scale * patch.L[fi, fj, 2] * (patch.x[fi, fj] - patch.x[fi, fj-1])
@@ -480,6 +481,10 @@ end
 
 Ensure velocity is consistent at coarse-fine interfaces.
 Fine fluxes should sum to coarse flux.
+
+!!! warning "Incomplete Implementation"
+    This function currently only handles the LEFT interface.
+    Right, bottom, and top interfaces are NOT yet implemented.
 
 # Arguments
 - `u_coarse`: Coarse velocity array
@@ -516,7 +521,7 @@ function enforce_interface_velocity_consistency!(u_coarse::AbstractArray{T},
             end
         end
 
-        # Similar for other interfaces (right, bottom, top)...
+        # TODO: Implement right, bottom, and top interfaces
     end
 end
 
@@ -1037,10 +1042,11 @@ end
 Correct 3D fine velocity using fine pressure gradient: u -= L*∇p/ρ
 
 The physical velocity correction is: u -= L * (∂p/∂x) / ρ
-With Δx = 1/ratio: ∂p/∂x = Δp / Δx = Δp * ratio
+With fine grid spacing Δx = 1/ratio (relative to coarse):
+    ∂p/∂x = Δp / Δx = Δp * ratio
 
-Since patch.L is scaled by ratio² for the Laplacian, but velocity correction
-only needs gradient scaling, we use: L_scaled * Δp / ratio = L * ratio * Δp
+Since patch.L uses the "unit spacing" convention (NOT scaled by ratio²),
+the velocity correction becomes: u -= L * ratio * Δp
 
 Note: ρ scaling is handled by the caller (typically in project! or similar)
 
@@ -1053,13 +1059,12 @@ function correct_fine_velocity_3d!(u_fine::AbstractArray{T},
                                     patch::PatchPoisson3D{T},
                                     anchor::NTuple{3,Int}) where T
     ratio = refinement_ratio(patch)
-    # L_scaled = L * ratio², but we want L * ratio for velocity correction
-    # So: L_scaled / ratio = L * ratio
-    scale = one(T) / ratio
+    # L uses unit spacing (not scaled), gradient needs ratio factor for physical Δx
+    scale = T(ratio)
 
     for I in inside(patch)
         fi, fj, fk = I.I
-        # x-velocity correction: u -= L_scaled/ratio * Δp = L * ratio * Δp
+        # x-velocity correction: u -= L * ratio * Δp
         u_fine[fi, fj, fk, 1] -= scale * patch.L[fi, fj, fk, 1] * (patch.x[fi, fj, fk] - patch.x[fi-1, fj, fk])
         # y-velocity correction
         u_fine[fi, fj, fk, 2] -= scale * patch.L[fi, fj, fk, 2] * (patch.x[fi, fj, fk] - patch.x[fi, fj-1, fk])
