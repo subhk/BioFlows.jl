@@ -45,18 +45,19 @@ function compute_body_refinement_indicator(flow::Flow{N,T}, body::AbstractBody;
     return indicator
 end
 
-# Helper for 2D velocity gradient
+# Helper for 2D velocity gradient at cell center
+# Uses stencils consistent with Metrics.jl ∂(i,j,I,u) function
 @inline function _velocity_gradient_2d(u, I, inv_dx, inv_dz, inv4_dx, inv4_dz)
-    # ∂u/∂x
-    dudx = (u[I, 1] - u[I-δ(1,I), 1]) * inv_dx
-    # ∂u/∂z (central average)
-    dudz = (u[I+δ(2,I), 1] + u[I+δ(2,I)-δ(1,I), 1] -
-            u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) * inv4_dz
-    # ∂w/∂x (central average)
-    dwdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)-δ(2,I), 2] -
-            u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) * inv4_dx
-    # ∂w/∂z
-    dwdz = (u[I, 2] - u[I-δ(2,I), 2]) * inv_dz
+    # ∂u/∂x at cell center (forward difference on staggered grid)
+    dudx = (u[I+δ(1,I), 1] - u[I, 1]) * inv_dx
+    # ∂u/∂z at cell center (4-point stencil)
+    dudz = (u[I+δ(2,I), 1] + u[I+δ(2,I)+δ(1,I), 1] -
+            u[I-δ(2,I), 1] - u[I-δ(2,I)+δ(1,I), 1]) * inv4_dz
+    # ∂w/∂x at cell center (4-point stencil)
+    dwdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)+δ(2,I), 2] -
+            u[I-δ(1,I), 2] - u[I-δ(1,I)+δ(2,I), 2]) * inv4_dx
+    # ∂w/∂z at cell center (forward difference on staggered grid)
+    dwdz = (u[I+δ(2,I), 2] - u[I, 2]) * inv_dz
 
     sqrt(dudx^2 + dudz^2 + dwdx^2 + dwdz^2)
 end
@@ -117,14 +118,16 @@ function compute_velocity_gradient_indicator(flow::Flow{N,T};
     return indicator
 end
 
-# Helper for 2D vorticity
+# Helper for 2D vorticity at cell center
+# ω = ∂w/∂x - ∂u/∂z (out-of-plane component)
+# Uses stencils consistent with Metrics.jl ∂(i,j,I,u) function
 @inline function _vorticity_2d(u, I, inv4_dx, inv4_dz)
-    # ∂w/∂x at cell center
-    dwdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)-δ(2,I), 2] -
-            u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) * inv4_dx
-    # ∂u/∂z at cell center
-    dudz = (u[I+δ(2,I), 1] + u[I+δ(2,I)-δ(1,I), 1] -
-            u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) * inv4_dz
+    # ∂w/∂x at cell center (4-point stencil)
+    dwdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)+δ(2,I), 2] -
+            u[I-δ(1,I), 2] - u[I-δ(1,I)+δ(2,I), 2]) * inv4_dx
+    # ∂u/∂z at cell center (4-point stencil)
+    dudz = (u[I+δ(2,I), 1] + u[I+δ(2,I)+δ(1,I), 1] -
+            u[I-δ(2,I), 1] - u[I-δ(2,I)+δ(1,I), 1]) * inv4_dz
     abs(dwdx - dudz)
 end
 
