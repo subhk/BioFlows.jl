@@ -78,6 +78,7 @@ function flow_to_staggered_grid(adapter::FlowToGridAdapter{N,T}) where {N,T}
     if N == 2
         nx = dims[1] - 2
         nz = dims[2] - 2
+        
         dx = T(flow.Δx[1])
         dz = T(flow.Δx[2])
         return StaggeredGrid(nx, nz, dx, dz)
@@ -85,6 +86,7 @@ function flow_to_staggered_grid(adapter::FlowToGridAdapter{N,T}) where {N,T}
         nx = dims[1] - 2
         ny = dims[2] - 2
         nz = dims[3] - 2
+
         dx = T(flow.Δx[1])
         dy = T(flow.Δx[2])
         dz = T(flow.Δx[3])
