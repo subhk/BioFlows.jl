@@ -336,8 +336,9 @@ function interpolate_cell_2d!(state::SolutionState{T}, i::Int, j::Int,
     for fj in 1:nz_f, fi in 1:(nx_f+1)
         # Fine grid position relative to coarse cell (i,j)
         # Account for x-face staggering (faces at 0, dx, 2dx, ...)
-        xf = (T(fi) - T(1)) / ratio  # 0 to 1 across the cell
-        zf = (T(fj) - T(0.5)) / ratio  # 0.5/ratio to (nz_f-0.5)/ratio
+        xf = (T(fi) - T(1)) / ratio  # 0 to 1 across the cell (face positions)
+        # z-direction is cell-centered: subtract 0.5 to align with coarse cell centers
+        zf = (T(fj) - T(0.5)) / ratio - T(0.5)
 
         # Bilinear interpolation from coarse u-velocity
         # Coarse u at x-faces: indices 1:nx_c+1 in x, 1:nz_c in z
@@ -358,8 +359,9 @@ function interpolate_cell_2d!(state::SolutionState{T}, i::Int, j::Int,
 
     # Interpolate v-velocity (at z-faces, staggered in z)
     for fj in 1:(nz_f+1), fi in 1:nx_f
-        xf = (T(fi) - T(0.5)) / ratio
-        zf = (T(fj) - T(1)) / ratio  # z-face staggering
+        # x-direction is cell-centered: subtract 0.5 to align with coarse cell centers
+        xf = (T(fi) - T(0.5)) / ratio - T(0.5)
+        zf = (T(fj) - T(1)) / ratio  # z-face staggering (face positions)
 
         ic = clamp(i + floor(Int, xf), 1, nx_c)
         jc = clamp(j + floor(Int, zf), 1, nz_c)
@@ -376,9 +378,10 @@ function interpolate_cell_2d!(state::SolutionState{T}, i::Int, j::Int,
     end
 
     # Interpolate pressure (at cell centers)
+    # Both x and z are cell-centered: subtract 0.5 to align with coarse cell centers
     for fj in 1:nz_f, fi in 1:nx_f
-        xf = (T(fi) - T(0.5)) / ratio
-        zf = (T(fj) - T(0.5)) / ratio
+        xf = (T(fi) - T(0.5)) / ratio - T(0.5)
+        zf = (T(fj) - T(0.5)) / ratio - T(0.5)
 
         ic = clamp(i + floor(Int, xf), 1, nx_c)
         jc = clamp(j + floor(Int, zf), 1, nz_c)
@@ -452,10 +455,11 @@ function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
     end
 
     # Interpolate u-velocity (at x-faces)
+    # x-direction is face-centered, y and z are cell-centered (subtract 0.5)
     for fk in 1:nz_f, fj in 1:ny_f, fi in 1:(nx_f+1)
-        xf = (T(fi) - T(1)) / ratio
-        yf = (T(fj) - T(0.5)) / ratio
-        zf = (T(fk) - T(0.5)) / ratio
+        xf = (T(fi) - T(1)) / ratio  # face positions
+        yf = (T(fj) - T(0.5)) / ratio - T(0.5)  # cell-centered
+        zf = (T(fk) - T(0.5)) / ratio - T(0.5)  # cell-centered
 
         ic = clamp(i + floor(Int, xf), 1, size(state.u, 1) - 1)
         jc = clamp(j + floor(Int, yf), 1, ny_c)
@@ -469,10 +473,11 @@ function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
     end
 
     # Interpolate v-velocity (at y-faces)
+    # y-direction is face-centered, x and z are cell-centered (subtract 0.5)
     for fk in 1:nz_f, fj in 1:(ny_f+1), fi in 1:nx_f
-        xf = (T(fi) - T(0.5)) / ratio
-        yf = (T(fj) - T(1)) / ratio
-        zf = (T(fk) - T(0.5)) / ratio
+        xf = (T(fi) - T(0.5)) / ratio - T(0.5)  # cell-centered
+        yf = (T(fj) - T(1)) / ratio  # face positions
+        zf = (T(fk) - T(0.5)) / ratio - T(0.5)  # cell-centered
 
         ic = clamp(i + floor(Int, xf), 1, nx_c)
         jc = clamp(j + floor(Int, yf), 1, size(state.v, 2) - 1)
@@ -486,10 +491,11 @@ function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
     end
 
     # Interpolate w-velocity (at z-faces)
+    # z-direction is face-centered, x and y are cell-centered (subtract 0.5)
     for fk in 1:(nz_f+1), fj in 1:ny_f, fi in 1:nx_f
-        xf = (T(fi) - T(0.5)) / ratio
-        yf = (T(fj) - T(0.5)) / ratio
-        zf = (T(fk) - T(1)) / ratio
+        xf = (T(fi) - T(0.5)) / ratio - T(0.5)  # cell-centered
+        yf = (T(fj) - T(0.5)) / ratio - T(0.5)  # cell-centered
+        zf = (T(fk) - T(1)) / ratio  # face positions
 
         ic = clamp(i + floor(Int, xf), 1, nx_c)
         jc = clamp(j + floor(Int, yf), 1, ny_c)
@@ -503,10 +509,11 @@ function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
     end
 
     # Interpolate pressure (at cell centers)
+    # All directions are cell-centered (subtract 0.5)
     for fk in 1:nz_f, fj in 1:ny_f, fi in 1:nx_f
-        xf = (T(fi) - T(0.5)) / ratio
-        yf = (T(fj) - T(0.5)) / ratio
-        zf = (T(fk) - T(0.5)) / ratio
+        xf = (T(fi) - T(0.5)) / ratio - T(0.5)  # cell-centered
+        yf = (T(fj) - T(0.5)) / ratio - T(0.5)  # cell-centered
+        zf = (T(fk) - T(0.5)) / ratio - T(0.5)  # cell-centered
 
         ic = clamp(i + floor(Int, xf), 1, nx_c)
         jc = clamp(j + floor(Int, yf), 1, ny_c)
