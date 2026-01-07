@@ -393,14 +393,14 @@ function enforce_velocity_consistency!(u_coarse::AbstractArray{T},
                 fine_sum = zero(T)
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
-                    fi = patch.fine_dims[1] + 1
+                    fi = patch.fine_dims[1] + 2  # Right face of last interior cell
                     fine_sum += vel_patch.u[fi, fj, 1]
                 end
 
                 correction = (coarse_flux * ratio - fine_sum) / ratio
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
-                    fi = patch.fine_dims[1] + 1
+                    fi = patch.fine_dims[1] + 2  # Right face of last interior cell
                     vel_patch.u[fi, fj, 1] += correction
                 end
             end
@@ -437,14 +437,14 @@ function enforce_velocity_consistency!(u_coarse::AbstractArray{T},
                 fine_sum = zero(T)
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
-                    fj = patch.fine_dims[2] + 1
+                    fj = patch.fine_dims[2] + 2  # Top face of last interior cell
                     fine_sum += vel_patch.u[fi, fj, 2]
                 end
 
                 correction = (coarse_flux * ratio - fine_sum) / ratio
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
-                    fj = patch.fine_dims[2] + 1
+                    fj = patch.fine_dims[2] + 2  # Top face of last interior cell
                     vel_patch.u[fi, fj, 2] += correction
                 end
             end
@@ -506,14 +506,14 @@ function enforce_velocity_consistency_3d!(u_coarse::AbstractArray{T},
                 for dj in 1:ratio, dk in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    fine_sum += vel_patch.u[nx+1, fj, fk, 1]
+                    fine_sum += vel_patch.u[nx+2, fj, fk, 1]  # Right face of last interior cell
                 end
 
                 correction = (coarse_flux * ratio2 - fine_sum) / ratio2
                 for dj in 1:ratio, dk in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    vel_patch.u[nx+1, fj, fk, 1] += correction
+                    vel_patch.u[nx+2, fj, fk, 1] += correction  # Right face of last interior cell
                 end
             end
         end
@@ -554,14 +554,14 @@ function enforce_velocity_consistency_3d!(u_coarse::AbstractArray{T},
                 for di in 1:ratio, dk in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    fine_sum += vel_patch.u[fi, ny+1, fk, 2]
+                    fine_sum += vel_patch.u[fi, ny+2, fk, 2]  # Top face of last interior cell
                 end
 
                 correction = (coarse_flux * ratio2 - fine_sum) / ratio2
                 for di in 1:ratio, dk in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    vel_patch.u[fi, ny+1, fk, 2] += correction
+                    vel_patch.u[fi, ny+2, fk, 2] += correction  # Top face of last interior cell
                 end
             end
         end
@@ -602,14 +602,14 @@ function enforce_velocity_consistency_3d!(u_coarse::AbstractArray{T},
                 for di in 1:ratio, dj in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
-                    fine_sum += vel_patch.u[fi, fj, nz+1, 3]
+                    fine_sum += vel_patch.u[fi, fj, nz+2, 3]  # Front face of last interior cell
                 end
 
                 correction = (coarse_flux * ratio2 - fine_sum) / ratio2
                 for di in 1:ratio, dj in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
-                    vel_patch.u[fi, fj, nz+1, 3] += correction
+                    vel_patch.u[fi, fj, nz+2, 3] += correction  # Front face of last interior cell
                 end
             end
         end
