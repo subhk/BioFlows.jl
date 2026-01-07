@@ -76,8 +76,9 @@ end
 Compute flux at a single interface between coarse and fine grids.
 Includes bounds checking for domain boundaries.
 
-Since patch.L is scaled by ratio² for the Laplacian, we divide the fine flux
-by ratio² to get the physical flux that can be compared with coarse flux.
+Both coarse and fine grids use the "unit spacing" convention where L coefficients
+are NOT scaled by ratio². This means fluxes computed as L * Δp are directly
+comparable between coarse and fine grids.
 
 # Arguments
 - `patch`: PatchPoisson
@@ -269,13 +270,20 @@ function apply_flux_correction!(patch::PatchPoisson{T},
             # Left interface: flux points into patch (negative x direction from ghost)
             # Flux = L * (p[2] - p[1]), to increase flux, increase p[2]
             fine_i = 2
-            for idx in 1:n_fine
-                fj = idx + 1  # Skip ghost cell
-                if fj <= nz + 1  # Bounds check
-                    L_val = max(patch.L[fine_i, fj, 1], min_coeff)
-                    # Positive mismatch: coarse flux > sum fine flux
-                    # Need to increase fine flux = increase p_interior
-                    patch.x[fine_i, fj] += correction_per_face / L_val
+            idx = 0
+            for cj_idx in 1:patch.coarse_extent[2]
+                for dj in 1:ratio
+                    idx += 1
+                    if idx > n_fine
+                        break
+                    end
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    if fj <= nz + 1  # Bounds check
+                        L_val = max(patch.L[fine_i, fj, 1], min_coeff)
+                        # Positive mismatch: coarse flux > sum fine flux
+                        # Need to increase fine flux = increase p_interior
+                        patch.x[fine_i, fj] += correction_per_face / L_val
+                    end
                 end
             end
         elseif side == :right
@@ -283,33 +291,54 @@ function apply_flux_correction!(patch::PatchPoisson{T},
             # Flux = L * (p[nx+2] - p[nx+1]), but ghost is p[nx+2]
             # Fine interior flux = L * (p[nx+1] - p_ghost) with outward normal
             fine_i = nx + 1
-            for idx in 1:n_fine
-                fj = idx + 1
-                if fj <= nz + 1
-                    # For right face, flux is L[nx+2] * (p[nx+2] - p[nx+1])
-                    # But we control p[nx+1], so to increase flux, decrease p[nx+1]
-                    L_val = max(patch.L[fine_i+1, fj, 1], min_coeff)
-                    patch.x[fine_i, fj] -= correction_per_face / L_val
+            idx = 0
+            for cj_idx in 1:patch.coarse_extent[2]
+                for dj in 1:ratio
+                    idx += 1
+                    if idx > n_fine
+                        break
+                    end
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    if fj <= nz + 1
+                        # For right face, flux is L[nx+2] * (p[nx+2] - p[nx+1])
+                        # But we control p[nx+1], so to increase flux, decrease p[nx+1]
+                        L_val = max(patch.L[fine_i+1, fj, 1], min_coeff)
+                        patch.x[fine_i, fj] -= correction_per_face / L_val
+                    end
                 end
             end
         elseif side == :bottom
             # Bottom interface: flux points into patch (negative z direction from ghost)
             fine_j = 2
-            for idx in 1:n_fine
-                fi = idx + 1
-                if fi <= nx + 1
-                    L_val = max(patch.L[fi, fine_j, 2], min_coeff)
-                    patch.x[fi, fine_j] += correction_per_face / L_val
+            idx = 0
+            for ci_idx in 1:patch.coarse_extent[1]
+                for di in 1:ratio
+                    idx += 1
+                    if idx > n_fine
+                        break
+                    end
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    if fi <= nx + 1
+                        L_val = max(patch.L[fi, fine_j, 2], min_coeff)
+                        patch.x[fi, fine_j] += correction_per_face / L_val
+                    end
                 end
             end
         else  # :top
             # Top interface: flux points out of patch
             fine_j = nz + 1
-            for idx in 1:n_fine
-                fi = idx + 1
-                if fi <= nx + 1
-                    L_val = max(patch.L[fi, fine_j+1, 2], min_coeff)
-                    patch.x[fi, fine_j] -= correction_per_face / L_val
+            idx = 0
+            for ci_idx in 1:patch.coarse_extent[1]
+                for di in 1:ratio
+                    idx += 1
+                    if idx > n_fine
+                        break
+                    end
+                    fi = (ci_idx - 1) * ratio + di + 1
+                    if fi <= nx + 1
+                        L_val = max(patch.L[fi, fine_j+1, 2], min_coeff)
+                        patch.x[fi, fine_j] -= correction_per_face / L_val
+                    end
                 end
             end
         end
