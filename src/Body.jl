@@ -92,7 +92,7 @@ end
 @fastmath kern₀(d) = 0.5+0.5d+0.5sin(π*d)/π
 
 # First moment: integrated kernel weighted by distance
-@fastmath kern₁(d) = 0.25*(1-d^2)-0.5*(d*sin(π*d)+(1+cos(π*d))/π)/π
+@fastmath kern₁(d) = 0.25*(d^2-1)+0.5*(d*sin(π*d)+(1+cos(π*d))/π)/π
 
 # μ₀: volume fraction at distance d with kernel width ϵ
 # Returns 0 (inside solid), 1 (outside solid), smooth transition in between
