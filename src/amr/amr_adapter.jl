@@ -78,7 +78,7 @@ function flow_to_staggered_grid(adapter::FlowToGridAdapter{N,T}) where {N,T}
     if N == 2
         nx = dims[1] - 2
         nz = dims[2] - 2
-        
+
         dx = T(flow.Δx[1])
         dz = T(flow.Δx[2])
         return StaggeredGrid(nx, nz, dx, dz)
@@ -204,12 +204,15 @@ function update_flow_from_state!(flow::Flow{N,T}, state::SolutionState) where {N
         for k in 1:nz, j in 1:ny, i in 1:(nx+1)
             flow.u[i+1, j+1, k+1, 1] = state.u[i, j, k]
         end
+
         for k in 1:nz, j in 1:(ny+1), i in 1:nx
             flow.u[i+1, j+1, k+1, 2] = state.v[i, j, k]
         end
+
         for k in 1:(nz+1), j in 1:ny, i in 1:nx
             flow.u[i+1, j+1, k+1, 3] = state.w[i, j, k]
         end
+        
         for k in 1:nz, j in 1:ny, i in 1:nx
             flow.p[i+1, j+1, k+1] = state.p[i, j, k]
         end
