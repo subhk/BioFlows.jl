@@ -116,7 +116,7 @@ end
 """
     residual!(p::Poisson)
 
-Computes the resiual `r = z-Ax` and corrects it such that
+Computes the residual `r = z-Ax` and corrects it such that
 `r = 0` if `iD==0` which ensures local satisfiability
     and
 `sum(r) = 0` which ensures global satisfiability.
@@ -179,7 +179,7 @@ using LinearAlgebra: ⋅
 """
     pcg!(p::Poisson; it=6)
 
-Conjugate-Gradient smoother with Jacobi preditioning. Runs at most `it` iterations,
+Conjugate-Gradient smoother with Jacobi preconditioning. Runs at most `it` iterations,
 but will exit early if the Gram-Schmidt update parameter `|α| < 1%` or `|r D⁻¹ r| < 1e-8`.
 Note: This runs for general backends and is the default smoother.
 """
@@ -209,23 +209,24 @@ function pcg!(p::Poisson{T};it=6) where T
 end
 smooth!(p) = pcg!(p)  # Default smoother
 
-L₂(p::Poisson) = p.r ⋅ p.r # special method since outside(p.r)≡0
+# Squared L₂ norm of residual: ||r||₂² = r·r (not ||r||₂ = √(r·r))
+# Uses dot product directly since ghost cells are zero
+L₂(p::Poisson) = p.r ⋅ p.r
 L∞(p::Poisson) = maximum(abs,p.r)
 
 """
-    solver!(A::Poisson;log,tol,itmx)
+    solver!(p::Poisson; tol=1e-4, itmx=1000)
 
-Approximate iterative solver for the Poisson matrix equation `Ax=b`.
+Approximate iterative solver for the Poisson matrix equation `Ax=z`.
 
-  - `A`: Poisson matrix with working arrays.
-  - `A.x`: Solution vector. Can start with an initial guess.
-  - `A.z`: Right-Hand-Side vector. Will be overwritten!
-  - `A.n[end]`: stores the number of iterations performed.
-  - `log`: If `true`, this function returns a vector holding the `L₂`-norm of the residual at each iteration.
-  - `tol`: Convergence tolerance on the `L₂`-norm residual.
+  - `p`: Poisson struct with working arrays.
+  - `p.x`: Solution vector. Can start with an initial guess.
+  - `p.z`: Right-hand-side vector. Will be overwritten!
+  - `p.n[end]`: Stores the number of iterations performed.
+  - `tol`: Convergence tolerance on the squared L₂-norm of residual (||r||₂²).
   - `itmx`: Maximum number of iterations.
 """
-function solver!(p::Poisson;tol=1e-4,itmx=1e3)
+function solver!(p::Poisson;tol=1e-4,itmx=1000)
     residual!(p); r₂ = L₂(p)
     nᵖ=0; @log ", $nᵖ, $(L∞(p)), $r₂\n"
     while nᵖ<itmx
