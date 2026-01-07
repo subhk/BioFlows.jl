@@ -159,29 +159,30 @@ function compute_vorticity_indicator(flow::Flow{N,T};
             indicator[I] = _vorticity_2d(u, I, inv4_dx, inv4_dz)
         end
     else  # N == 3
+        # Uses stencils consistent with Metrics.jl ∂(i,j,I,u) function
         inv4_dx = inv(4 * Δx[1])
         inv4_dy = inv(4 * Δx[2])
         inv4_dz = inv(4 * Δx[3])
         for I in inside(flow.p)
-            # ωₓ = ∂w/∂y - ∂v/∂z
-            dwdy = (u[I+δ(2,I), 3] + u[I+δ(2,I)-δ(3,I), 3] -
-                    u[I-δ(2,I), 3] - u[I-δ(2,I)-δ(3,I), 3]) * inv4_dy
-            dvdz = (u[I+δ(3,I), 2] + u[I+δ(3,I)-δ(2,I), 2] -
-                    u[I-δ(3,I), 2] - u[I-δ(3,I)-δ(2,I), 2]) * inv4_dz
+            # ωₓ = ∂w/∂y - ∂v/∂z (4-point stencils at cell center)
+            dwdy = (u[I+δ(2,I), 3] + u[I+δ(2,I)+δ(3,I), 3] -
+                    u[I-δ(2,I), 3] - u[I-δ(2,I)+δ(3,I), 3]) * inv4_dy
+            dvdz = (u[I+δ(3,I), 2] + u[I+δ(3,I)+δ(2,I), 2] -
+                    u[I-δ(3,I), 2] - u[I-δ(3,I)+δ(2,I), 2]) * inv4_dz
             omega_x = dwdy - dvdz
 
-            # ωᵧ = ∂u/∂z - ∂w/∂x
-            dudz = (u[I+δ(3,I), 1] + u[I+δ(3,I)-δ(1,I), 1] -
-                    u[I-δ(3,I), 1] - u[I-δ(3,I)-δ(1,I), 1]) * inv4_dz
-            dwdx = (u[I+δ(1,I), 3] + u[I+δ(1,I)-δ(3,I), 3] -
-                    u[I-δ(1,I), 3] - u[I-δ(1,I)-δ(3,I), 3]) * inv4_dx
+            # ωᵧ = ∂u/∂z - ∂w/∂x (4-point stencils at cell center)
+            dudz = (u[I+δ(3,I), 1] + u[I+δ(3,I)+δ(1,I), 1] -
+                    u[I-δ(3,I), 1] - u[I-δ(3,I)+δ(1,I), 1]) * inv4_dz
+            dwdx = (u[I+δ(1,I), 3] + u[I+δ(1,I)+δ(3,I), 3] -
+                    u[I-δ(1,I), 3] - u[I-δ(1,I)+δ(3,I), 3]) * inv4_dx
             omega_y = dudz - dwdx
 
-            # ωᵤ = ∂v/∂x - ∂u/∂y
-            dvdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)-δ(2,I), 2] -
-                    u[I-δ(1,I), 2] - u[I-δ(1,I)-δ(2,I), 2]) * inv4_dx
-            dudy = (u[I+δ(2,I), 1] + u[I+δ(2,I)-δ(1,I), 1] -
-                    u[I-δ(2,I), 1] - u[I-δ(2,I)-δ(1,I), 1]) * inv4_dy
+            # ωᵤ = ∂v/∂x - ∂u/∂y (4-point stencils at cell center)
+            dvdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)+δ(2,I), 2] -
+                    u[I-δ(1,I), 2] - u[I-δ(1,I)+δ(2,I), 2]) * inv4_dx
+            dudy = (u[I+δ(2,I), 1] + u[I+δ(2,I)+δ(1,I), 1] -
+                    u[I-δ(2,I), 1] - u[I-δ(2,I)+δ(1,I), 1]) * inv4_dy
             omega_z = dvdx - dudy
 
             indicator[I] = sqrt(omega_x^2 + omega_y^2 + omega_z^2)
