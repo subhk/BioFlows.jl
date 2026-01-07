@@ -49,7 +49,7 @@ end
     for J ∈ up(I,i)
      s += @inbounds(b[J,i])
     end
-    scale = inv(T(2)^(N-2))  # 1/2 for 2D, 1/4 for 3D (averages face values)
+    scale = inv(T(2)^(N-2))  # 1 for 2D, 1/2 for 3D (averages face values)
     return s * scale
 end
 
@@ -83,7 +83,7 @@ prolongate!(a,b) = @inside a[I] = b[down(I)]
 @inline divisible(N) = mod(N,2)==0 && N>4
 @inline divisible(l::Poisson) = all(size(l.x) .|> divisible)
 """
-    MultiLevelPoisson{N,M}
+    MultiLevelPoisson{T,S,V,N}
 
 Composite type used to solve the pressure Poisson equation with a [geometric multigrid](https://en.wikipedia.org/wiki/Multigrid_method) method.
 The only variable is `levels`, a vector of nested `Poisson` systems.
