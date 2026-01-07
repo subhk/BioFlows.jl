@@ -49,7 +49,7 @@ end
     for J ∈ up(I,i)
      s += @inbounds(b[J,i])
     end
-    scale = inv(T(2)^(N-2))  # 1 for 2D faces, 1/2 for 3D faces
+    scale = inv(T(2)^(N-2))  # 1/2 for 2D, 1/4 for 3D (averages face values)
     return s * scale
 end
 
