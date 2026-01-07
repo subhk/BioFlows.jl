@@ -446,12 +446,12 @@ function FSISimulation(dims::Tuple{Int,Int}, domain::Tuple{Real,Real};
     # Create AutoBody from FSI body
     auto_body = create_fsi_body(fsi_body)
 
-    # Create flow
-    flow = Flow(dims, domain;
+    # Create flow (body is passed to measure!, not Flow constructor)
+    # Note: Flow takes N as positional and L as keyword argument
+    flow = Flow(dims; L=domain,
                 inletBC=inletBC,
                 ν=ν,
                 ρ=ρ,
-                body=auto_body,
                 kwargs...)
 
     # Create Poisson solver
