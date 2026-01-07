@@ -305,7 +305,7 @@ function update_patches!(cp::CompositePoisson{T}, rg::RefinedGrid, μ₀::Abstra
 end
 
 """
-    should_regrid(rg::RefinedGrid, indicators::Dict, threshold::Real)
+    should_regrid(rg::RefinedGrid, indicators::Dict, threshold::Real; max_level::Int=3)
 
 Check if regridding is needed based on refinement indicators.
 
@@ -313,19 +313,24 @@ Check if regridding is needed based on refinement indicators.
 - `rg`: Current RefinedGrid
 - `indicators`: Cell -> indicator value mapping
 - `threshold`: Refinement threshold
+- `max_level`: Maximum refinement level (default: 3)
 
 # Returns
 - `true` if regridding should be performed
 """
-function should_regrid(rg::RefinedGrid, indicators::Dict, threshold::Real)
-    # Check for cells that should be refined but aren't
+function should_regrid(rg::RefinedGrid, indicators::Dict, threshold::Real; max_level::Int=3)
+    # Check for cells that need refinement (new or increased)
     for (cell, value) in indicators
         current_level = is_2d(rg.base_grid) ?
             get(rg.refined_cells_2d, cell, 0) :
             get(rg.refined_cells_3d, cell, 0)
 
-        if value > threshold && current_level == 0
-            return true
+        if value > threshold
+            # Compute expected level based on indicator strength
+            expected_level = min(ceil(Int, log2(value / threshold + 1)), max_level)
+            if expected_level > current_level
+                return true
+            end
         end
     end
 
