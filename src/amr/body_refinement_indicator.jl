@@ -89,6 +89,7 @@ function compute_velocity_gradient_indicator(flow::Flow{N,T};
             indicator[I] = _velocity_gradient_2d(u, I, inv_dx, inv_dz, inv4_dx, inv4_dz)
         end
     else  # N == 3
+        # Uses stencils consistent with Metrics.jl ∂(i,j,I,u) function
         invΔx = ntuple(d -> inv(Δx[d]), N)
         inv4Δx = ntuple(d -> inv(4 * Δx[d]), N)
         for I in inside(flow.p)
@@ -96,10 +97,12 @@ function compute_velocity_gradient_indicator(flow::Flow{N,T};
             for i in 1:N
                 for j in 1:N
                     if i == j
-                        du = (u[I, i] - u[I-δ(j,I), i]) * invΔx[j]
+                        # Diagonal: forward difference at cell center
+                        du = (u[I+δ(j,I), i] - u[I, i]) * invΔx[j]
                     else
-                        du = (u[I+δ(j,I), i] + u[I+δ(j,I)-δ(i,I), i] -
-                              u[I-δ(j,I), i] - u[I-δ(j,I)-δ(i,I), i]) * inv4Δx[j]
+                        # Cross: 4-point stencil at cell center
+                        du = (u[I+δ(j,I), i] + u[I+δ(j,I)+δ(i,I), i] -
+                              u[I-δ(j,I), i] - u[I-δ(j,I)+δ(i,I), i]) * inv4Δx[j]
                     end
                     grad_sq += du^2
                 end
