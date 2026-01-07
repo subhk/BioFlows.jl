@@ -137,9 +137,12 @@ function file_save!(writer::CenterFieldWriter, sim::AbstractSimulation)
     if t + eps(writer.interval) < writer.next_time
         return writer
     end
+    # Write one snapshot at the current time
+    _write_snapshot!(writer, sim)
+    writer.samples += 1
+    # Skip to next interval after current time (handles case where file_save! wasn't
+    # called for multiple intervals - we don't want to write duplicate data)
     while t + eps(writer.interval) >= writer.next_time
-        _write_snapshot!(writer, sim)
-        writer.samples += 1
         writer.next_time += writer.interval
     end
     return writer
@@ -332,9 +335,12 @@ function file_save!(writer::ForceWriter, sim::AbstractSimulation)
     if t + eps(writer.interval) < writer.next_time
         return writer
     end
+    # Write one force sample at the current time
+    _write_forces!(writer, sim)
+    writer.samples += 1
+    # Skip to next interval after current time (handles case where file_save! wasn't
+    # called for multiple intervals - we don't want to write duplicate data)
     while t + eps(writer.interval) >= writer.next_time
-        _write_forces!(writer, sim)
-        writer.samples += 1
         writer.next_time += writer.interval
     end
     return writer

@@ -16,7 +16,7 @@
 # =============================================================================
 
 """
-    Poisson{N,M}
+    Poisson{T,S,V,N}
 
 Composite type for conservative variable coefficient Poisson equations:
 
@@ -28,7 +28,7 @@ The resulting linear system is
 
 where A is symmetric, block-tridiagonal and extremely sparse. Moreover,
 `D[I]=-∑ᵢ(L[I,i]+L'[I,i])`. This means matrix storage, multiplication,
-ect can be easily implemented and optimized without external libraries.
+etc. can be easily implemented and optimized without external libraries.
 
 # Matrix Structure
 - L: Lower diagonal coefficients (off-diagonal coupling)
