@@ -27,6 +27,9 @@ _strip_ghosts(A, spatial_dims) = begin
     copy(view(A, ranges...))
 end
 
+@inline _vorticity2d(I, u) = ∂(2,1,I,u) - ∂(1,2,I,u)
+@inline _vorticity2d(I, u, Δx) = ∂(2,1,I,u)/Δx[1] - ∂(1,2,I,u)/Δx[2]
+
 """
     vorticity_component(sim, component; strip_ghosts=true, physical=false)
 
@@ -39,14 +42,25 @@ For 2D simulations use `component=3` to obtain the out-of-plane vorticity.
 """
 function vorticity_component(sim::AbstractSimulation, component::Integer;
                              strip_ghosts::Bool=true, physical::Bool=false)
+    spatial_dims = ndims(sim.flow.p)
+    spatial_dims == 2 && component != 3 &&
+        throw(ArgumentError("2D vorticity has only component=3 (out-of-plane)."))
     ω_field = similar(sim.flow.p)
-    if physical
+    fill!(ω_field, zero(eltype(ω_field)))
+    if spatial_dims == 2
+        if physical
+            Δx = sim.flow.Δx
+            @inside ω_field[I] = _vorticity2d(I, sim.flow.u, Δx)
+        else
+            @inside ω_field[I] = _vorticity2d(I, sim.flow.u)
+        end
+    elseif physical
         Δx = sim.flow.Δx
-        @inside ω_field[I] = curl(component, I, sim.flow.u, Δx)
+        @inside ω_field[I] = ω(I, sim.flow.u, Δx)[component]
     else
-        @inside ω_field[I] = curl(component, I, sim.flow.u)
+        @inside ω_field[I] = ω(I, sim.flow.u)[component]
     end
-    return strip_ghosts ? _strip_ghosts(ω_field, ndims(sim.flow.p)) : ω_field
+    return strip_ghosts ? _strip_ghosts(ω_field, spatial_dims) : ω_field
 end
 
 """
@@ -59,14 +73,25 @@ Compute the vorticity magnitude field for the current simulation state.
                     If false, return unit-spacing vorticity magnitude (raw differences).
 """
 function vorticity_magnitude(sim::AbstractSimulation; strip_ghosts::Bool=true, physical::Bool=false)
+    spatial_dims = ndims(sim.flow.p)
     ω_field = similar(sim.flow.p)
-    if physical
-        Δx = sim.flow.Δx
-        @inside ω_field[I] = ω_mag(I, sim.flow.u, Δx)
+    fill!(ω_field, zero(eltype(ω_field)))
+    if spatial_dims == 2
+        if physical
+            Δx = sim.flow.Δx
+            @inside ω_field[I] = abs(_vorticity2d(I, sim.flow.u, Δx))
+        else
+            @inside ω_field[I] = abs(_vorticity2d(I, sim.flow.u))
+        end
     else
-        @inside ω_field[I] = ω_mag(I, sim.flow.u)
+        if physical
+            Δx = sim.flow.Δx
+            @inside ω_field[I] = ω_mag(I, sim.flow.u, Δx)
+        else
+            @inside ω_field[I] = ω_mag(I, sim.flow.u)
+        end
     end
-    return strip_ghosts ? _strip_ghosts(ω_field, ndims(sim.flow.p)) : ω_field
+    return strip_ghosts ? _strip_ghosts(ω_field, spatial_dims) : ω_field
 end
 
 """
@@ -78,6 +103,7 @@ The last dimension indexes the velocity components.
 function cell_center_velocity(sim::AbstractSimulation; strip_ghosts::Bool=true)
     spatial_dims = ndims(sim.flow.p)
     vel = similar(sim.flow.u, (size(sim.flow.p)..., spatial_dims))
+    fill!(vel, zero(eltype(vel)))
     for comp in 1:spatial_dims
         @loop vel[I, comp] = 0.5 * (sim.flow.u[I, comp] + sim.flow.u[I + δ(comp, I), comp]) over I ∈ inside(sim.flow.p)
     end
@@ -112,14 +138,16 @@ function cell_center_vorticity(sim::AbstractSimulation; strip_ghosts::Bool=true,
     Δx = sim.flow.Δx
     if spatial_dims == 2
         ω_field = similar(sim.flow.p)
+        fill!(ω_field, zero(eltype(ω_field)))
         if physical
-            @inside ω_field[I] = curl(3, I, sim.flow.u, Δx)
+            @inside ω_field[I] = _vorticity2d(I, sim.flow.u, Δx)
         else
-            @inside ω_field[I] = curl(3, I, sim.flow.u)
+            @inside ω_field[I] = _vorticity2d(I, sim.flow.u)
         end
         return strip_ghosts ? _strip_ghosts(ω_field, spatial_dims) : ω_field
     else
         ω_field = similar(sim.flow.p, (size(sim.flow.p)..., 3))
+        fill!(ω_field, zero(eltype(ω_field)))
         if physical
             for comp in 1:3
                 @loop ω_field[I, comp] = ω(I, sim.flow.u, Δx)[comp] over I ∈ inside(sim.flow.p)
