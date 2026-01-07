@@ -212,7 +212,7 @@ function update_flow_from_state!(flow::Flow{N,T}, state::SolutionState) where {N
         for k in 1:(nz+1), j in 1:ny, i in 1:nx
             flow.u[i+1, j+1, k+1, 3] = state.w[i, j, k]
         end
-        
+
         for k in 1:nz, j in 1:ny, i in 1:nx
             flow.p[i+1, j+1, k+1] = state.p[i, j, k]
         end
@@ -382,6 +382,7 @@ function interpolate_cell_2d!(state::SolutionState{T}, i::Int, j::Int,
 
         ic = clamp(i + floor(Int, xf), 1, nx_c)
         jc = clamp(j + floor(Int, zf), 1, nz_c)
+
         wx = xf - floor(xf)
         wz = zf - floor(zf)
 
@@ -408,8 +409,11 @@ Uses staggered-aware interpolation:
 - pressure: no offset (at cell centers)
 """
 function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
-                               local_grid::StaggeredGrid{T}, refined_grid::RefinedGrid{T}) where {T}
+                            local_grid::StaggeredGrid{T}, 
+                            refined_grid::RefinedGrid{T}) where {T}
+    
     level = get(refined_grid.refined_cells_3d, (i, j, k), 0)
+
     if level == 0
         return
     end
@@ -456,6 +460,7 @@ function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
         ic = clamp(i + floor(Int, xf), 1, size(state.u, 1) - 1)
         jc = clamp(j + floor(Int, yf), 1, ny_c)
         kc = clamp(k + floor(Int, zf), 1, nz_c)
+
         wx = clamp(xf - floor(xf), zero(T), one(T))
         wy = clamp(yf - floor(yf), zero(T), one(T))
         wz = clamp(zf - floor(zf), zero(T), one(T))
@@ -472,6 +477,7 @@ function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
         ic = clamp(i + floor(Int, xf), 1, nx_c)
         jc = clamp(j + floor(Int, yf), 1, size(state.v, 2) - 1)
         kc = clamp(k + floor(Int, zf), 1, nz_c)
+
         wx = clamp(xf - floor(xf), zero(T), one(T))
         wy = clamp(yf - floor(yf), zero(T), one(T))
         wz = clamp(zf - floor(zf), zero(T), one(T))
@@ -488,6 +494,7 @@ function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
         ic = clamp(i + floor(Int, xf), 1, nx_c)
         jc = clamp(j + floor(Int, yf), 1, ny_c)
         kc = clamp(k + floor(Int, zf), 1, size(state.w, 3) - 1)
+
         wx = clamp(xf - floor(xf), zero(T), one(T))
         wy = clamp(yf - floor(yf), zero(T), one(T))
         wz = clamp(zf - floor(zf), zero(T), one(T))
@@ -504,6 +511,7 @@ function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
         ic = clamp(i + floor(Int, xf), 1, nx_c)
         jc = clamp(j + floor(Int, yf), 1, ny_c)
         kc = clamp(k + floor(Int, zf), 1, nz_c)
+        
         wx = clamp(xf - floor(xf), zero(T), one(T))
         wy = clamp(yf - floor(yf), zero(T), one(T))
         wz = clamp(zf - floor(zf), zero(T), one(T))
