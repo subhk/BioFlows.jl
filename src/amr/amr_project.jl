@@ -118,24 +118,23 @@ function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractAr
         # Fine grid spacing: h_fine = h_coarse / ratio
         h_fine = h_coarse / T(ratio)
         ai, aj = anchor
+        R = inside(patch)
+        scale = ρ * h_fine
 
-        for I in inside(patch)
-            if vel_patch !== nothing
-                # Use fine velocity directly when available
-                # RHS = ρ * h_fine * div_unit(u_fine)
-                patch.z[I] = ρ * h_fine * div(I, vel_patch.u)
-            else
+        if vel_patch !== nothing
+            # Use fine velocity directly when available (GPU-compatible via @loop)
+            # RHS = ρ * h_fine * div_unit(u_fine)
+            @loop patch.z[I] = scale * div(I, vel_patch.u) over I ∈ R
+        else
+            # Fallback: interpolate from coarse (scalar indexing - less common path)
+            for I in inside(patch)
                 fi, fj = I.I
-
-                # Map fine cell center to coarse location
                 xf = (fi - 1.5) / ratio
                 zf = (fj - 1.5) / ratio
                 ic = floor(Int, xf) + ai
                 jc = floor(Int, zf) + aj
                 ic = clamp(ic, 2, size(u_coarse, 1) - 1)
                 jc = clamp(jc, 2, size(u_coarse, 2) - 1)
-
-                # RHS = ρ * h_coarse * div_unit(u_coarse) (use coarse spacing when using coarse velocity)
                 patch.z[I] = ρ * h_coarse * div(CartesianIndex(ic, jc), u_coarse)
             end
         end
@@ -209,19 +208,15 @@ function correct_all_refined_velocity!(cp::CompositePoisson{T}, ρ::T, Δx::NTup
 
         p, L = patch.x, patch.L
         ratio = refinement_ratio(patch)
+        R = inside(patch)
 
         # Fine grid spacing: Δx_fine = Δx / ratio
         inv_ρΔx_fine_x = inv(ρ * Δx[1] / T(ratio))
         inv_ρΔx_fine_z = inv(ρ * Δx[2] / T(ratio))
 
-        # Physical velocity correction: u -= L * ∂p / (ρ * Δx_fine)
-        for I in inside(patch)
-            fi, fj = I.I
-            # x-velocity correction
-            vel_patch.u[fi, fj, 1] -= L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj]) * inv_ρΔx_fine_x
-            # z-velocity correction
-            vel_patch.u[fi, fj, 2] -= L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1]) * inv_ρΔx_fine_z
-        end
+        # Physical velocity correction: u -= L * ∂p / (ρ * Δx_fine) (GPU-compatible)
+        @loop (vel_patch.u[I,1] = vel_patch.u[I,1] - L[I,1] * (p[I] - p[I-δ(1,I)]) * inv_ρΔx_fine_x;
+               vel_patch.u[I,2] = vel_patch.u[I,2] - L[I,2] * (p[I] - p[I-δ(2,I)]) * inv_ρΔx_fine_z) over I ∈ R
     end
 end
 
@@ -301,18 +296,18 @@ end
 Check maximum divergence at base and all refined levels.
 Returns unit-spacing divergence (Δu) for diagnostics. To get physical
 divergence (∇·u), divide by the appropriate Δx for each level.
-Useful for verification.
+Useful for verification. GPU-compatible via maximum reduction.
 
 # Returns
 - Maximum unit-spacing divergence across all levels
 """
 function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
                               verbose::Bool=false) where {D,T}
-    # Base grid divergence with unit spacing
-    base_div = zero(T)
-    for I in inside(flow.p)
-        base_div = max(base_div, abs(div(I, flow.u)))
-    end
+    # Base grid divergence with unit spacing (GPU-compatible)
+    # Compute divergence into σ temporarily
+    R = inside(flow.p)
+    @loop flow.σ[I] = abs(div(I, flow.u)) over I ∈ R
+    base_div = maximum(@view flow.σ[R])
 
     if verbose
         println("Base grid max |∇·u|: ", base_div)
@@ -325,10 +320,10 @@ function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
 
-        patch_div = zero(T)
-        for I in inside(patch)
-            patch_div = max(patch_div, abs(div(I, vel_patch.u)))
-        end
+        # Compute divergence into patch.r temporarily (GPU-compatible)
+        Rp = inside(patch)
+        @loop patch.r[I] = abs(div(I, vel_patch.u)) over I ∈ Rp
+        patch_div = maximum(@view patch.r[Rp])
 
         if verbose
             println("Patch at ", anchor, " max |∇·u|: ", patch_div)

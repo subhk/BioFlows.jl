@@ -85,7 +85,8 @@ function PatchPoisson(anchor::NTuple{2,Int},
                       coarse_extent::NTuple{2,Int},
                       level::Int,
                       μ₀_coarse::AbstractArray{Tc},
-                      ::Type{T}=Float64) where {Tc,T}
+                      ::Type{T}=Float64;
+                      mem=Array) where {Tc,T}
     ratio = 2^level
     fine_dims = coarse_extent .* ratio
     # Fine grid with ghost cells
@@ -95,14 +96,14 @@ function PatchPoisson(anchor::NTuple{2,Int},
     # Grid spacing relative to coarse (coarse = 1)
     Δx = one(T) / ratio
 
-    # Create arrays
-    x = zeros(T, Ng)
-    z = zeros(T, Ng)
-    r = zeros(T, Ng)
-    ϵ = zeros(T, Ng)
-    D = zeros(T, Ng)
-    iD = zeros(T, Ng)
-    L = ones(T, Ng..., 2)
+    # Create arrays (use mem for GPU support)
+    x = zeros(T, Ng) |> mem
+    z = zeros(T, Ng) |> mem
+    r = zeros(T, Ng) |> mem
+    ϵ = zeros(T, Ng) |> mem
+    D = zeros(T, Ng) |> mem
+    iD = zeros(T, Ng) |> mem
+    L = ones(T, Ng..., 2) |> mem
 
     # Initialize L from coarse μ₀ (interpolated)
     # Uses unit spacing convention - NO ratio² scaling
@@ -197,18 +198,9 @@ Matrix-vector multiplication for patch: z = A*x
 function patch_mult!(patch::PatchPoisson{T}, x::AbstractArray{T}) where T
     L, D, z = patch.L, patch.D, patch.z
     fill!(z, zero(T))
-
-    for I in inside(patch)
-        i, j = I.I
-        s = x[i, j] * D[i, j]
-        # x-neighbors
-        s += x[i-1, j] * L[i, j, 1]
-        s += x[i+1, j] * L[i+1, j, 1]
-        # z-neighbors
-        s += x[i, j-1] * L[i, j, 2]
-        s += x[i, j+1] * L[i, j+1, 2]
-        z[I] = s
-    end
+    R = inside(patch)
+    @loop z[I] = x[I]*D[I] + x[I-δ(1,I)]*L[I,1] + x[I+δ(1,I)]*L[I+δ(1,I),1] +
+                 x[I-δ(2,I)]*L[I,2] + x[I+δ(2,I)]*L[I+δ(2,I),2] over I ∈ R
     return z
 end
 
@@ -221,32 +213,22 @@ Also enforces global solvability by subtracting mean residual.
 """
 function patch_residual!(patch::PatchPoisson{T}) where T
     L, D, x, r, z, iD = patch.L, patch.D, patch.x, patch.r, patch.z, patch.iD
+    R = inside(patch)
 
-    count = 0
-    sum_r = zero(T)
+    # Compute residual: r = z - A*x (GPU-compatible via @loop)
+    @loop r[I] = ifelse(iD[I] == zero(T), zero(T),
+        z[I] - (x[I]*D[I] + x[I-δ(1,I)]*L[I,1] + x[I+δ(1,I)]*L[I+δ(1,I),1] +
+                x[I-δ(2,I)]*L[I,2] + x[I+δ(2,I)]*L[I+δ(2,I),2])) over I ∈ R
 
-    for I in inside(patch)
-        i, j = I.I
-        if iD[i, j] == zero(T)
-            r[I] = zero(T)
-        else
-            # Compute A*x at this point
-            ax = x[i, j] * D[i, j]
-            ax += x[i-1, j] * L[i, j, 1] + x[i+1, j] * L[i+1, j, 1]
-            ax += x[i, j-1] * L[i, j, 2] + x[i, j+1] * L[i, j+1, 2]
-            r[I] = z[I] - ax
-            sum_r += r[I]
-            count += 1
-        end
-    end
-
-    # Enforce global solvability
+    # Enforce global solvability using GPU-compatible reductions
+    r_inside = @view r[R]
+    iD_inside = @view iD[R]
+    count = sum(x -> x != zero(T) ? 1 : 0, iD_inside)
     if count > 0
+        sum_r = sum(r_inside)
         mean_r = sum_r / count
         if abs(mean_r) > 2eps(T)
-            for I in inside(patch)
-                r[I] -= mean_r
-            end
+            @loop r[I] = r[I] - mean_r over I ∈ R
         end
     end
 end
@@ -258,16 +240,12 @@ Apply increment: x += ϵ, r -= A*ϵ
 """
 function patch_increment!(patch::PatchPoisson{T}) where T
     L, D, x, ϵ, r = patch.L, patch.D, patch.x, patch.ϵ, patch.r
-
-    for I in inside(patch)
-        i, j = I.I
-        # Compute A*ϵ
-        aϵ = ϵ[i, j] * D[i, j]
-        aϵ += ϵ[i-1, j] * L[i, j, 1] + ϵ[i+1, j] * L[i+1, j, 1]
-        aϵ += ϵ[i, j-1] * L[i, j, 2] + ϵ[i, j+1] * L[i, j+1, 2]
-        r[I] -= aϵ
-        x[I] += ϵ[I]
-    end
+    R = inside(patch)
+    # Compute A*ϵ and update r, x (GPU-compatible via @loop)
+    @loop (aϵ = ϵ[I]*D[I] + ϵ[I-δ(1,I)]*L[I,1] + ϵ[I+δ(1,I)]*L[I+δ(1,I),1] +
+                 ϵ[I-δ(2,I)]*L[I,2] + ϵ[I+δ(2,I)]*L[I+δ(2,I),2];
+           r[I] = r[I] - aϵ;
+           x[I] = x[I] + ϵ[I]) over I ∈ R
 end
 
 """
@@ -276,10 +254,9 @@ end
 Jacobi smoother for patch.
 """
 function patch_jacobi!(patch::PatchPoisson{T}; it::Int=1) where T
+    R = inside(patch)
     for _ in 1:it
-        for I in inside(patch)
-            patch.ϵ[I] = patch.r[I] * patch.iD[I]
-        end
+        @loop patch.ϵ[I] = patch.r[I] * patch.iD[I] over I ∈ R
         patch_increment!(patch)
     end
 end
@@ -287,98 +264,75 @@ end
 """
     patch_L₂(patch::PatchPoisson)
 
-Compute L₂ norm of residual.
+Compute L₂ norm of residual (GPU-compatible via sum).
 """
 function patch_L₂(patch::PatchPoisson{T}) where T
-    s = zero(T)
-    for I in inside(patch)
-        s += patch.r[I]^2
-    end
-    return s
+    R = inside(patch)
+    return sum(abs2, @view patch.r[R])
 end
 
 """
     patch_L∞(patch::PatchPoisson)
 
-Compute L∞ norm of residual.
+Compute L∞ norm of residual (GPU-compatible via maximum).
 """
 function patch_L∞(patch::PatchPoisson{T}) where T
-    m = zero(T)
-    for I in inside(patch)
-        m = max(m, abs(patch.r[I]))
-    end
-    return m
+    R = inside(patch)
+    return maximum(abs, @view patch.r[R])
 end
 
 """
     patch_pcg!(patch::PatchPoisson; it=6)
 
 Preconditioned Conjugate Gradient smoother for patch.
-Uses Jacobi preconditioning.
+Uses Jacobi preconditioning. GPU-compatible via @loop and broadcast reductions.
 """
 function patch_pcg!(patch::PatchPoisson{T}; it::Int=6) where T
     x, r, ϵ, z, iD = patch.x, patch.r, patch.ϵ, patch.z, patch.iD
     L, D = patch.L, patch.D
+    R = inside(patch)
 
     # z = M⁻¹r (Jacobi preconditioner), ϵ = z (search direction)
-    for I in inside(patch)
-        z[I] = r[I] * iD[I]
-        ϵ[I] = z[I]
-    end
+    @loop (z[I] = r[I] * iD[I]; ϵ[I] = z[I]) over I ∈ R
 
-    # rho = r·z
-    rho = zero(T)
-    for I in inside(patch)
-        rho += r[I] * z[I]
-    end
+    # rho = r·z (GPU-compatible dot product)
+    r_inside = @view r[R]
+    z_inside = @view z[R]
+    rho = sum(r_inside .* z_inside)
     abs(rho) < 10eps(T) && return
 
     for iter in 1:it
         # z = A*ϵ (reusing z array)
-        for I in inside(patch)
-            i, j = I.I
-            aϵ = ϵ[i, j] * D[i, j]
-            aϵ += ϵ[i-1, j] * L[i, j, 1] + ϵ[i+1, j] * L[i+1, j, 1]
-            aϵ += ϵ[i, j-1] * L[i, j, 2] + ϵ[i, j+1] * L[i, j+1, 2]
-            z[I] = aϵ
-        end
+        @loop z[I] = ϵ[I]*D[I] + ϵ[I-δ(1,I)]*L[I,1] + ϵ[I+δ(1,I)]*L[I+δ(1,I),1] +
+                     ϵ[I-δ(2,I)]*L[I,2] + ϵ[I+δ(2,I)]*L[I+δ(2,I),2] over I ∈ R
 
         # alpha = rho / (z·ϵ)
-        zϵ = zero(T)
-        for I in inside(patch)
-            zϵ += z[I] * ϵ[I]
-        end
+        ϵ_inside = @view ϵ[R]
+        z_inside = @view z[R]
+        zϵ = sum(z_inside .* ϵ_inside)
         abs(zϵ) < 10eps(T) && return
         alpha = rho / zϵ
         (!isfinite(alpha) || abs(alpha) < 1e-2 || abs(alpha) > 1e2) && return
 
         # x += alpha*ϵ, r -= alpha*z
-        for I in inside(patch)
-            x[I] += alpha * ϵ[I]
-            r[I] -= alpha * z[I]
-        end
+        @loop (x[I] = x[I] + alpha * ϵ[I]; r[I] = r[I] - alpha * z[I]) over I ∈ R
 
         iter == it && return
 
         # z = M⁻¹r
-        for I in inside(patch)
-            z[I] = r[I] * iD[I]
-        end
+        @loop z[I] = r[I] * iD[I] over I ∈ R
 
         # rho2 = r·z
-        rho2 = zero(T)
-        for I in inside(patch)
-            rho2 += r[I] * z[I]
-        end
+        r_inside = @view r[R]
+        z_inside = @view z[R]
+        rho2 = sum(r_inside .* z_inside)
         abs(rho2) < 10eps(T) && return
 
         # beta = rho2/rho
         beta = rho2 / rho
 
         # ϵ = z + beta*ϵ
-        for I in inside(patch)
-            ϵ[I] = z[I] + beta * ϵ[I]
-        end
+        @loop ϵ[I] = z[I] + beta * ϵ[I] over I ∈ R
 
         rho = rho2
     end
@@ -591,7 +545,8 @@ function PatchPoisson3D(anchor::NTuple{3,Int},
                         coarse_extent::NTuple{3,Int},
                         level::Int,
                         μ₀_coarse::AbstractArray{Tc},
-                        ::Type{T}=Float64) where {Tc,T}
+                        ::Type{T}=Float64;
+                        mem=Array) where {Tc,T}
     ratio = 2^level
     fine_dims = coarse_extent .* ratio
     # Fine grid with ghost cells
@@ -601,14 +556,14 @@ function PatchPoisson3D(anchor::NTuple{3,Int},
     # Grid spacing relative to coarse (coarse = 1)
     Δx = one(T) / ratio
 
-    # Create arrays
-    x = zeros(T, Ng)
-    z = zeros(T, Ng)
-    r = zeros(T, Ng)
-    ϵ = zeros(T, Ng)
-    D = zeros(T, Ng)
-    iD = zeros(T, Ng)
-    L = ones(T, Ng..., 3)
+    # Create arrays (use mem for GPU support)
+    x = zeros(T, Ng) |> mem
+    z = zeros(T, Ng) |> mem
+    r = zeros(T, Ng) |> mem
+    ϵ = zeros(T, Ng) |> mem
+    D = zeros(T, Ng) |> mem
+    iD = zeros(T, Ng) |> mem
+    L = ones(T, Ng..., 3) |> mem
 
     # Initialize L from coarse μ₀ (interpolated)
     # Uses unit spacing convention - NO ratio² scaling
@@ -717,63 +672,42 @@ inside(patch::PatchPoisson3D) = CartesianIndices((2:patch.fine_dims[1]+1,
 """
     patch_mult_3d!(patch::PatchPoisson3D, x)
 
-Matrix-vector multiplication for 3D patch: z = A*x
+Matrix-vector multiplication for 3D patch: z = A*x (GPU-compatible)
 """
 function patch_mult_3d!(patch::PatchPoisson3D{T}, x::AbstractArray{T}) where T
     L, D, z = patch.L, patch.D, patch.z
     fill!(z, zero(T))
-
-    for I in inside(patch)
-        i, j, k = I.I
-        s = x[i, j, k] * D[i, j, k]
-        # x-neighbors
-        s += x[i-1, j, k] * L[i, j, k, 1]
-        s += x[i+1, j, k] * L[i+1, j, k, 1]
-        # y-neighbors
-        s += x[i, j-1, k] * L[i, j, k, 2]
-        s += x[i, j+1, k] * L[i, j+1, k, 2]
-        # z-neighbors
-        s += x[i, j, k-1] * L[i, j, k, 3]
-        s += x[i, j, k+1] * L[i, j, k+1, 3]
-        z[I] = s
-    end
+    R = inside(patch)
+    @loop z[I] = x[I]*D[I] + x[I-δ(1,I)]*L[I,1] + x[I+δ(1,I)]*L[I+δ(1,I),1] +
+                 x[I-δ(2,I)]*L[I,2] + x[I+δ(2,I)]*L[I+δ(2,I),2] +
+                 x[I-δ(3,I)]*L[I,3] + x[I+δ(3,I)]*L[I+δ(3,I),3] over I ∈ R
     return z
 end
 
 """
     patch_residual_3d!(patch::PatchPoisson3D)
 
-Compute residual r = z - A*x for the 3D patch.
+Compute residual r = z - A*x for the 3D patch (GPU-compatible).
 """
 function patch_residual_3d!(patch::PatchPoisson3D{T}) where T
     L, D, x, r, z, iD = patch.L, patch.D, patch.x, patch.r, patch.z, patch.iD
+    R = inside(patch)
 
-    count = 0
-    sum_r = zero(T)
+    # Compute residual: r = z - A*x (GPU-compatible via @loop)
+    @loop r[I] = ifelse(iD[I] == zero(T), zero(T),
+        z[I] - (x[I]*D[I] + x[I-δ(1,I)]*L[I,1] + x[I+δ(1,I)]*L[I+δ(1,I),1] +
+                x[I-δ(2,I)]*L[I,2] + x[I+δ(2,I)]*L[I+δ(2,I),2] +
+                x[I-δ(3,I)]*L[I,3] + x[I+δ(3,I)]*L[I+δ(3,I),3])) over I ∈ R
 
-    for I in inside(patch)
-        i, j, k = I.I
-        if iD[i, j, k] == zero(T)
-            r[I] = zero(T)
-        else
-            # Compute A*x at this point
-            ax = x[i, j, k] * D[i, j, k]
-            ax += x[i-1, j, k] * L[i, j, k, 1] + x[i+1, j, k] * L[i+1, j, k, 1]
-            ax += x[i, j-1, k] * L[i, j, k, 2] + x[i, j+1, k] * L[i, j+1, k, 2]
-            ax += x[i, j, k-1] * L[i, j, k, 3] + x[i, j, k+1] * L[i, j, k+1, 3]
-            r[I] = z[I] - ax
-            sum_r += r[I]
-            count += 1
-        end
-    end
-
-    # Enforce global solvability
+    # Enforce global solvability using GPU-compatible reductions
+    r_inside = @view r[R]
+    iD_inside = @view iD[R]
+    count = sum(x -> x != zero(T) ? 1 : 0, iD_inside)
     if count > 0
+        sum_r = sum(r_inside)
         mean_r = sum_r / count
         if abs(mean_r) > 2eps(T)
-            for I in inside(patch)
-                r[I] -= mean_r
-            end
+            @loop r[I] = r[I] - mean_r over I ∈ R
         end
     end
 end
@@ -781,33 +715,28 @@ end
 """
     patch_increment_3d!(patch::PatchPoisson3D)
 
-Apply increment: x += ϵ, r -= A*ϵ for 3D patch.
+Apply increment: x += ϵ, r -= A*ϵ for 3D patch (GPU-compatible).
 """
 function patch_increment_3d!(patch::PatchPoisson3D{T}) where T
     L, D, x, ϵ, r = patch.L, patch.D, patch.x, patch.ϵ, patch.r
-
-    for I in inside(patch)
-        i, j, k = I.I
-        # Compute A*ϵ
-        aϵ = ϵ[i, j, k] * D[i, j, k]
-        aϵ += ϵ[i-1, j, k] * L[i, j, k, 1] + ϵ[i+1, j, k] * L[i+1, j, k, 1]
-        aϵ += ϵ[i, j-1, k] * L[i, j, k, 2] + ϵ[i, j+1, k] * L[i, j+1, k, 2]
-        aϵ += ϵ[i, j, k-1] * L[i, j, k, 3] + ϵ[i, j, k+1] * L[i, j, k+1, 3]
-        r[I] -= aϵ
-        x[I] += ϵ[I]
-    end
+    R = inside(patch)
+    # Compute A*ϵ and update r, x (GPU-compatible via @loop)
+    @loop (aϵ = ϵ[I]*D[I] + ϵ[I-δ(1,I)]*L[I,1] + ϵ[I+δ(1,I)]*L[I+δ(1,I),1] +
+                 ϵ[I-δ(2,I)]*L[I,2] + ϵ[I+δ(2,I)]*L[I+δ(2,I),2] +
+                 ϵ[I-δ(3,I)]*L[I,3] + ϵ[I+δ(3,I)]*L[I+δ(3,I),3];
+           r[I] = r[I] - aϵ;
+           x[I] = x[I] + ϵ[I]) over I ∈ R
 end
 
 """
     patch_jacobi_3d!(patch::PatchPoisson3D; it=1)
 
-Jacobi smoother for 3D patch.
+Jacobi smoother for 3D patch (GPU-compatible).
 """
 function patch_jacobi_3d!(patch::PatchPoisson3D{T}; it::Int=1) where T
+    R = inside(patch)
     for _ in 1:it
-        for I in inside(patch)
-            patch.ϵ[I] = patch.r[I] * patch.iD[I]
-        end
+        @loop patch.ϵ[I] = patch.r[I] * patch.iD[I] over I ∈ R
         patch_increment_3d!(patch)
     end
 end
@@ -815,86 +744,66 @@ end
 """
     patch_L₂_3d(patch::PatchPoisson3D)
 
-Compute L₂ norm of residual for 3D patch.
+Compute L₂ norm of residual for 3D patch (GPU-compatible).
 """
 function patch_L₂_3d(patch::PatchPoisson3D{T}) where T
-    s = zero(T)
-    for I in inside(patch)
-        s += patch.r[I]^2
-    end
-    return s
+    R = inside(patch)
+    return sum(abs2, @view patch.r[R])
 end
 
 """
     patch_pcg_3d!(patch::PatchPoisson3D; it=6)
 
 Preconditioned Conjugate Gradient smoother for 3D patch.
-Uses Jacobi preconditioning.
+Uses Jacobi preconditioning. GPU-compatible via @loop and broadcast reductions.
 """
 function patch_pcg_3d!(patch::PatchPoisson3D{T}; it::Int=6) where T
     x, r, ϵ, z, iD = patch.x, patch.r, patch.ϵ, patch.z, patch.iD
     L, D = patch.L, patch.D
+    R = inside(patch)
 
     # z = M⁻¹r (Jacobi preconditioner), ϵ = z (search direction)
-    for I in inside(patch)
-        z[I] = r[I] * iD[I]
-        ϵ[I] = z[I]
-    end
+    @loop (z[I] = r[I] * iD[I]; ϵ[I] = z[I]) over I ∈ R
 
-    # rho = r·z
-    rho = zero(T)
-    for I in inside(patch)
-        rho += r[I] * z[I]
-    end
+    # rho = r·z (GPU-compatible dot product)
+    r_inside = @view r[R]
+    z_inside = @view z[R]
+    rho = sum(r_inside .* z_inside)
     abs(rho) < 10eps(T) && return
 
     for iter in 1:it
         # z = A*ϵ (reusing z array)
-        for I in inside(patch)
-            i, j, k = I.I
-            aϵ = ϵ[i, j, k] * D[i, j, k]
-            aϵ += ϵ[i-1, j, k] * L[i, j, k, 1] + ϵ[i+1, j, k] * L[i+1, j, k, 1]
-            aϵ += ϵ[i, j-1, k] * L[i, j, k, 2] + ϵ[i, j+1, k] * L[i, j+1, k, 2]
-            aϵ += ϵ[i, j, k-1] * L[i, j, k, 3] + ϵ[i, j, k+1] * L[i, j, k+1, 3]
-            z[I] = aϵ
-        end
+        @loop z[I] = ϵ[I]*D[I] + ϵ[I-δ(1,I)]*L[I,1] + ϵ[I+δ(1,I)]*L[I+δ(1,I),1] +
+                     ϵ[I-δ(2,I)]*L[I,2] + ϵ[I+δ(2,I)]*L[I+δ(2,I),2] +
+                     ϵ[I-δ(3,I)]*L[I,3] + ϵ[I+δ(3,I)]*L[I+δ(3,I),3] over I ∈ R
 
         # alpha = rho / (z·ϵ)
-        zϵ = zero(T)
-        for I in inside(patch)
-            zϵ += z[I] * ϵ[I]
-        end
+        ϵ_inside = @view ϵ[R]
+        z_inside = @view z[R]
+        zϵ = sum(z_inside .* ϵ_inside)
         abs(zϵ) < 10eps(T) && return
         alpha = rho / zϵ
         (!isfinite(alpha) || abs(alpha) < 1e-2 || abs(alpha) > 1e2) && return
 
         # x += alpha*ϵ, r -= alpha*z
-        for I in inside(patch)
-            x[I] += alpha * ϵ[I]
-            r[I] -= alpha * z[I]
-        end
+        @loop (x[I] = x[I] + alpha * ϵ[I]; r[I] = r[I] - alpha * z[I]) over I ∈ R
 
         iter == it && return
 
         # z = M⁻¹r
-        for I in inside(patch)
-            z[I] = r[I] * iD[I]
-        end
+        @loop z[I] = r[I] * iD[I] over I ∈ R
 
         # rho2 = r·z
-        rho2 = zero(T)
-        for I in inside(patch)
-            rho2 += r[I] * z[I]
-        end
+        r_inside = @view r[R]
+        z_inside = @view z[R]
+        rho2 = sum(r_inside .* z_inside)
         abs(rho2) < 10eps(T) && return
 
         # beta = rho2/rho
         beta = rho2 / rho
 
         # ϵ = z + beta*ϵ
-        for I in inside(patch)
-            ϵ[I] = z[I] + beta * ϵ[I]
-        end
+        @loop ϵ[I] = z[I] + beta * ϵ[I] over I ∈ R
 
         rho = rho2
     end

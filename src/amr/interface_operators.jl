@@ -411,18 +411,15 @@ function compute_fine_divergence!(patch::PatchPoisson{T},
                                    h_coarse::T=one(T)) where T
     ratio = refinement_ratio(patch)
     ai, aj = anchor
+    R = inside(patch)
 
     if u_fine !== nothing
-        # Use fine velocity directly - compute unit-spacing divergence
-        for I in inside(patch)
-            fi, fj = I.I
-            # Unit-spacing divergence on fine grid
-            dudx = u_fine[fi, fj, 1] - u_fine[fi-1, fj, 1]
-            dwdz = u_fine[fi, fj, 2] - u_fine[fi, fj-1, 2]
-            patch.z[I] = dudx + dwdz
-        end
+        # Use fine velocity directly - compute unit-spacing divergence (GPU-compatible)
+        @loop patch.z[I] = (u_fine[I,1] - u_fine[I-δ(1,I),1]) +
+                           (u_fine[I,2] - u_fine[I-δ(2,I),2]) over I ∈ R
     else
-        # Interpolate from coarse - compute unit-spacing divergence on coarse
+        # Interpolate from coarse - requires scalar indexing (less GPU-efficient)
+        # This path is typically used less frequently
         for I in inside(patch)
             fi, fj = I.I
             # Map to coarse location
@@ -466,14 +463,11 @@ function correct_fine_velocity!(u_fine::AbstractArray{T},
     ratio = refinement_ratio(patch)
     # L uses unit spacing (not scaled), gradient needs ratio factor for physical Δx
     scale = T(ratio)
+    R = inside(patch)
 
-    for I in inside(patch)
-        fi, fj = I.I
-        # x-velocity correction: u -= L * ratio * Δp
-        u_fine[fi, fj, 1] -= scale * patch.L[fi, fj, 1] * (patch.x[fi, fj] - patch.x[fi-1, fj])
-        # z-velocity correction
-        u_fine[fi, fj, 2] -= scale * patch.L[fi, fj, 2] * (patch.x[fi, fj] - patch.x[fi, fj-1])
-    end
+    # GPU-compatible velocity correction via @loop
+    @loop (u_fine[I,1] = u_fine[I,1] - scale * patch.L[I,1] * (patch.x[I] - patch.x[I-δ(1,I)]);
+           u_fine[I,2] = u_fine[I,2] - scale * patch.L[I,2] * (patch.x[I] - patch.x[I-δ(2,I)])) over I ∈ R
 end
 
 """
@@ -1003,19 +997,15 @@ function compute_fine_divergence_3d!(patch::PatchPoisson3D{T},
                                       h_coarse::T=one(T)) where T
     ratio = refinement_ratio(patch)
     ai, aj, ak = anchor
+    R = inside(patch)
 
     if u_fine !== nothing
-        # Use fine velocity directly - compute unit-spacing divergence
-        for I in inside(patch)
-            fi, fj, fk = I.I
-            # Unit-spacing divergence on fine grid
-            dudx = u_fine[fi, fj, fk, 1] - u_fine[fi-1, fj, fk, 1]
-            dvdy = u_fine[fi, fj, fk, 2] - u_fine[fi, fj-1, fk, 2]
-            dwdz = u_fine[fi, fj, fk, 3] - u_fine[fi, fj, fk-1, 3]
-            patch.z[I] = dudx + dvdy + dwdz
-        end
+        # Use fine velocity directly - compute unit-spacing divergence (GPU-compatible)
+        @loop patch.z[I] = (u_fine[I,1] - u_fine[I-δ(1,I),1]) +
+                           (u_fine[I,2] - u_fine[I-δ(2,I),2]) +
+                           (u_fine[I,3] - u_fine[I-δ(3,I),3]) over I ∈ R
     else
-        # Interpolate from coarse - compute unit-spacing divergence on coarse
+        # Interpolate from coarse - requires scalar indexing (less GPU-efficient)
         for I in inside(patch)
             fi, fj, fk = I.I
             # Map to coarse location
@@ -1063,14 +1053,10 @@ function correct_fine_velocity_3d!(u_fine::AbstractArray{T},
     ratio = refinement_ratio(patch)
     # L uses unit spacing (not scaled), gradient needs ratio factor for physical Δx
     scale = T(ratio)
+    R = inside(patch)
 
-    for I in inside(patch)
-        fi, fj, fk = I.I
-        # x-velocity correction: u -= L * ratio * Δp
-        u_fine[fi, fj, fk, 1] -= scale * patch.L[fi, fj, fk, 1] * (patch.x[fi, fj, fk] - patch.x[fi-1, fj, fk])
-        # y-velocity correction
-        u_fine[fi, fj, fk, 2] -= scale * patch.L[fi, fj, fk, 2] * (patch.x[fi, fj, fk] - patch.x[fi, fj-1, fk])
-        # z-velocity correction
-        u_fine[fi, fj, fk, 3] -= scale * patch.L[fi, fj, fk, 3] * (patch.x[fi, fj, fk] - patch.x[fi, fj, fk-1])
-    end
+    # GPU-compatible velocity correction via @loop
+    @loop (u_fine[I,1] = u_fine[I,1] - scale * patch.L[I,1] * (patch.x[I] - patch.x[I-δ(1,I)]);
+           u_fine[I,2] = u_fine[I,2] - scale * patch.L[I,2] * (patch.x[I] - patch.x[I-δ(2,I)]);
+           u_fine[I,3] = u_fine[I,3] - scale * patch.L[I,3] * (patch.x[I] - patch.x[I-δ(3,I)])) over I ∈ R
 end

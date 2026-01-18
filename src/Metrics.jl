@@ -66,18 +66,102 @@ less accurately than inline terms because of the staggered grid.
         @inbounds(u[I+δ(j,I),i]+u[I+δ(j,I)+δ(i,I),i]
                  -u[I-δ(j,I),i]-u[I-δ(j,I)+δ(i,I),i])/4)
 
-using LinearAlgebra: eigvals, Hermitian
+# =============================================================================
+# GPU-COMPATIBLE 3×3 SYMMETRIC EIGENVALUE SOLVER
+# =============================================================================
+# Uses Cardano's formula with trigonometric solution for real roots.
+# For symmetric matrices, all eigenvalues are guaranteed real.
+#
+# Algorithm (Smith, 1961; Kopp, 2008):
+# 1. Shift matrix by trace/3 to get traceless matrix B
+# 2. Compute characteristic polynomial coefficients
+# 3. Use trigonometric solution: λ = 2√(p/3) cos(θ + 2πk/3) for k=0,1,2
+#
+# Returns eigenvalues sorted: λ₁ ≤ λ₂ ≤ λ₃
+# =============================================================================
+
+"""
+    eigvals_symmetric_3x3(A::SMatrix{3,3,T}) where T
+
+Compute eigenvalues of a 3×3 symmetric matrix using Cardano's formula.
+GPU-compatible (no LinearAlgebra calls). Returns sorted eigenvalues (λ₁ ≤ λ₂ ≤ λ₃).
+
+Uses the trigonometric method which is numerically stable for symmetric matrices
+since all roots are guaranteed real.
+"""
+@fastmath @inline function eigvals_symmetric_3x3(A::SMatrix{3,3,T}) where T
+    # Extract elements (symmetric, so only need upper triangle)
+    a₁₁, a₂₁, a₃₁ = A[1,1], A[2,1], A[3,1]
+    a₂₂, a₃₂ = A[2,2], A[3,2]
+    a₃₃ = A[3,3]
+
+    # For symmetric: a₁₂=a₂₁, a₁₃=a₃₁, a₂₃=a₃₂
+    a₁₂, a₁₃, a₂₃ = a₂₁, a₃₁, a₃₂
+
+    # Trace and shift: q = tr(A)/3
+    q = (a₁₁ + a₂₂ + a₃₃) / 3
+
+    # Shifted diagonal elements
+    b₁₁ = a₁₁ - q
+    b₂₂ = a₂₂ - q
+    b₃₃ = a₃₃ - q
+
+    # p² = tr(B²)/6 where B = A - qI
+    # tr(B²) = b₁₁² + b₂₂² + b₃₃² + 2(a₁₂² + a₁₃² + a₂₃²)
+    p² = (b₁₁^2 + b₂₂^2 + b₃₃^2 + 2*(a₁₂^2 + a₁₃^2 + a₂₃^2)) / 6
+
+    # Handle case where matrix is already diagonal (or multiple of identity)
+    if p² < eps(T)
+        # All eigenvalues equal q (sorted trivially)
+        return SA[q, q, q]
+    end
+
+    p = sqrt(p²)
+
+    # Determinant of B/p using Sarrus' rule for 3×3
+    # det(B/p) = det(B)/p³
+    inv_p = inv(p)
+    c₁₁, c₂₂, c₃₃ = b₁₁*inv_p, b₂₂*inv_p, b₃₃*inv_p
+    c₁₂, c₁₃, c₂₃ = a₁₂*inv_p, a₁₃*inv_p, a₂₃*inv_p
+
+    # det(C) where C = B/p (symmetric)
+    detC = c₁₁*(c₂₂*c₃₃ - c₂₃^2) - c₁₂*(c₁₂*c₃₃ - c₂₃*c₁₃) + c₁₃*(c₁₂*c₂₃ - c₂₂*c₁₃)
+
+    # r = det(B/p)/2, clamped for numerical stability
+    r = clamp(detC / 2, T(-1), T(1))
+
+    # Angle from arccos (all roots real for symmetric matrix)
+    φ = acos(r) / 3
+
+    # Three roots using trigonometric solution
+    # λₖ = q + 2p·cos(φ + 2πk/3) for k = 0, 1, 2
+    two_p = 2 * p
+    π_T = T(π)
+
+    λ₁ = q + two_p * cos(φ + 2*π_T/3)  # Smallest
+    λ₂ = q + two_p * cos(φ + 4*π_T/3)  # Middle
+    λ₃ = q + two_p * cos(φ)            # Largest
+
+    # The trigonometric formula naturally gives sorted order:
+    # cos(φ) ≥ cos(φ + 2π/3) and cos(φ) ≥ cos(φ + 4π/3) for φ ∈ [0, π/3]
+    # But we need to ensure proper sorting for edge cases
+    return SA[min(λ₁,λ₂,λ₃), λ₁+λ₂+λ₃-min(λ₁,λ₂,λ₃)-max(λ₁,λ₂,λ₃), max(λ₁,λ₂,λ₃)]
+end
+
 """
     λ₂(I::CartesianIndex{3},u)
 
 λ₂ is a deformation tensor metric to identify vortex cores.
 See [https://en.wikipedia.org/wiki/Lambda2_method](https://en.wikipedia.org/wiki/Lambda2_method) and
 Jeong, J., & Hussain, F., doi:[10.1017/S0022112095000462](https://doi.org/10.1017/S0022112095000462)
+
+GPU-compatible: uses custom Cardano eigenvalue solver instead of LinearAlgebra.
 """
-function λ₂(I::CartesianIndex{3},u)
+@fastmath function λ₂(I::CartesianIndex{3},u)
     J = @SMatrix [∂(i,j,I,u) for i ∈ 1:3, j ∈ 1:3]
     S,Ω = (J+J')/2,(J-J')/2
-    eigvals(Hermitian(S^2+Ω^2))[2]
+    M = S^2 + Ω^2  # Symmetric matrix
+    eigvals_symmetric_3x3(M)[2]  # Return middle eigenvalue
 end
 
 """

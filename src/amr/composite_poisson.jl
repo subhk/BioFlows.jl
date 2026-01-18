@@ -61,24 +61,28 @@ mutable struct CompositePoisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: 
     # Reference to coarse μ₀ for flexible body coefficient updates
     # This allows patches to re-interpolate coefficients when the body moves
     μ₀_ref::Union{Nothing, AbstractArray}
+
+    # Memory backend for GPU support (Array for CPU, CuArray for GPU)
+    mem::Any
 end
 
 """
-    CompositePoisson(base::MultiLevelPoisson; max_level=3)
+    CompositePoisson(base::MultiLevelPoisson; max_level=3, mem=Array)
 
 Create a CompositePoisson wrapping an existing MultiLevelPoisson.
 
 # Arguments
 - `base`: Existing MultiLevelPoisson solver
 - `max_level`: Maximum refinement level (1=2x, 2=4x, 3=8x)
+- `mem`: Memory backend (Array for CPU, CuArray for GPU)
 """
 function CompositePoisson(base::MultiLevelPoisson{T,S,V,N};
-                          max_level::Int=3) where {T,S,V,N}
+                          max_level::Int=3, mem=Array) where {T,S,V,N}
     CompositePoisson{T,S,V,N}(
         base,
         Dict{Tuple{Int,Int}, PatchPoisson{T}}(),
         Dict{Tuple{Int,Int,Int}, PatchPoisson{T}}(),
-        RefinedVelocityField(Val{N}(), T),
+        RefinedVelocityField(Val{N}(), T; mem=mem),
         2,  # Always 2:1 ratio
         max_level,
         Int16[],
@@ -86,19 +90,26 @@ function CompositePoisson(base::MultiLevelPoisson{T,S,V,N};
         base.x,
         base.L,
         base.z,
-        nothing  # μ₀_ref will be set when patches are created
+        nothing,  # μ₀_ref will be set when patches are created
+        mem
     )
 end
 
 """
-    CompositePoisson(x, L, z; perdir=(), max_level=3)
+    CompositePoisson(x, L, z; perdir=(), max_level=3, mem=Array)
 
 Create a CompositePoisson from arrays (creates MultiLevelPoisson internally).
+
+# Arguments
+- `x`, `L`, `z`: Poisson arrays
+- `perdir`: Periodic directions tuple
+- `max_level`: Maximum refinement level
+- `mem`: Memory backend (Array for CPU, CuArray for GPU)
 """
 function CompositePoisson(x::AbstractArray{T,N}, L::AbstractArray{T}, z::AbstractArray{T};
-                          perdir=(), max_level::Int=3) where {T,N}
+                          perdir=(), max_level::Int=3, mem=Array) where {T,N}
     base = MultiLevelPoisson(x, L, z; perdir)
-    CompositePoisson(base; max_level)
+    CompositePoisson(base; max_level, mem)
 end
 
 # AbstractPoisson interface compatibility
@@ -158,11 +169,11 @@ function add_patch!(cp::CompositePoisson{T},
                     μ₀::AbstractArray) where T
     level = clamp(level, 1, cp.max_level)
 
-    # Create PatchPoisson
-    patch = PatchPoisson(anchor, extent, level, μ₀, T)
+    # Create PatchPoisson with GPU support via mem parameter
+    patch = PatchPoisson(anchor, extent, level, μ₀, T; mem=cp.mem)
     cp.patches[anchor] = patch
 
-    # Create corresponding velocity patch
+    # Create corresponding velocity patch (uses mem stored in refined_velocity)
     add_patch!(cp.refined_velocity, anchor, extent, level)
 
     return patch
@@ -190,11 +201,11 @@ function add_patch_3d!(cp::CompositePoisson{T},
                        μ₀::AbstractArray) where T
     level = clamp(level, 1, cp.max_level)
 
-    # Create PatchPoisson3D
-    patch = PatchPoisson3D(anchor, extent, level, μ₀, T)
+    # Create PatchPoisson3D with GPU support via mem parameter
+    patch = PatchPoisson3D(anchor, extent, level, μ₀, T; mem=cp.mem)
     cp.patches_3d[anchor] = patch
 
-    # Create corresponding velocity patch
+    # Create corresponding velocity patch (uses mem stored in refined_velocity)
     add_patch!(cp.refined_velocity, anchor, extent, level)
 
     return patch

@@ -37,10 +37,9 @@ function compute_body_refinement_indicator(flow::Flow{N,T}, body::AbstractBody;
     threshold = T(distance_threshold)
     tt = T(t)
 
-    # Iterate over interior cells
-    for I in inside(flow.p)
-        indicator[I] = _body_indicator_value(body, I, T, threshold, tt)
-    end
+    # Iterate over interior cells (GPU-compatible via @loop)
+    R = inside(flow.p)
+    @loop indicator[I] = _body_indicator_value(body, I, T, threshold, tt) over I ∈ R
 
     return indicator
 end
@@ -79,46 +78,61 @@ function compute_velocity_gradient_indicator(flow::Flow{N,T};
     fill!(indicator, zero(T))
     u = flow.u
     Δx = flow.Δx
+    R = inside(flow.p)
 
     if N == 2
         inv_dx = inv(Δx[1])
         inv_dz = inv(Δx[2])
         inv4_dx = inv(4 * Δx[1])
         inv4_dz = inv(4 * Δx[2])
-        for I in inside(flow.p)
-            indicator[I] = _velocity_gradient_2d(u, I, inv_dx, inv_dz, inv4_dx, inv4_dz)
-        end
+        # GPU-compatible via @loop
+        @loop indicator[I] = _velocity_gradient_2d(u, I, inv_dx, inv_dz, inv4_dx, inv4_dz) over I ∈ R
     else  # N == 3
         # Uses stencils consistent with Metrics.jl ∂(i,j,I,u) function
         invΔx = ntuple(d -> inv(Δx[d]), N)
         inv4Δx = ntuple(d -> inv(4 * Δx[d]), N)
-        for I in inside(flow.p)
-            grad_sq = zero(T)
-            for i in 1:N
-                for j in 1:N
-                    if i == j
-                        # Diagonal: forward difference at cell center
-                        du = (u[I+δ(j,I), i] - u[I, i]) * invΔx[j]
-                    else
-                        # Cross: 4-point stencil at cell center
-                        du = (u[I+δ(j,I), i] + u[I+δ(j,I)+δ(i,I), i] -
-                              u[I-δ(j,I), i] - u[I-δ(j,I)+δ(i,I), i]) * inv4Δx[j]
-                    end
-                    grad_sq += du^2
-                end
-            end
-            indicator[I] = sqrt(grad_sq)
-        end
+        # 3D gradient computation (GPU-compatible via @loop)
+        @loop indicator[I] = _velocity_gradient_3d(u, I, invΔx, inv4Δx) over I ∈ R
     end
 
     if threshold !== nothing
         thresh = T(threshold)
-        for I in inside(indicator)
-            indicator[I] = indicator[I] > thresh ? one(T) : zero(T)
-        end
+        # GPU-compatible threshold binarization
+        @loop indicator[I] = indicator[I] > thresh ? one(T) : zero(T) over I ∈ R
     end
 
     return indicator
+end
+
+# Helper for 3D velocity gradient at cell center
+@inline function _velocity_gradient_3d(u, I, invΔx, inv4Δx)
+    T = eltype(u)
+    grad_sq = zero(T)
+    # Unroll the loops for GPU compatibility
+    # Diagonal terms (forward difference)
+    grad_sq += ((u[I+δ(1,I), 1] - u[I, 1]) * invΔx[1])^2
+    grad_sq += ((u[I+δ(2,I), 2] - u[I, 2]) * invΔx[2])^2
+    grad_sq += ((u[I+δ(3,I), 3] - u[I, 3]) * invΔx[3])^2
+    # Cross terms (4-point stencil) - du_i/dx_j for i≠j
+    # du1/dx2
+    grad_sq += ((u[I+δ(2,I), 1] + u[I+δ(2,I)+δ(1,I), 1] -
+                 u[I-δ(2,I), 1] - u[I-δ(2,I)+δ(1,I), 1]) * inv4Δx[2])^2
+    # du1/dx3
+    grad_sq += ((u[I+δ(3,I), 1] + u[I+δ(3,I)+δ(1,I), 1] -
+                 u[I-δ(3,I), 1] - u[I-δ(3,I)+δ(1,I), 1]) * inv4Δx[3])^2
+    # du2/dx1
+    grad_sq += ((u[I+δ(1,I), 2] + u[I+δ(1,I)+δ(2,I), 2] -
+                 u[I-δ(1,I), 2] - u[I-δ(1,I)+δ(2,I), 2]) * inv4Δx[1])^2
+    # du2/dx3
+    grad_sq += ((u[I+δ(3,I), 2] + u[I+δ(3,I)+δ(2,I), 2] -
+                 u[I-δ(3,I), 2] - u[I-δ(3,I)+δ(2,I), 2]) * inv4Δx[3])^2
+    # du3/dx1
+    grad_sq += ((u[I+δ(1,I), 3] + u[I+δ(1,I)+δ(3,I), 3] -
+                 u[I-δ(1,I), 3] - u[I-δ(1,I)+δ(3,I), 3]) * inv4Δx[1])^2
+    # du3/dx2
+    grad_sq += ((u[I+δ(2,I), 3] + u[I+δ(2,I)+δ(3,I), 3] -
+                 u[I-δ(2,I), 3] - u[I-δ(2,I)+δ(3,I), 3]) * inv4Δx[2])^2
+    sqrt(grad_sq)
 end
 
 # Helper for 2D vorticity at cell center
@@ -151,52 +165,56 @@ function compute_vorticity_indicator(flow::Flow{N,T};
     fill!(indicator, zero(T))
     u = flow.u
     Δx = flow.Δx
+    R = inside(flow.p)
 
     if N == 2
         inv4_dx = inv(4 * Δx[1])
         inv4_dz = inv(4 * Δx[2])
-        for I in inside(flow.p)
-            indicator[I] = _vorticity_2d(u, I, inv4_dx, inv4_dz)
-        end
+        # GPU-compatible via @loop
+        @loop indicator[I] = _vorticity_2d(u, I, inv4_dx, inv4_dz) over I ∈ R
     else  # N == 3
         # Uses stencils consistent with Metrics.jl ∂(i,j,I,u) function
         inv4_dx = inv(4 * Δx[1])
         inv4_dy = inv(4 * Δx[2])
         inv4_dz = inv(4 * Δx[3])
-        for I in inside(flow.p)
-            # ωₓ = ∂w/∂y - ∂v/∂z (4-point stencils at cell center)
-            dwdy = (u[I+δ(2,I), 3] + u[I+δ(2,I)+δ(3,I), 3] -
-                    u[I-δ(2,I), 3] - u[I-δ(2,I)+δ(3,I), 3]) * inv4_dy
-            dvdz = (u[I+δ(3,I), 2] + u[I+δ(3,I)+δ(2,I), 2] -
-                    u[I-δ(3,I), 2] - u[I-δ(3,I)+δ(2,I), 2]) * inv4_dz
-            omega_x = dwdy - dvdz
-
-            # ωᵧ = ∂u/∂z - ∂w/∂x (4-point stencils at cell center)
-            dudz = (u[I+δ(3,I), 1] + u[I+δ(3,I)+δ(1,I), 1] -
-                    u[I-δ(3,I), 1] - u[I-δ(3,I)+δ(1,I), 1]) * inv4_dz
-            dwdx = (u[I+δ(1,I), 3] + u[I+δ(1,I)+δ(3,I), 3] -
-                    u[I-δ(1,I), 3] - u[I-δ(1,I)+δ(3,I), 3]) * inv4_dx
-            omega_y = dudz - dwdx
-
-            # ωᵤ = ∂v/∂x - ∂u/∂y (4-point stencils at cell center)
-            dvdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)+δ(2,I), 2] -
-                    u[I-δ(1,I), 2] - u[I-δ(1,I)+δ(2,I), 2]) * inv4_dx
-            dudy = (u[I+δ(2,I), 1] + u[I+δ(2,I)+δ(1,I), 1] -
-                    u[I-δ(2,I), 1] - u[I-δ(2,I)+δ(1,I), 1]) * inv4_dy
-            omega_z = dvdx - dudy
-
-            indicator[I] = sqrt(omega_x^2 + omega_y^2 + omega_z^2)
-        end
+        # GPU-compatible via @loop
+        @loop indicator[I] = _vorticity_3d(u, I, inv4_dx, inv4_dy, inv4_dz) over I ∈ R
     end
 
     if threshold !== nothing
         thresh = T(threshold)
-        for I in inside(indicator)
-            indicator[I] = indicator[I] > thresh ? one(T) : zero(T)
-        end
+        # GPU-compatible threshold binarization
+        @loop indicator[I] = indicator[I] > thresh ? one(T) : zero(T) over I ∈ R
     end
 
     return indicator
+end
+
+# Helper for 3D vorticity at cell center
+# ω = (ωₓ, ωᵧ, ω_z) using 4-point stencils
+@inline function _vorticity_3d(u, I, inv4_dx, inv4_dy, inv4_dz)
+    # ωₓ = ∂w/∂y - ∂v/∂z (4-point stencils at cell center)
+    dwdy = (u[I+δ(2,I), 3] + u[I+δ(2,I)+δ(3,I), 3] -
+            u[I-δ(2,I), 3] - u[I-δ(2,I)+δ(3,I), 3]) * inv4_dy
+    dvdz = (u[I+δ(3,I), 2] + u[I+δ(3,I)+δ(2,I), 2] -
+            u[I-δ(3,I), 2] - u[I-δ(3,I)+δ(2,I), 2]) * inv4_dz
+    omega_x = dwdy - dvdz
+
+    # ωᵧ = ∂u/∂z - ∂w/∂x (4-point stencils at cell center)
+    dudz = (u[I+δ(3,I), 1] + u[I+δ(3,I)+δ(1,I), 1] -
+            u[I-δ(3,I), 1] - u[I-δ(3,I)+δ(1,I), 1]) * inv4_dz
+    dwdx = (u[I+δ(1,I), 3] + u[I+δ(1,I)+δ(3,I), 3] -
+            u[I-δ(1,I), 3] - u[I-δ(1,I)+δ(3,I), 3]) * inv4_dx
+    omega_y = dudz - dwdx
+
+    # ω_z = ∂v/∂x - ∂u/∂y (4-point stencils at cell center)
+    dvdx = (u[I+δ(1,I), 2] + u[I+δ(1,I)+δ(2,I), 2] -
+            u[I-δ(1,I), 2] - u[I-δ(1,I)+δ(2,I), 2]) * inv4_dx
+    dudy = (u[I+δ(2,I), 1] + u[I+δ(2,I)+δ(1,I), 1] -
+            u[I-δ(2,I), 1] - u[I-δ(2,I)+δ(1,I), 1]) * inv4_dy
+    omega_z = dvdx - dudy
+
+    sqrt(omega_x^2 + omega_y^2 + omega_z^2)
 end
 
 """
@@ -248,13 +266,13 @@ function compute_combined_indicator(flow::Flow{N,T}, body::AbstractBody;
     gt = T(gradient_threshold)
     vt = T(vorticity_threshold)
 
-    # Combine with weights
+    # Combine with weights (GPU-compatible via @loop)
     combined = similar(flow.p)
-    for I in inside(flow.p)
-        g_active = grad_ind[I] > gt ? one(T) : zero(T)
-        v_active = vort_ind[I] > vt ? one(T) : zero(T)
-        combined[I] = bw * body_ind[I] + gw * g_active + vw * v_active
-    end
+    fill!(combined, zero(T))
+    R = inside(flow.p)
+    @loop combined[I] = bw * body_ind[I] +
+                        gw * (grad_ind[I] > gt ? one(T) : zero(T)) +
+                        vw * (vort_ind[I] > vt ? one(T) : zero(T)) over I ∈ R
 
     # Set boundary values to zero
     if N == 2

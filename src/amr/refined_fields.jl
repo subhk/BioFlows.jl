@@ -17,8 +17,8 @@ Stores velocity field for a single refined patch.
 - `coarse_extent`: Number of coarse cells covered in each direction
 - `fine_dims`: Dimensions of fine grid (excluding ghost cells)
 """
-struct RefinedVelocityPatch{T,N}
-    u::Array{T}           # Velocity array: (fine_nx+2, fine_nz+2, N) for 2D
+struct RefinedVelocityPatch{T,N,A<:AbstractArray{T}}
+    u::A                  # Velocity array: (fine_nx+2, fine_nz+2, N) for 2D
     level::Int            # Refinement level
     anchor::NTuple{N,Int} # Coarse cell anchor
     coarse_extent::NTuple{N,Int}  # Coarse cells covered
@@ -26,7 +26,7 @@ struct RefinedVelocityPatch{T,N}
 end
 
 """
-    RefinedVelocityPatch(anchor, coarse_extent, level, N, T)
+    RefinedVelocityPatch(anchor, coarse_extent, level, N, T; mem=Array)
 
 Create a refined velocity patch.
 
@@ -36,22 +36,23 @@ Create a refined velocity patch.
 - `level`: Refinement level (1, 2, or 3)
 - `N`: Number of spatial dimensions
 - `T`: Element type
+- `mem`: Memory backend (Array for CPU, CuArray for GPU, etc.)
 """
 function RefinedVelocityPatch(anchor::NTuple{D,Int}, coarse_extent::NTuple{D,Int},
-                               level::Int, ::Val{D}, ::Type{T}) where {D,T}
+                               level::Int, ::Val{D}, ::Type{T}; mem=Array) where {D,T}
     ratio = 2^level
     fine_dims = coarse_extent .* ratio
     # Add 2 ghost cells in each direction
     u_dims = (fine_dims .+ 2)..., D
-    u = zeros(T, u_dims...)
-    RefinedVelocityPatch{T,D}(u, level, anchor, coarse_extent, fine_dims)
+    u = zeros(T, u_dims...) |> mem
+    RefinedVelocityPatch{T,D,typeof(u)}(u, level, anchor, coarse_extent, fine_dims)
 end
 
 # Convenience constructors
-RefinedVelocityPatch(anchor::NTuple{2,Int}, extent::NTuple{2,Int}, level::Int, T::Type=Float64) =
-    RefinedVelocityPatch(anchor, extent, level, Val{2}(), T)
-RefinedVelocityPatch(anchor::NTuple{3,Int}, extent::NTuple{3,Int}, level::Int, T::Type=Float64) =
-    RefinedVelocityPatch(anchor, extent, level, Val{3}(), T)
+RefinedVelocityPatch(anchor::NTuple{2,Int}, extent::NTuple{2,Int}, level::Int, T::Type=Float64; mem=Array) =
+    RefinedVelocityPatch(anchor, extent, level, Val{2}(), T; mem=mem)
+RefinedVelocityPatch(anchor::NTuple{3,Int}, extent::NTuple{3,Int}, level::Int, T::Type=Float64; mem=Array) =
+    RefinedVelocityPatch(anchor, extent, level, Val{3}(), T; mem=mem)
 
 """
     refinement_ratio(patch::RefinedVelocityPatch)
@@ -201,36 +202,43 @@ Collection of refined velocity patches for AMR simulation.
 
 # Fields
 - `patches`: Dictionary mapping anchor -> RefinedVelocityPatch
-- `ndims`: Number of spatial dimensions
+- `mem`: Memory backend (Array for CPU, CuArray for GPU)
 """
 mutable struct RefinedVelocityField{T,N}
     patches::Dict{NTuple{N,Int}, RefinedVelocityPatch{T,N}}
+    mem::Any  # Memory backend for GPU support
 end
 
 """
-    RefinedVelocityField(N, T)
+    RefinedVelocityField(N, T; mem=Array)
 
 Create an empty refined velocity field.
-"""
-RefinedVelocityField(::Val{N}, ::Type{T}) where {N,T} =
-    RefinedVelocityField{T,N}(Dict{NTuple{N,Int}, RefinedVelocityPatch{T,N}}())
 
-RefinedVelocityField(N::Int, T::Type=Float64) = RefinedVelocityField(Val{N}(), T)
+# Arguments
+- `N`: Number of spatial dimensions (Val{2} or Val{3})
+- `T`: Element type
+- `mem`: Memory backend (Array for CPU, CuArray for GPU)
+"""
+RefinedVelocityField(::Val{N}, ::Type{T}; mem=Array) where {N,T} =
+    RefinedVelocityField{T,N}(Dict{NTuple{N,Int}, RefinedVelocityPatch{T,N}}(), mem)
+
+RefinedVelocityField(N::Int, T::Type=Float64; mem=Array) = RefinedVelocityField(Val{N}(), T; mem=mem)
 
 # Convenience for 2D/3D
-RefinedVelocityField2D(T::Type=Float64) = RefinedVelocityField(Val{2}(), T)
-RefinedVelocityField3D(T::Type=Float64) = RefinedVelocityField(Val{3}(), T)
+RefinedVelocityField2D(T::Type=Float64; mem=Array) = RefinedVelocityField(Val{2}(), T; mem=mem)
+RefinedVelocityField3D(T::Type=Float64; mem=Array) = RefinedVelocityField(Val{3}(), T; mem=mem)
 
 """
     add_patch!(field, anchor, coarse_extent, level)
 
 Add a refined velocity patch to the field.
+Uses the memory backend stored in the field for GPU support.
 """
 function add_patch!(field::RefinedVelocityField{T,N},
                     anchor::NTuple{N,Int},
                     coarse_extent::NTuple{N,Int},
                     level::Int) where {T,N}
-    patch = RefinedVelocityPatch(anchor, coarse_extent, level, Val{N}(), T)
+    patch = RefinedVelocityPatch(anchor, coarse_extent, level, Val{N}(), T; mem=field.mem)
     field.patches[anchor] = patch
     return patch
 end

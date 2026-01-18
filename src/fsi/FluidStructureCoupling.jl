@@ -418,6 +418,7 @@ function FSISimulation(dims::Tuple{Int,Int}, domain::Tuple{Real,Real};
                        ν::Real=0.001,
                        ρ::Real=1000.0,
                        inletBC::Tuple=(1.0, 0.0),
+                       mem=Array,
                        kwargs...)
 
     T = Float64
@@ -448,10 +449,12 @@ function FSISimulation(dims::Tuple{Int,Int}, domain::Tuple{Real,Real};
 
     # Create flow (body is passed to measure!, not Flow constructor)
     # Note: Flow takes N as positional and L as keyword argument
+    # mem parameter is mapped to f for GPU support
     flow = Flow(dims; L=domain,
                 inletBC=inletBC,
                 ν=ν,
                 ρ=ρ,
+                f=mem,
                 kwargs...)
 
     # Create Poisson solver

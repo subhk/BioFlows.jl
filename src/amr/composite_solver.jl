@@ -245,9 +245,9 @@ function set_patch_divergence!(patch::PatchPoisson{T},
     ratio = refinement_ratio(patch)
     h_fine = h_coarse / T(ratio)
     compute_fine_divergence!(patch, u_coarse, u_fine, anchor, h_coarse)
-    for I in inside(patch)
-        patch.z[I] *= ρ * h_fine
-    end
+    scale = ρ * h_fine
+    R = inside(patch)
+    @loop patch.z[I] = patch.z[I] * scale over I ∈ R
 end
 
 """
@@ -266,9 +266,9 @@ function set_patch_divergence_3d!(patch::PatchPoisson3D{T},
     ratio = refinement_ratio(patch)
     h_fine = h_coarse / T(ratio)
     compute_fine_divergence_3d!(patch, u_coarse, u_fine, anchor, h_coarse)
-    for I in inside(patch)
-        patch.z[I] *= ρ * h_fine
-    end
+    scale = ρ * h_fine
+    R = inside(patch)
+    @loop patch.z[I] = patch.z[I] * scale over I ∈ R
 end
 
 """
@@ -298,19 +298,15 @@ function correct_refined_velocity!(vel_patch::RefinedVelocityPatch{T,2},
                                    Δx::NTuple{2,T}) where T
     p, L = pois_patch.x, pois_patch.L
     ratio = refinement_ratio(pois_patch)
+    R = inside(pois_patch)
 
     # Fine grid spacing: Δx_fine = Δx / ratio
     inv_ρΔx_fine_x = inv(ρ * Δx[1] / T(ratio))
     inv_ρΔx_fine_z = inv(ρ * Δx[2] / T(ratio))
 
-    # Physical velocity correction: u -= L * ∂p / (ρ * Δx_fine)
-    for I in inside(pois_patch)
-        fi, fj = I.I
-        # x-velocity correction
-        vel_patch.u[fi, fj, 1] -= L[fi, fj, 1] * (p[fi, fj] - p[fi-1, fj]) * inv_ρΔx_fine_x
-        # z-velocity correction
-        vel_patch.u[fi, fj, 2] -= L[fi, fj, 2] * (p[fi, fj] - p[fi, fj-1]) * inv_ρΔx_fine_z
-    end
+    # Physical velocity correction: u -= L * ∂p / (ρ * Δx_fine) (GPU-compatible)
+    @loop (vel_patch.u[I,1] = vel_patch.u[I,1] - L[I,1] * (p[I] - p[I-δ(1,I)]) * inv_ρΔx_fine_x;
+           vel_patch.u[I,2] = vel_patch.u[I,2] - L[I,2] * (p[I] - p[I-δ(2,I)]) * inv_ρΔx_fine_z) over I ∈ R
 end
 
 """
@@ -325,22 +321,17 @@ function correct_refined_velocity_3d!(vel_patch::RefinedVelocityPatch{T,3},
                                        Δx::NTuple{D,T}) where {D,T}
     p, L = pois_patch.x, pois_patch.L
     ratio = refinement_ratio(pois_patch)
+    R = inside(pois_patch)
 
     # Fine grid spacing: Δx_fine = Δx / ratio
     inv_ρΔx_fine_x = inv(ρ * Δx[1] / T(ratio))
     inv_ρΔx_fine_y = inv(ρ * Δx[2] / T(ratio))
     inv_ρΔx_fine_z = inv(ρ * Δx[3] / T(ratio))
 
-    # Physical velocity correction: u -= L * ∂p / (ρ * Δx_fine)
-    for I in inside(pois_patch)
-        fi, fj, fk = I.I
-        # x-velocity correction
-        vel_patch.u[fi, fj, fk, 1] -= L[fi, fj, fk, 1] * (p[fi, fj, fk] - p[fi-1, fj, fk]) * inv_ρΔx_fine_x
-        # y-velocity correction
-        vel_patch.u[fi, fj, fk, 2] -= L[fi, fj, fk, 2] * (p[fi, fj, fk] - p[fi, fj-1, fk]) * inv_ρΔx_fine_y
-        # z-velocity correction
-        vel_patch.u[fi, fj, fk, 3] -= L[fi, fj, fk, 3] * (p[fi, fj, fk] - p[fi, fj, fk-1]) * inv_ρΔx_fine_z
-    end
+    # Physical velocity correction: u -= L * ∂p / (ρ * Δx_fine) (GPU-compatible)
+    @loop (vel_patch.u[I,1] = vel_patch.u[I,1] - L[I,1] * (p[I] - p[I-δ(1,I)]) * inv_ρΔx_fine_x;
+           vel_patch.u[I,2] = vel_patch.u[I,2] - L[I,2] * (p[I] - p[I-δ(2,I)]) * inv_ρΔx_fine_y;
+           vel_patch.u[I,3] = vel_patch.u[I,3] - L[I,3] * (p[I] - p[I-δ(3,I)]) * inv_ρΔx_fine_z) over I ∈ R
 end
 
 """
@@ -348,6 +339,11 @@ end
 
 Ensure velocity flux is consistent at coarse-fine interfaces.
 Fine fluxes should sum to match coarse flux.
+
+Note: This function uses scalar indexing for interface operations. On GPU, this
+will cause scalar indexing warnings but executes correctly. The interface
+operations are O(boundary) and called once per projection step, so the
+performance impact is minimal compared to the GPU-accelerated solver loops.
 """
 function enforce_velocity_consistency!(u_coarse::AbstractArray{T},
                                        refined_velocity::RefinedVelocityField,
@@ -457,6 +453,11 @@ end
 
 Ensure velocity flux is consistent at 3D coarse-fine interfaces.
 Fine fluxes should sum to match coarse flux across all 6 faces.
+
+Note: This function uses scalar indexing for interface operations. On GPU, this
+will cause scalar indexing warnings but executes correctly. The interface
+operations are O(boundary) and called once per projection step, so the
+performance impact is minimal compared to the GPU-accelerated solver loops.
 """
 function enforce_velocity_consistency_3d!(u_coarse::AbstractArray{T},
                                            refined_velocity::RefinedVelocityField,
@@ -621,38 +622,34 @@ end
 
 Compute maximum divergence at base and all refined levels.
 Returns tuple (base_div, patch_divs_2d, patch_divs_3d) for verification.
+GPU-compatible via @loop and maximum reduction.
 """
 function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) where {D,T}
-    # Base grid divergence
-    base_div = zero(T)
-    for I in inside(flow.p)
-        base_div = max(base_div, abs(div(I, flow.u)))
-    end
+    # Base grid divergence (GPU-compatible)
+    R = inside(flow.p)
+    @loop flow.σ[I] = abs(div(I, flow.u)) over I ∈ R
+    base_div = maximum(@view flow.σ[R])
 
-    # 2D patch divergences
+    # 2D patch divergences (GPU-compatible)
     patch_divs_2d = Dict{Tuple{Int,Int}, T}()
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
 
-        max_div = zero(T)
-        for I in inside(patch)
-            max_div = max(max_div, abs(div(I, vel_patch.u)))
-        end
-        patch_divs_2d[anchor] = max_div
+        Rp = inside(patch)
+        @loop patch.r[I] = abs(div(I, vel_patch.u)) over I ∈ Rp
+        patch_divs_2d[anchor] = maximum(@view patch.r[Rp])
     end
 
-    # 3D patch divergences
+    # 3D patch divergences (GPU-compatible)
     patch_divs_3d = Dict{Tuple{Int,Int,Int}, T}()
     for (anchor, patch) in cp.patches_3d
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
 
-        max_div = zero(T)
-        for I in inside(patch)
-            max_div = max(max_div, abs(div(I, vel_patch.u)))
-        end
-        patch_divs_3d[anchor] = max_div
+        Rp = inside(patch)
+        @loop patch.r[I] = abs(div(I, vel_patch.u)) over I ∈ Rp
+        patch_divs_3d[anchor] = maximum(@view patch.r[Rp])
     end
 
     return base_div, patch_divs_2d, patch_divs_3d

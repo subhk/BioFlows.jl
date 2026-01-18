@@ -423,16 +423,18 @@ Create an AMR-enabled simulation.
 function AMRSimulation(dims::NTuple{N}, L::NTuple{N};
                        inletBC=nothing,
                        amr_config::AMRConfig=AMRConfig(),
+                       mem=Array,
                        kwargs...) where N
-    # Create base simulation
-    sim = Simulation(dims, L; inletBC=inletBC, kwargs...)
+    # Create base simulation with GPU support
+    sim = Simulation(dims, L; inletBC=inletBC, mem=mem, kwargs...)
 
     # Create adapter and refined grid using domain size L[1]
     adapter = FlowToGridAdapter(sim.flow, L[1])
     refined_grid = create_refined_grid(adapter)
 
     # Create composite Poisson solver wrapping the base MultiLevelPoisson
-    composite_pois = CompositePoisson(sim.pois; max_level=amr_config.max_level)
+    # Pass mem for GPU support in patches
+    composite_pois = CompositePoisson(sim.pois; max_level=amr_config.max_level, mem=mem)
 
     # Set μ₀ reference for flexible body coefficient updates
     set_μ₀_reference!(composite_pois, sim.flow.μ₀)
@@ -1067,5 +1069,69 @@ export CenterFieldWriter, ForceWriter, GridWriter, file_save!
 export cell_center_coordinates, cell_center_coordinates_meshgrid, save_grid
 export force_components, force_coefficients, record_force!
 export compute_diagnostics, summarize_force_history
+
+# =============================================================================
+# GPU SUPPORT (CUDA)
+# =============================================================================
+# BioFlows supports CUDA GPU acceleration through KernelAbstractions.jl.
+# The CUDA backend is loaded as a package extension when CUDA.jl is imported.
+#
+# Example:
+#   using BioFlows
+#   using CUDA
+#   sim = Simulation((256, 128), (2.0, 1.0); mem=CuArray)
+# =============================================================================
+
+"""
+    gpu_backend()
+
+Return information about the CUDA GPU backend.
+Returns a NamedTuple with fields:
+- `available`: Whether CUDA is loaded and functional
+- `backend_name`: "CUDA" or "CPU"
+- `array_type`: CuArray for GPU or Array for CPU
+
+# Example
+```julia
+using BioFlows
+using CUDA
+info = gpu_backend()
+# (available = true, backend_name = "CUDA", array_type = CuArray)
+```
+"""
+function gpu_backend()
+    if isdefined(Main, :CUDA) && isdefined(Main.CUDA, :functional) && Main.CUDA.functional()
+        return (available=true, backend_name="CUDA", array_type=Main.CUDA.CuArray)
+    else
+        return (available=false, backend_name="CPU", array_type=Array)
+    end
+end
+
+"""
+    @gpu_array(T, ex)
+
+Convenience macro to create a CuArray if CUDA is available,
+otherwise falls back to a CPU array.
+
+# Example
+```julia
+using BioFlows
+using CUDA
+a = @gpu_array Float32 zeros(100, 100)  # Creates CuArray if CUDA is available
+```
+"""
+macro gpu_array(T, ex)
+    quote
+        arr = $(esc(ex))
+        info = gpu_backend()
+        if info.available
+            convert(info.array_type{$(esc(T))}, arr)
+        else
+            convert(Array{$(esc(T))}, arr)
+        end
+    end
+end
+
+export gpu_backend, @gpu_array
 
 end # module

@@ -136,14 +136,18 @@ function compute_beam_refinement_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBo
     # Update beam SDF with current state
     update!(beam_sdf)
 
-    # Compute indicator
-    for I in inside(flow.p)
-        x = loc(0, I, T)
-        d = beam_sdf(x, zero(T))
-        indicator[I] = abs(d) < threshold ? one(T) : zero(T)
-    end
+    # Compute indicator (GPU-compatible via @loop)
+    R = inside(flow.p)
+    @loop indicator[I] = _beam_indicator_value(beam_sdf, I, T, threshold) over I ∈ R
 
     return indicator
+end
+
+# Helper for beam indicator (called from @loop)
+@inline function _beam_indicator_value(beam_sdf::FlexibleBodySDF, I::CartesianIndex, ::Type{T}, threshold) where T
+    x = loc(0, I, T)
+    d = beam_sdf(x, zero(T))
+    abs(d) < threshold ? one(T) : zero(T)
 end
 
 """
@@ -182,20 +186,21 @@ function compute_beam_motion_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBodySD
         return indicator  # No significant motion
     end
 
-    # Mark region around both old and new positions
-    for I in inside(flow.p)
-        x = loc(0, I, T)
-
-        # Distance to current and previous beam positions
-        d_new = abs(_beam_sdf_with_displacement(beam_sdf, x, beam_sdf.w_current))
-        d_old = abs(_beam_sdf_with_displacement(beam_sdf, x, last_displacement))
-
-        if d_new < threshold || d_old < threshold
-            indicator[I] = one(T)
-        end
-    end
+    # Mark region around both old and new positions (GPU-compatible via @loop)
+    R = inside(flow.p)
+    @loop indicator[I] = _beam_motion_indicator_value(beam_sdf, I, T, threshold, last_displacement) over I ∈ R
 
     return indicator
+end
+
+# Helper for beam motion indicator (called from @loop)
+@inline function _beam_motion_indicator_value(beam_sdf::FlexibleBodySDF, I::CartesianIndex, ::Type{T},
+                                               threshold, last_displacement) where T
+    x = loc(0, I, T)
+    # Distance to current and previous beam positions
+    d_new = abs(_beam_sdf_with_displacement(beam_sdf, x, beam_sdf.w_current))
+    d_old = abs(_beam_sdf_with_displacement(beam_sdf, x, last_displacement))
+    (d_new < threshold || d_old < threshold) ? one(T) : zero(T)
 end
 
 """
@@ -296,13 +301,13 @@ function compute_beam_combined_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBody
     gt = T(gradient_threshold)
     vt = T(vorticity_threshold)
 
-    # Combine with weights
+    # Combine with weights (GPU-compatible via @loop)
     combined = similar(flow.p)
-    for I in inside(flow.p)
-        g_active = gradient_ind[I] > gt ? one(T) : zero(T)
-        v_active = vorticity_ind[I] > vt ? one(T) : zero(T)
-        combined[I] = bw * beam_ind[I] + gw * g_active + vw * v_active
-    end
+    fill!(combined, zero(T))
+    R = inside(flow.p)
+    @loop combined[I] = bw * beam_ind[I] +
+                        gw * (gradient_ind[I] > gt ? one(T) : zero(T)) +
+                        vw * (vorticity_ind[I] > vt ? one(T) : zero(T)) over I ∈ R
 
     # Set boundary values to zero
     if N == 2
