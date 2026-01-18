@@ -721,11 +721,11 @@ function patch_increment_3d!(patch::PatchPoisson3D{T}) where T
     L, D, x, ϵ, r = patch.L, patch.D, patch.x, patch.ϵ, patch.r
     R = inside(patch)
     # Compute A*ϵ and update r, x (GPU-compatible via @loop)
-    @loop (aϵ = ϵ[I]*D[I] + ϵ[I-δ(1,I)]*L[I,1] + ϵ[I+δ(1,I)]*L[I+δ(1,I),1] +
-                 ϵ[I-δ(2,I)]*L[I,2] + ϵ[I+δ(2,I)]*L[I+δ(2,I),2] +
-                 ϵ[I-δ(3,I)]*L[I,3] + ϵ[I+δ(3,I)]*L[I+δ(3,I),3];
-           r[I] = r[I] - aϵ;
-           x[I] = x[I] + ϵ[I]) over I ∈ R
+    # Note: inline computation required - @loop macro doesn't support local variable definitions
+    @loop (r[I] -= ϵ[I]*D[I] + ϵ[I-δ(1,I)]*L[I,1] + ϵ[I+δ(1,I)]*L[I+δ(1,I),1] +
+                   ϵ[I-δ(2,I)]*L[I,2] + ϵ[I+δ(2,I)]*L[I+δ(2,I),2] +
+                   ϵ[I-δ(3,I)]*L[I,3] + ϵ[I+δ(3,I)]*L[I+δ(3,I),3];
+           x[I] += ϵ[I]) over I ∈ R
 end
 
 """

@@ -377,6 +377,21 @@ Uses same surface element scaling as pressure_force.
 """
 pressure_moment(x₀,sim) = pressure_moment(x₀,sim.flow,sim.body; ϵ=_sim_kernel_width(sim))
 pressure_moment(x₀,flow,body; ϵ=1) = pressure_moment(x₀,flow.p,flow.Δx,flow.f,body,time(flow); ϵ)
+
+# Helper for 2D moment computation (avoids local variables in @loop)
+@inline function _moment_2d(I, p, body, x₀, t, ϵ, scale, ::Type{Tp}) where Tp
+    x = loc(0, I, Tp)
+    n = nds(body, x, t, ϵ)
+    -p[I] * ((x[1]-x₀[1]) * n[2] - (x[2]-x₀[2]) * n[1]) * scale
+end
+
+# Helper for 3D moment computation (avoids local variables in @loop)
+@inline function _moment_3d(I, p, body, x₀, t, ϵ, scale, ::Type{Tp}) where Tp
+    x = loc(0, I, Tp)
+    n = nds(body, x, t, ϵ)
+    -p[I] * cross(x - x₀, n) * scale
+end
+
 function pressure_moment(x₀,p,Δx,df,body,t=0; ϵ=1)
     D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
@@ -386,14 +401,10 @@ function pressure_moment(x₀,p,Δx,df,body,t=0; ϵ=1)
     # Combined: ds * arm = Δx² for 2D, Δx³ for 3D
     scale = prod(Δx)
     if D == 2
-        @loop (x = loc(0,I,Tp);
-               n = nds(body,x,t,ϵ);
-               df[I,1] = -p[I] * ((x[1]-x₀[1]) * n[2] - (x[2]-x₀[2]) * n[1]) * scale) over I ∈ inside(p)
+        @loop df[I,1] = _moment_2d(I, p, body, x₀, t, ϵ, scale, Tp) over I ∈ inside(p)
         sum(To,df,dims=ntuple(i->i,D))[:] |> Array |> first
     else
-        @loop (x = loc(0,I,Tp);
-               n = nds(body,x,t,ϵ);
-               df[I,:] .= -p[I] * cross(x - x₀, n) * scale) over I ∈ inside(p)
+        @loop df[I,:] .= _moment_3d(I, p, body, x₀, t, ϵ, scale, Tp) over I ∈ inside(p)
         sum(To,df,dims=ntuple(i->i,D))[:] |> Array
     end
 end
