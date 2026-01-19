@@ -1,33 +1,21 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Home · BioFlows.jl</title><meta name="title" content="Home · BioFlows.jl"/><meta property="og:title" content="Home · BioFlows.jl"/><meta property="twitter:title" content="Home · BioFlows.jl"/><meta name="description" content="Documentation for BioFlows.jl."/><meta property="og:description" content="Documentation for BioFlows.jl."/><meta property="twitter:description" content="Documentation for BioFlows.jl."/><meta property="og:url" content="https://subhk.github.io/BioFlows.jl/"/><meta property="twitter:url" content="https://subhk.github.io/BioFlows.jl/"/><link rel="canonical" href="https://subhk.github.io/BioFlows.jl/"/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script><link href="assets/custom.css" rel="stylesheet" type="text/css"/></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href>BioFlows.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li class="is-active"><a class="tocitem" href>Home</a><ul class="internal"><li><a class="tocitem" href="#Overview"><span>Overview</span></a></li><li><a class="tocitem" href="#Key-Features"><span>Key Features</span></a></li><li><a class="tocitem" href="#Quick-Start"><span>Quick Start</span></a></li><li><a class="tocitem" href="#GPU-Acceleration"><span>GPU Acceleration</span></a></li><li><a class="tocitem" href="#Installation"><span>Installation</span></a></li><li><a class="tocitem" href="#Documentation"><span>Documentation</span></a></li><li><a class="tocitem" href="#Example-Gallery"><span>Example Gallery</span></a></li><li><a class="tocitem" href="#Citation"><span>Citation</span></a></li><li><a class="tocitem" href="#License"><span>License</span></a></li></ul></li><li><a class="tocitem" href="getting_started/">Getting Started</a></li><li><a class="tocitem" href="gpu/">GPU Acceleration</a></li><li><a class="tocitem" href="core_types/">Core Types</a></li><li><a class="tocitem" href="amr/">Adaptive Mesh Refinement</a></li><li><a class="tocitem" href="diagnostics/">Diagnostics</a></li><li><a class="tocitem" href="examples/">Examples</a></li><li><a class="tocitem" href="numerical_methods/">Numerical Methods</a></li><li><a class="tocitem" href="codebase_structure/">Codebase Structure</a></li><li><a class="tocitem" href="api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Home</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Home</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/subhk/BioFlows.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/subhk/BioFlows.jl/blob/main/docs/src/index.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="BioFlows.jl"><a class="docs-heading-anchor" href="#BioFlows.jl">BioFlows.jl</a><a id="BioFlows.jl-1"></a><a class="docs-heading-anchor-permalink" href="#BioFlows.jl" title="Permalink"></a></h1><div style="text-align: center; margin: 2rem 0;">
-    <p style="font-size: 1.4em; color: #555; margin-bottom: 1.5rem;">
-        <strong>High-Performance Computational Fluid Dynamics in Julia</strong>
-    </p>
-    <p style="font-size: 1.1em; color: #666;">
-        Immersed boundary methods for bio-inspired flows with GPU acceleration
-    </p>
-</div><hr/><h2 id="Overview"><a class="docs-heading-anchor" href="#Overview">Overview</a><a id="Overview-1"></a><a class="docs-heading-anchor-permalink" href="#Overview" title="Permalink"></a></h2><p>BioFlows.jl is a pure Julia package for simulating incompressible viscous flows around complex geometries using the <strong>Boundary Data Immersion Method (BDIM)</strong>. It&#39;s designed for studying bio-inspired locomotion, fluid-structure interaction, and bluff body flows.</p><div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin: 2rem 0;">
-
-<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 12px;">
-    <h3 style="margin-top: 0; color: white;">High Performance</h3>
-    <p style="margin-bottom: 0;">GPU acceleration via CUDA with single-precision (Float32) for maximum throughput. Run simulations 10-50x faster on NVIDIA GPUs.</p>
-</div>
-
-<div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 1.5rem; border-radius: 12px;">
-    <h3 style="margin-top: 0; color: white;">Bio-Inspired</h3>
-    <p style="margin-bottom: 0;">Built-in support for swimming fish, flapping wings, and flexible structures with Euler-Bernoulli beam FSI coupling.</p>
-</div>
-
-<div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 1.5rem; border-radius: 12px;">
-    <h3 style="margin-top: 0; color: white;">Adaptive Mesh</h3>
-    <p style="margin-bottom: 0;">Automatic mesh refinement (AMR) near bodies and flow features. Patches follow moving bodies in real-time.</p>
-</div>
-
-<div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 1.5rem; border-radius: 12px;">
-    <h3 style="margin-top: 0; color: white;">Easy to Use</h3>
-    <p style="margin-bottom: 0;">Define geometry with simple signed distance functions. No mesh generation required - just code and run.</p>
-</div>
-
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Home · BioFlows.jl</title><meta name="title" content="Home · BioFlows.jl"/><meta property="og:title" content="Home · BioFlows.jl"/><meta property="twitter:title" content="Home · BioFlows.jl"/><meta name="description" content="Documentation for BioFlows.jl."/><meta property="og:description" content="Documentation for BioFlows.jl."/><meta property="twitter:description" content="Documentation for BioFlows.jl."/><meta property="og:url" content="https://subhk.github.io/BioFlows.jl/"/><meta property="twitter:url" content="https://subhk.github.io/BioFlows.jl/"/><link rel="canonical" href="https://subhk.github.io/BioFlows.jl/"/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script><link href="assets/custom.css" rel="stylesheet" type="text/css"/></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href>BioFlows.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li class="is-active"><a class="tocitem" href>Home</a><ul class="internal"><li><a class="tocitem" href="#Highlights"><span>Highlights</span></a></li><li><a class="tocitem" href="#Key-Features"><span>Key Features</span></a></li><li><a class="tocitem" href="#Quick-Start"><span>Quick Start</span></a></li><li><a class="tocitem" href="#GPU-Acceleration"><span>GPU Acceleration</span></a></li><li><a class="tocitem" href="#Installation"><span>Installation</span></a></li><li><a class="tocitem" href="#Documentation"><span>Documentation</span></a></li><li><a class="tocitem" href="#Example-Gallery"><span>Example Gallery</span></a></li><li><a class="tocitem" href="#Citation"><span>Citation</span></a></li><li><a class="tocitem" href="#License"><span>License</span></a></li></ul></li><li><a class="tocitem" href="getting_started/">Getting Started</a></li><li><a class="tocitem" href="gpu/">GPU Acceleration</a></li><li><a class="tocitem" href="core_types/">Core Types</a></li><li><a class="tocitem" href="amr/">Adaptive Mesh Refinement</a></li><li><a class="tocitem" href="diagnostics/">Diagnostics</a></li><li><a class="tocitem" href="examples/">Examples</a></li><li><a class="tocitem" href="numerical_methods/">Numerical Methods</a></li><li><a class="tocitem" href="codebase_structure/">Codebase Structure</a></li><li><a class="tocitem" href="api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Home</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Home</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/subhk/BioFlows.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/subhk/BioFlows.jl/blob/main/docs/src/index.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="BioFlows.jl"><a class="docs-heading-anchor" href="#BioFlows.jl">BioFlows.jl</a><a id="BioFlows.jl-1"></a><a class="docs-heading-anchor-permalink" href="#BioFlows.jl" title="Permalink"></a></h1><p><em>High-Performance Computational Fluid Dynamics in Julia</em></p><p>BioFlows.jl is a pure Julia package for simulating incompressible viscous flows around complex geometries using the <strong>Boundary Data Immersion Method (BDIM)</strong>. It&#39;s designed for studying bio-inspired locomotion, fluid-structure interaction, and bluff body flows.</p><hr/><h2 id="Highlights"><a class="docs-heading-anchor" href="#Highlights">Highlights</a><a id="Highlights-1"></a><a class="docs-heading-anchor-permalink" href="#Highlights" title="Permalink"></a></h2><div class="feature-grid">
+    <div class="feature-card gradient-card gradient-primary">
+        <h3>High Performance</h3>
+        <p>GPU acceleration via CUDA with single-precision (Float32) for maximum throughput. Run simulations 10-50x faster on NVIDIA GPUs.</p>
+    </div>
+    <div class="feature-card gradient-card gradient-accent">
+        <h3>Bio-Inspired</h3>
+        <p>Built-in support for swimming fish, flapping wings, and flexible structures with Euler-Bernoulli beam FSI coupling.</p>
+    </div>
+    <div class="feature-card gradient-card gradient-info">
+        <h3>Adaptive Mesh</h3>
+        <p>Automatic mesh refinement (AMR) near bodies and flow features. Patches follow moving bodies in real-time.</p>
+    </div>
+    <div class="feature-card gradient-card gradient-success">
+        <h3>Easy to Use</h3>
+        <p>Define geometry with simple signed distance functions. No mesh generation required - just code and run.</p>
+    </div>
 </div><hr/><h2 id="Key-Features"><a class="docs-heading-anchor" href="#Key-Features">Key Features</a><a id="Key-Features-1"></a><a class="docs-heading-anchor-permalink" href="#Key-Features" title="Permalink"></a></h2><table><tr><th style="text-align: left">Feature</th><th style="text-align: left">Description</th></tr><tr><td style="text-align: left"><strong>Navier-Stokes Solver</strong></td><td style="text-align: left">Incompressible flow with projection method on staggered grids</td></tr><tr><td style="text-align: left"><strong>BDIM</strong></td><td style="text-align: left">Boundary Data Immersion Method for smooth immersed boundaries</td></tr><tr><td style="text-align: left"><strong>GPU Support</strong></td><td style="text-align: left">CUDA acceleration with <code>mem=CuArray</code> - single line change</td></tr><tr><td style="text-align: left"><strong>AMR</strong></td><td style="text-align: left">Adaptive mesh refinement with automatic body tracking</td></tr><tr><td style="text-align: left"><strong>FSI</strong></td><td style="text-align: left">Fluid-structure interaction via Euler-Bernoulli beam</td></tr><tr><td style="text-align: left"><strong>Moving Bodies</strong></td><td style="text-align: left">Time-dependent SDF for rigid and flexible motion</td></tr><tr><td style="text-align: left"><strong>2D/3D</strong></td><td style="text-align: left">Full support for both 2D and 3D simulations</td></tr><tr><td style="text-align: left"><strong>Output</strong></td><td style="text-align: left">JLD2 snapshots and VTK export for ParaView</td></tr></table><hr/><h2 id="Quick-Start"><a class="docs-heading-anchor" href="#Quick-Start">Quick Start</a><a id="Quick-Start-1"></a><a class="docs-heading-anchor-permalink" href="#Quick-Start" title="Permalink"></a></h2><pre><code class="language-julia hljs">using BioFlows
 
 # Define a cylinder using signed distance function
@@ -57,54 +45,38 @@ Pkg.add(url=&quot;https://github.com/subhk/BioFlows.jl&quot;)</code></pre><h3 id
 Pkg.add(&quot;CUDA&quot;)
 Pkg.add(url=&quot;https://github.com/subhk/BioFlows.jl&quot;)</code></pre><h3 id="Local-Development"><a class="docs-heading-anchor" href="#Local-Development">Local Development</a><a id="Local-Development-1"></a><a class="docs-heading-anchor-permalink" href="#Local-Development" title="Permalink"></a></h3><pre><code class="language-bash hljs">git clone https://github.com/subhk/BioFlows.jl.git
 cd BioFlows.jl
-julia --project -e &#39;using Pkg; Pkg.instantiate()&#39;</code></pre><hr/><h2 id="Documentation"><a class="docs-heading-anchor" href="#Documentation">Documentation</a><a id="Documentation-1"></a><a class="docs-heading-anchor-permalink" href="#Documentation" title="Permalink"></a></h2><div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1.5rem 0;">
-
-<a href="getting_started/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #667eea;">
-    <strong style="color: #333;">Getting Started</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">Installation and first simulation</p>
-</div>
-</a>
-
-<a href="gpu/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #f5576c;">
-    <strong style="color: #333;">GPU Guide</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">CUDA acceleration setup</p>
-</div>
-</a>
-
-<a href="core_types/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #4facfe;">
-    <strong style="color: #333;">Core Types</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">Simulation, Flow, AutoBody</p>
-</div>
-</a>
-
-<a href="amr/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #43e97b;">
-    <strong style="color: #333;">AMR</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">Adaptive mesh refinement</p>
-</div>
-</a>
-
-<a href="examples/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #f093fb;">
-    <strong style="color: #333;">Examples</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">Cylinders, fish, FSI</p>
-</div>
-</a>
-
-<a href="api/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #ffa726;">
-    <strong style="color: #333;">API Reference</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">Complete function reference</p>
-</div>
-</a>
-
+julia --project -e &#39;using Pkg; Pkg.instantiate()&#39;</code></pre><hr/><h2 id="Documentation"><a class="docs-heading-anchor" href="#Documentation">Documentation</a><a id="Documentation-1"></a><a class="docs-heading-anchor-permalink" href="#Documentation" title="Permalink"></a></h2><div class="quick-links">
+    <a href="getting_started/" class="quick-link">
+        <strong>Getting Started</strong>
+        <span>Installation and first simulation</span>
+    </a>
+    <a href="gpu/" class="quick-link">
+        <strong>GPU Guide</strong>
+        <span>CUDA acceleration setup</span>
+    </a>
+    <a href="core_types/" class="quick-link">
+        <strong>Core Types</strong>
+        <span>Simulation, Flow, AutoBody</span>
+    </a>
+    <a href="amr/" class="quick-link">
+        <strong>AMR</strong>
+        <span>Adaptive mesh refinement</span>
+    </a>
+    <a href="examples/" class="quick-link">
+        <strong>Examples</strong>
+        <span>Cylinders, fish, FSI</span>
+    </a>
+    <a href="api/" class="quick-link">
+        <strong>API Reference</strong>
+        <span>Complete function reference</span>
+    </a>
 </div><hr/><h2 id="Example-Gallery"><a class="docs-heading-anchor" href="#Example-Gallery">Example Gallery</a><a id="Example-Gallery-1"></a><a class="docs-heading-anchor-permalink" href="#Example-Gallery" title="Permalink"></a></h2><h3 id="Flow-Past-Cylinder-(Re-100)"><a class="docs-heading-anchor" href="#Flow-Past-Cylinder-(Re-100)">Flow Past Cylinder (Re = 100)</a><a id="Flow-Past-Cylinder-(Re-100)-1"></a><a class="docs-heading-anchor-permalink" href="#Flow-Past-Cylinder-(Re-100)" title="Permalink"></a></h3><pre><code class="language-julia hljs">using BioFlows
 
 sdf(x, t) = sqrt((x[1]-32)^2 + (x[2]-32)^2) - 8
-sim = Simulation((128, 64), (1, 0), 16.0; ν=0.16, body=AutoBody(sdf))
+sim = Simulation((128, 64), (128.0, 64.0);
+                 inletBC = (1.0, 0.0),
+                 ν = 0.16,
+                 body = AutoBody(sdf))
 sim_step!(sim, 10.0)
 
 # Visualize vorticity
@@ -122,14 +94,17 @@ sdf(x, t) = sqrt(x[1]^2 + x[2]^2) - 8
 map(x, t) = x .- [0, 4*sin(0.5*t)]  # Vertical oscillation
 body = AutoBody(sdf, map)
 
-sim = Simulation((128, 64), (1, 0), 16.0; ν=0.16, body=body)
+sim = Simulation((128, 64), (128.0, 64.0);
+                 inletBC = (1.0, 0.0),
+                 ν = 0.16,
+                 body = body)
 sim_step!(sim, 20.0; remeasure=true)</code></pre><hr/><h2 id="Citation"><a class="docs-heading-anchor" href="#Citation">Citation</a><a id="Citation-1"></a><a class="docs-heading-anchor-permalink" href="#Citation" title="Permalink"></a></h2><p>If you use BioFlows.jl in your research, please cite:</p><pre><code class="language-bibtex hljs">@software{bioflows2024,
   author = {Kar, Subhajit and Ghosh, Dibyendu},
   title = {BioFlows.jl: Computational Fluid Dynamics with Immersed Boundary Methods},
   year = {2024},
   url = {https://github.com/subhk/BioFlows.jl}
-}</code></pre><hr/><h2 id="License"><a class="docs-heading-anchor" href="#License">License</a><a id="License-1"></a><a class="docs-heading-anchor-permalink" href="#License" title="Permalink"></a></h2><p>BioFlows.jl is released under the MIT License.</p><hr/><div style="text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #eee;">
-    <p style="color: #888;">
+}</code></pre><hr/><h2 id="License"><a class="docs-heading-anchor" href="#License">License</a><a id="License-1"></a><a class="docs-heading-anchor-permalink" href="#License" title="Permalink"></a></h2><p>BioFlows.jl is released under the MIT License.</p><hr/><div style="text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--bio-gray-200);">
+    <p style="color: var(--bio-gray-500); font-size: 0.9rem;">
         Developed by <strong>Subhajit Kar</strong> and <strong>Dibyendu Ghosh</strong>
     </p>
-</div></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="getting_started/">Getting Started »</a><div class="flexbox-break"></div><p class="footer-message">BioFlows.jl — High-Performance CFD in Julia</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Monday 19 January 2026 14:23">Monday 19 January 2026</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+</div></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="getting_started/">Getting Started »</a><div class="flexbox-break"></div><p class="footer-message">BioFlows.jl — High-Performance CFD in Julia</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Monday 19 January 2026 14:28">Monday 19 January 2026</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
