@@ -131,8 +131,8 @@ using LinearAlgebra: tr
 Return `H,K` the mean and Gaussian curvature from `A=hessian(sdf)`.
 `K=tr(minor(A))` in 3D and `K=0` in 2D.
 """
-function curvature(A::AbstractMatrix)
-    H,K = 0.5*tr(A),0
+function curvature(A::AbstractMatrix{T}) where T
+    H,K = T(0.5)*tr(A),zero(T)
     if size(A)==(3,3)
         K = A[1,1]*A[2,2]+A[1,1]*A[3,3]+A[2,2]*A[3,3]-A[1,2]^2-A[1,3]^2-A[2,3]^2
     end

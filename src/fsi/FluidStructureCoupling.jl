@@ -63,14 +63,14 @@ Create a flexible body for FSI simulation.
 - `tolerance`: Convergence tolerance (default: 1e-6)
 """
 function FlexibleBodyFSI(beam::EulerBernoulliBeam{T};
-                         x_head::Real=0.0,
-                         z_center::Real=0.0,
+                         x_head::Real=0f0,
+                         z_center::Real=0f0,
                          h_func::Union{Function, Nothing}=nothing,
-                         ρ_fluid::Real=1000.0,
+                         ρ_fluid::Real=1000f0,
                          active_forcing::Union{Function, Nothing}=nothing,
                          sub_iterations::Int=3,
-                         relaxation::Real=0.5,
-                         tolerance::Real=1e-6) where T
+                         relaxation::Real=0.5f0,
+                         tolerance::Real=1f-6) where T
 
     # Use beam geometry thickness if not provided
     h = h_func === nothing ? beam.geometry.thickness : h_func
@@ -240,12 +240,12 @@ function sample_pressure(flow, x::Real, z::Real)
     Δz = flow.Δx[2]
 
     # Grid indices (1-based, cell-centered)
-    i_float = x / Δx + 1.5
-    j_float = z / Δz + 1.5
+    i_float = T(x) / T(Δx) + T(1.5)
+    j_float = T(z) / T(Δz) + T(1.5)
 
     # Clamp to valid range
-    i_float = clamp(i_float, 1.0, Float64(nx))
-    j_float = clamp(j_float, 1.0, Float64(nz))
+    i_float = clamp(i_float, one(T), T(nx))
+    j_float = clamp(j_float, one(T), T(nz))
 
     i_low = floor(Int, i_float)
     j_low = floor(Int, j_float)
@@ -413,15 +413,16 @@ function FSISimulation(dims::Tuple{Int,Int}, domain::Tuple{Real,Real};
                        active_forcing::Union{Function, Nothing}=nothing,
                        bc_left::BeamBoundaryCondition=CLAMPED,
                        bc_right::BeamBoundaryCondition=FREE,
-                       damping::Real=0.1,
-                       tension::Real=0.0,
-                       ν::Real=0.001,
-                       ρ::Real=1000.0,
-                       inletBC::Tuple=(1.0, 0.0),
+                       damping::Real=0.1f0,
+                       tension::Real=0f0,
+                       ν::Real=0.001f0,
+                       ρ::Real=1000f0,
+                       inletBC::Tuple=(1f0, 0f0),
                        mem=Array,
+                       T::Type=Float32,
                        kwargs...)
 
-    T = Float64
+    # Use single precision by default for GPU efficiency
 
     # Create beam geometry with fish-like thickness profile
     h_func = fish_thickness_profile(beam_length, beam_thickness)
@@ -549,8 +550,8 @@ Create a traveling wave active forcing function for swimming.
 - `L`: Body length (for envelope calculation)
 """
 function traveling_wave_forcing(; amplitude::Real, frequency::Real,
-                                  wavelength::Real=1.0, envelope::Symbol=:carangiform,
-                                  L::Real=1.0)
+                                  wavelength::Real=1f0, envelope::Symbol=:carangiform,
+                                  L::Real=1f0)
     ω = 2π * frequency
     k = 2π / (wavelength * L)
 
@@ -558,11 +559,11 @@ function traveling_wave_forcing(; amplitude::Real, frequency::Real,
     env = if envelope == :carangiform
         s -> (s/L)^2
     elseif envelope == :anguilliform
-        s -> 0.3 + 0.7 * s/L
+        s -> 0.3f0 + 0.7f0 * s/L
     elseif envelope == :subcarangiform
-        s -> (s/L)^1.5
+        s -> (s/L)^1.5f0
     else  # uniform
-        s -> 1.0
+        s -> 1f0
     end
 
     return (s, t) -> amplitude * env(s) * sin(k*s - ω*t)
@@ -581,18 +582,18 @@ Create a heave + pitch forcing at the leading edge.
 - `pitch_phase`: Pitch phase offset (default: π/2)
 - `L`: Body length for normalization
 """
-function heave_pitch_forcing(; heave_amp::Real=0.0, pitch_amp::Real=0.0,
-                               frequency::Real=1.0,
-                               heave_phase::Real=0.0, pitch_phase::Real=π/2,
-                               L::Real=1.0)
+function heave_pitch_forcing(; heave_amp::Real=0f0, pitch_amp::Real=0f0,
+                               frequency::Real=1f0,
+                               heave_phase::Real=0f0, pitch_phase::Real=π/2,
+                               L::Real=1f0)
     ω = 2π * frequency
 
     return function(s, t)
         # Heave forcing concentrated at head
-        f_heave = heave_amp * exp(-(s/L)^2 / 0.01) * sin(ω*t + heave_phase)
+        f_heave = heave_amp * exp(-(s/L)^2 / 0.01f0) * sin(ω*t + heave_phase)
 
         # Pitch forcing (moment applied at head, creates distributed force)
-        f_pitch = pitch_amp * (s/L) * exp(-(s/L)^2 / 0.1) * sin(ω*t + pitch_phase)
+        f_pitch = pitch_amp * (s/L) * exp(-(s/L)^2 / 0.1f0) * sin(ω*t + pitch_phase)
 
         return f_heave + f_pitch
     end

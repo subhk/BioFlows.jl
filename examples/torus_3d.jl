@@ -5,7 +5,7 @@ using StaticArrays: SVector
 using LinearAlgebra: norm
 
 """
-    donut_sim(; n=2^6, ν=0.01, U=1, major_ratio=0.35, minor_ratio=0.12)
+    donut_sim(; n=2^6, ν=0.01f0, U=1f0, major_ratio=0.35f0, minor_ratio=0.12f0)
 
 Construct the 3D torus (donut) benchmark. `major_ratio` and
 `minor_ratio` scale the major and minor radii relative to the grid extent.
@@ -17,8 +17,8 @@ Construct the 3D torus (donut) benchmark. `major_ratio` and
 - `major_ratio`: Major radius as fraction of domain size
 - `minor_ratio`: Minor radius as fraction of domain size
 """
-function donut_sim(; n::Int=2^6, ν::Real=0.01, U::Real=1,
-                     major_ratio::Real=0.35, minor_ratio::Real=0.12)
+function donut_sim(; n::Int=2^6, ν::Real=0.01f0, U::Real=1f0,
+                     major_ratio::Real=0.35f0, minor_ratio::Real=0.12f0)
     dims = (n, n, n)
     center = SVector(map(d -> d / 2 - 1, dims)...)
     L = maximum(dims)
@@ -32,7 +32,7 @@ function donut_sim(; n::Int=2^6, ν::Real=0.01, U::Real=1,
     end
     diameter = 2major
     # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
-    Simulation(dims, (Float64(n), Float64(n), Float64(n));
+    Simulation(dims, (Float32(n), Float32(n), Float32(n));
                inletBC = (U, 0, 0),
                ν = ν,
                body = AutoBody(sdf),
@@ -51,7 +51,7 @@ function run_donut(; steps::Int=200, kwargs...)
     history = Vector{NamedTuple}(undef, steps)
     for k in 1:steps
         sim_step!(sim; remeasure=false)
-        coeff = total_force(sim) ./ (0.5 * sim.L * sim.U^2)
+        coeff = total_force(sim) ./ (0.5f0 * sim.L * sim.U^2)
         history[k] = (step=k,
                       time=sim_time(sim),
                       drag=coeff[1],

@@ -53,7 +53,7 @@ end
 Compute ``½∥𝐮-𝐔∥²`` at center of cell `I` where `U` can be used
 to subtract a background flow (by default, `U=0`).
 """
-ke(I::CartesianIndex{m},u,U=fSV(zero,m)) where m = 0.125fsum(m) do i
+ke(I::CartesianIndex{m},u,U=fSV(zero,m)) where m = eltype(u)(0.125)*fsum(m) do i
     abs2(@inbounds(u[I,i]+u[I+δ(i,I),i]-2U[i]))
 end
 """
@@ -300,7 +300,7 @@ pressure_force(sim) = pressure_force(sim.flow,sim.body; ϵ=_sim_kernel_width(sim
 pressure_force(flow,body; ϵ=1) = pressure_force(flow.p,flow.Δx,flow.f,body,time(flow); ϵ)
 function pressure_force(p,Δx,df,body,t=0; ϵ=1)
     D = ndims(p)
-    Tp = eltype(p); To = promote_type(Float64,Tp)
+    Tp = eltype(p)
     df .= zero(Tp)
     # Pressure has physical units (Pa) from the projection step.
     # Surface element: ds = Δx for 2D (per unit span), Δx² for 3D
@@ -309,7 +309,7 @@ function pressure_force(p,Δx,df,body,t=0; ϵ=1)
     # Compute contribution at each cell: F = -Σ p * n̂ * ds (negative because pressure acts inward)
     @loop df[I,:] .= -p[I]*nds(body,loc(0,I,Tp),t,ϵ)*scale over I ∈ inside(p)
     # Sum over all spatial dimensions to get total force vector
-    sum(To,df,dims=ntuple(i->i,D))[:] |> Array
+    sum(Tp,df,dims=ntuple(i->i,D))[:] |> Array
 end
 
 """
@@ -317,8 +317,8 @@ end
 
 Rate-of-strain tensor.
 """
-S(I::CartesianIndex{2},u) = @SMatrix [0.5*(∂(i,j,I,u)+∂(j,i,I,u)) for i ∈ 1:2, j ∈ 1:2]
-S(I::CartesianIndex{3},u) = @SMatrix [0.5*(∂(i,j,I,u)+∂(j,i,I,u)) for i ∈ 1:3, j ∈ 1:3]
+S(I::CartesianIndex{2},u) = (T = eltype(u); @SMatrix [T(0.5)*(∂(i,j,I,u)+∂(j,i,I,u)) for i ∈ 1:2, j ∈ 1:2])
+S(I::CartesianIndex{3},u) = (T = eltype(u); @SMatrix [T(0.5)*(∂(i,j,I,u)+∂(j,i,I,u)) for i ∈ 1:3, j ∈ 1:3])
 """
    viscous_force(sim::Simulation)
 
@@ -341,7 +341,7 @@ viscous_force(sim) = viscous_force(sim.flow,sim.body; ϵ=_sim_kernel_width(sim))
 viscous_force(flow,body; ϵ=1) = viscous_force(flow.u,flow.ν,flow.ρ,flow.Δx,flow.f,body,time(flow); ϵ)
 function viscous_force(u,ν,ρ,Δx,df,body,t=0; ϵ=1)
     D = ndims(u) - 1  # Spatial dimensions (u has extra dimension for components)
-    Tu = eltype(u); To = promote_type(Float64,Tu)
+    Tu = eltype(u)
     μ = ρ * ν  # dynamic viscosity (Pa·s)
     df .= zero(Tu)
     # The stored strain rate S uses unit-spacing derivatives: S_unit = S_physical * Δx
@@ -352,7 +352,7 @@ function viscous_force(u,ν,ρ,Δx,df,body,t=0; ϵ=1)
     scale = prod(Δx)^((D-2)/D)  # 1 for 2D, Δx for 3D (isotropic)
     # F = +∮ 2μS·n̂ ds (viscous traction on body from fluid)
     @loop df[I,:] .= 2μ*S(I,u)*nds(body,loc(0,I,Tu),t,ϵ)*scale over I ∈ inside_u(u)
-    sum(To,df,dims=ntuple(i->i,D))[:] |> Array
+    sum(Tu,df,dims=ntuple(i->i,D))[:] |> Array
 end
 
 """
@@ -394,7 +394,7 @@ end
 
 function pressure_moment(x₀,p,Δx,df,body,t=0; ϵ=1)
     D = ndims(p)
-    Tp = eltype(p); To = promote_type(Float64,Tp)
+    Tp = eltype(p)
     df .= zero(Tp)
     # Surface element: ds = Δx for 2D, Δx² for 3D
     # For moment, we also multiply by lever arm which has units of Δx
@@ -402,10 +402,10 @@ function pressure_moment(x₀,p,Δx,df,body,t=0; ϵ=1)
     scale = prod(Δx)
     if D == 2
         @loop df[I,1] = _moment_2d(I, p, body, x₀, t, ϵ, scale, Tp) over I ∈ inside(p)
-        sum(To,df,dims=ntuple(i->i,D))[:] |> Array |> first
+        sum(Tp,df,dims=ntuple(i->i,D))[:] |> Array |> first
     else
         @loop df[I,:] .= _moment_3d(I, p, body, x₀, t, ϵ, scale, Tp) over I ∈ inside(p)
-        sum(To,df,dims=ntuple(i->i,D))[:] |> Array
+        sum(Tp,df,dims=ntuple(i->i,D))[:] |> Array
     end
 end
 

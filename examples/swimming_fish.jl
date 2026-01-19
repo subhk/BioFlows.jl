@@ -101,22 +101,22 @@ Create a simulation of a swimming fish with flexible body motion.
 - `head_amplitude`: Amplitude at head for anguilliform mode (relative to length)
 """
 function swimming_fish_sim(; nx::Int=256, nz::Int=128,
-                             Lx::Real=1.0, Lz::Real=0.5,
-                             ν::Real=0.001, U::Real=1.0, ρ::Real=1000.0,
-                             fish_length::Real=0.2,
-                             fish_thickness::Real=0.02,
-                             amplitude::Real=0.1,
-                             frequency::Real=1.0,
-                             wavelength::Real=1.0,
-                             center::Tuple{Real,Real}=(0.3, 0.5),
+                             Lx::Real=1f0, Lz::Real=0.5f0,
+                             ν::Real=0.001f0, U::Real=1f0, ρ::Real=1000f0,
+                             fish_length::Real=0.2f0,
+                             fish_thickness::Real=0.02f0,
+                             amplitude::Real=0.1f0,
+                             frequency::Real=1f0,
+                             wavelength::Real=1f0,
+                             center::Tuple{Real,Real}=(0.3f0, 0.5f0),
                              # Leading edge motion parameters
-                             heave_amplitude::Real=0.0,
-                             heave_phase::Real=0.0,
-                             pitch_amplitude::Real=0.0,
+                             heave_amplitude::Real=0f0,
+                             heave_phase::Real=0f0,
+                             pitch_amplitude::Real=0f0,
                              pitch_phase::Real=π/2,
                              # Swimming mode
                              amplitude_envelope::Symbol=:carangiform,
-                             head_amplitude::Real=0.05)
+                             head_amplitude::Real=0.05f0)
 
     # Fish parameters
     L = fish_length
@@ -154,7 +154,7 @@ function swimming_fish_sim(; nx::Int=256, nz::Int=128,
     # h(s) = h_max * 4 * (s/L) * (1 - s/L)
     function thickness_envelope(s)
         s_norm = clamp(s / L, 0, 1)
-        return h * 4 * s_norm * (1 - s_norm) + 0.001  # Small offset to avoid zero thickness
+        return h * 4 * s_norm * (1 - s_norm) + 0.001f0  # Small offset to avoid zero thickness
     end
 
     """
@@ -221,7 +221,7 @@ function swimming_fish_sim(; nx::Int=256, nz::Int=128,
 
     # Create simulation
     sim = Simulation((nx, nz), (Lx, Lz);
-                     inletBC=(U, 0.0),
+                     inletBC=(U, 0f0),
                      ν=ν,
                      ρ=ρ,
                      body=fish,
@@ -241,11 +241,11 @@ end
 Configuration for a single fish in a school.
 """
 struct FishConfig
-    x_pos::Float64      # x position as fraction of domain
-    z_pos::Float64      # z position as fraction of domain
-    phase::Float64      # Phase offset for traveling wave
-    heave_phase::Float64  # Phase offset for heave motion
-    pitch_phase::Float64  # Phase offset for pitch motion
+    x_pos::Float32      # x position as fraction of domain
+    z_pos::Float32      # z position as fraction of domain
+    phase::Float32      # Phase offset for traveling wave
+    heave_phase::Float32  # Phase offset for heave motion
+    pitch_phase::Float32  # Phase offset for pitch motion
 end
 
 # Constructor with default phases
@@ -276,27 +276,27 @@ Create a simulation of multiple swimming fish (fish school) with flexible body m
 # Other arguments (same as swimming_fish_sim)
 """
 function fish_school_sim(; nx::Int=512, nz::Int=256,
-                           Lx::Real=2.0, Lz::Real=1.0,
+                           Lx::Real=2f0, Lz::Real=1f0,
                            n_fish::Int=3,
-                           spacing::Real=0.15,
-                           x_spacing::Real=0.2,
+                           spacing::Real=0.15f0,
+                           x_spacing::Real=0.2f0,
                            phase_offset::Real=π/3,
                            formation::Symbol=:staggered,
                            custom_positions::Union{Nothing, Vector{FishConfig}}=nothing,
-                           ν::Real=0.001, U::Real=1.0, ρ::Real=1000.0,
-                           fish_length::Real=0.15,
-                           fish_thickness::Real=0.015,
-                           amplitude::Real=0.1,
-                           frequency::Real=1.0,
-                           wavelength::Real=1.0,
+                           ν::Real=0.001f0, U::Real=1f0, ρ::Real=1000f0,
+                           fish_length::Real=0.15f0,
+                           fish_thickness::Real=0.015f0,
+                           amplitude::Real=0.1f0,
+                           frequency::Real=1f0,
+                           wavelength::Real=1f0,
                            # Leading edge motion parameters
-                           heave_amplitude::Real=0.0,
-                           heave_phase_offset::Real=0.0,
-                           pitch_amplitude::Real=0.0,
-                           pitch_phase_offset::Real=0.0,
+                           heave_amplitude::Real=0f0,
+                           heave_phase_offset::Real=0f0,
+                           pitch_amplitude::Real=0f0,
+                           pitch_phase_offset::Real=0f0,
                            # Swimming mode
                            amplitude_envelope::Symbol=:carangiform,
-                           head_amplitude::Real=0.05)
+                           head_amplitude::Real=0.05f0)
 
     L = fish_length
     h = fish_thickness / 2
@@ -317,42 +317,42 @@ function fish_school_sim(; nx::Int=512, nz::Int=256,
         for i in 1:n_fish
             if formation == :staggered
                 # Staggered formation (diagonal)
-                x_pos = 0.2 + (i - 1) * x_spacing
-                z_pos = 0.5 + (i - (n_fish + 1) / 2) * spacing
+                x_pos = 0.2f0 + (i - 1) * x_spacing
+                z_pos = 0.5f0 + (i - (n_fish + 1) / 2) * spacing
             elseif formation == :inline
                 # Inline (tandem) formation
-                x_pos = 0.15 + (i - 1) * (L/Lx + 0.1)
-                z_pos = 0.5
+                x_pos = 0.15f0 + (i - 1) * (L/Lx + 0.1f0)
+                z_pos = 0.5f0
             elseif formation == :diamond
                 # Diamond formation (for 4+ fish)
                 if n_fish >= 4
                     # Leader at front, then side-by-side, then follower
                     positions = [
-                        (0.15, 0.5),                    # Leader
-                        (0.3, 0.5 - spacing),           # Left wing
-                        (0.3, 0.5 + spacing),           # Right wing
-                        (0.45, 0.5),                    # Tail
+                        (0.15f0, 0.5f0),                    # Leader
+                        (0.3f0, 0.5f0 - spacing),           # Left wing
+                        (0.3f0, 0.5f0 + spacing),           # Right wing
+                        (0.45f0, 0.5f0),                    # Tail
                     ]
                     if i <= 4
                         x_pos, z_pos = positions[i]
                     else
                         # Extra fish go behind
-                        x_pos = 0.45 + ((i - 4) ÷ 2) * x_spacing
-                        z_pos = 0.5 + ((i - 4) % 2 == 0 ? -1 : 1) * spacing
+                        x_pos = 0.45f0 + ((i - 4) ÷ 2) * x_spacing
+                        z_pos = 0.5f0 + ((i - 4) % 2 == 0 ? -1 : 1) * spacing
                     end
                 else
                     # Fall back to staggered for < 4 fish
-                    x_pos = 0.2 + (i - 1) * x_spacing
-                    z_pos = 0.5 + (i - (n_fish + 1) / 2) * spacing
+                    x_pos = 0.2f0 + (i - 1) * x_spacing
+                    z_pos = 0.5f0 + (i - (n_fish + 1) / 2) * spacing
                 end
             elseif formation == :side_by_side
                 # Side-by-side formation
-                x_pos = 0.25
-                z_pos = 0.5 + (i - (n_fish + 1) / 2) * spacing
+                x_pos = 0.25f0
+                z_pos = 0.5f0 + (i - (n_fish + 1) / 2) * spacing
             else
                 # Default to staggered
-                x_pos = 0.2 + (i - 1) * x_spacing
-                z_pos = 0.5 + (i - (n_fish + 1) / 2) * spacing
+                x_pos = 0.2f0 + (i - 1) * x_spacing
+                z_pos = 0.5f0 + (i - (n_fish + 1) / 2) * spacing
             end
 
             wave_phase = (i - 1) * phase_offset
@@ -381,7 +381,7 @@ function fish_school_sim(; nx::Int=512, nz::Int=256,
 
     function thickness_envelope(s)
         s_norm = clamp(s / L, 0, 1)
-        return h * 4 * s_norm * (1 - s_norm) + 0.001
+        return h * 4 * s_norm * (1 - s_norm) + 0.001f0
     end
 
     # Centerline displacement for a single fish
@@ -436,7 +436,7 @@ function fish_school_sim(; nx::Int=512, nz::Int=256,
     school = AutoBody(school_sdf)
 
     sim = Simulation((nx, nz), (Lx, Lz);
-                     inletBC=(U, 0.0),
+                     inletBC=(U, 0f0),
                      ν=ν,
                      ρ=ρ,
                      body=school,
@@ -506,12 +506,12 @@ end
 Create a simulation of an anguilliform (eel-like) swimmer with motion along the entire body.
 The amplitude envelope is linear from head to tail with non-zero head amplitude.
 """
-function anguilliform_fish_sim(; head_amplitude::Real=0.05, amplitude::Real=0.12, kwargs...)
+function anguilliform_fish_sim(; head_amplitude::Real=0.05f0, amplitude::Real=0.12f0, kwargs...)
     swimming_fish_sim(;
         amplitude_envelope=:anguilliform,
         head_amplitude=head_amplitude,
         amplitude=amplitude,
-        wavelength=0.8,  # Shorter wavelength typical of anguilliform
+        wavelength=0.8f0,  # Shorter wavelength typical of anguilliform
         kwargs...
     )
 end
@@ -522,10 +522,10 @@ end
 Create a simulation of a fish with sinusoidal heaving (vertical oscillation) at the leading edge.
 This models fish that use head oscillation combined with body undulation.
 """
-function heaving_fish_sim(; heave_amplitude::Real=0.05, kwargs...)
+function heaving_fish_sim(; heave_amplitude::Real=0.05f0, kwargs...)
     swimming_fish_sim(;
         heave_amplitude=heave_amplitude,
-        heave_phase=0.0,  # In phase with body wave
+        heave_phase=0f0,  # In phase with body wave
         kwargs...
     )
 end
@@ -536,7 +536,7 @@ end
 Create a simulation of a fish with sinusoidal pitching (angular oscillation) at the leading edge.
 The pitch is 90° out of phase with the body wave for optimal thrust.
 """
-function pitching_fish_sim(; pitch_amplitude::Real=0.15, kwargs...)
+function pitching_fish_sim(; pitch_amplitude::Real=0.15f0, kwargs...)
     swimming_fish_sim(;
         pitch_amplitude=pitch_amplitude,
         pitch_phase=π/2,  # 90° phase lead for thrust
@@ -550,10 +550,10 @@ end
 Create a simulation of a fish with combined heave + pitch motion at the leading edge
 plus body undulation. This is the most realistic model for many fish species.
 """
-function combined_motion_fish_sim(; heave_amplitude::Real=0.03, pitch_amplitude::Real=0.1, kwargs...)
+function combined_motion_fish_sim(; heave_amplitude::Real=0.03f0, pitch_amplitude::Real=0.1f0, kwargs...)
     swimming_fish_sim(;
         heave_amplitude=heave_amplitude,
-        heave_phase=0.0,
+        heave_phase=0f0,
         pitch_amplitude=pitch_amplitude,
         pitch_phase=π/2,
         kwargs...
@@ -569,7 +569,7 @@ This models tightly coordinated schooling behavior.
 function synchronized_school_sim(; n_fish::Int=3, kwargs...)
     fish_school_sim(;
         n_fish=n_fish,
-        phase_offset=0.0,  # Same phase
+        phase_offset=0f0,  # Same phase
         formation=:side_by_side,
         kwargs...
     )
@@ -613,23 +613,23 @@ amr_info(sim)  # Print AMR status
 ```
 """
 function swimming_fish_amr_sim(; nx::Int=256, nz::Int=128,
-                                  Lx::Real=1.0, Lz::Real=0.5,
-                                  ν::Real=0.001, U::Real=1.0, ρ::Real=1000.0,
-                                  fish_length::Real=0.2,
-                                  fish_thickness::Real=0.02,
-                                  amplitude::Real=0.1,
-                                  frequency::Real=1.0,
-                                  wavelength::Real=1.0,
-                                  center::Tuple{Real,Real}=(0.3, 0.5),
-                                  heave_amplitude::Real=0.0,
-                                  heave_phase::Real=0.0,
-                                  pitch_amplitude::Real=0.0,
+                                  Lx::Real=1f0, Lz::Real=0.5f0,
+                                  ν::Real=0.001f0, U::Real=1f0, ρ::Real=1000f0,
+                                  fish_length::Real=0.2f0,
+                                  fish_thickness::Real=0.02f0,
+                                  amplitude::Real=0.1f0,
+                                  frequency::Real=1f0,
+                                  wavelength::Real=1f0,
+                                  center::Tuple{Real,Real}=(0.3f0, 0.5f0),
+                                  heave_amplitude::Real=0f0,
+                                  heave_phase::Real=0f0,
+                                  pitch_amplitude::Real=0f0,
                                   pitch_phase::Real=π/2,
                                   amplitude_envelope::Symbol=:carangiform,
-                                  head_amplitude::Real=0.05,
+                                  head_amplitude::Real=0.05f0,
                                   # AMR options
                                   amr_max_level::Int=2,
-                                  amr_body_threshold::Real=4.0)
+                                  amr_body_threshold::Real=4f0)
 
     # Fish parameters (same as swimming_fish_sim)
     L = fish_length
@@ -659,7 +659,7 @@ function swimming_fish_amr_sim(; nx::Int=256, nz::Int=128,
 
     function thickness_envelope(s)
         s_norm = clamp(s / L, 0, 1)
-        return h * 4 * s_norm * (1 - s_norm) + 0.001
+        return h * 4 * s_norm * (1 - s_norm) + 0.001f0
     end
 
     function centerline_displacement(s, t)
@@ -694,13 +694,13 @@ function swimming_fish_amr_sim(; nx::Int=256, nz::Int=128,
     amr_config = FlexibleBodyAMRConfig(
         max_level=amr_max_level,
         body_distance_threshold=amr_body_threshold,
-        indicator_change_threshold=0.05,  # 5% change triggers regrid
+        indicator_change_threshold=0.05f0,  # 5% change triggers regrid
         min_regrid_interval=2
     )
 
     # Create AMR simulation
     sim = AMRSimulation((nx, nz), (Lx, Lz);
-                        inletBC=(U, 0.0),
+                        inletBC=(U, 0f0),
                         ν=ν,
                         ρ=ρ,
                         body=fish,
@@ -718,27 +718,27 @@ Create an AMR-enabled simulation of a fish school.
 The mesh automatically refines around all fish bodies and follows their motion.
 """
 function fish_school_amr_sim(; nx::Int=512, nz::Int=256,
-                                Lx::Real=2.0, Lz::Real=1.0,
+                                Lx::Real=2f0, Lz::Real=1f0,
                                 n_fish::Int=3,
-                                spacing::Real=0.15,
-                                x_spacing::Real=0.2,
+                                spacing::Real=0.15f0,
+                                x_spacing::Real=0.2f0,
                                 phase_offset::Real=π/3,
                                 formation::Symbol=:staggered,
-                                ν::Real=0.001, U::Real=1.0, ρ::Real=1000.0,
-                                fish_length::Real=0.15,
-                                fish_thickness::Real=0.015,
-                                amplitude::Real=0.1,
-                                frequency::Real=1.0,
-                                wavelength::Real=1.0,
-                                heave_amplitude::Real=0.0,
-                                heave_phase_offset::Real=0.0,
-                                pitch_amplitude::Real=0.0,
-                                pitch_phase_offset::Real=0.0,
+                                ν::Real=0.001f0, U::Real=1f0, ρ::Real=1000f0,
+                                fish_length::Real=0.15f0,
+                                fish_thickness::Real=0.015f0,
+                                amplitude::Real=0.1f0,
+                                frequency::Real=1f0,
+                                wavelength::Real=1f0,
+                                heave_amplitude::Real=0f0,
+                                heave_phase_offset::Real=0f0,
+                                pitch_amplitude::Real=0f0,
+                                pitch_phase_offset::Real=0f0,
                                 amplitude_envelope::Symbol=:carangiform,
-                                head_amplitude::Real=0.05,
+                                head_amplitude::Real=0.05f0,
                                 # AMR options
                                 amr_max_level::Int=2,
-                                amr_body_threshold::Real=4.0)
+                                amr_body_threshold::Real=4f0)
 
     # Get the fish school body (reuse the SDF construction from fish_school_sim)
     # but create an AMR simulation instead
@@ -755,17 +755,17 @@ function fish_school_amr_sim(; nx::Int=512, nz::Int=256,
     fish_configs = FishConfig[]
     for i in 1:n_fish
         if formation == :staggered
-            x_pos = 0.2 + (i - 1) * x_spacing
-            z_pos = 0.5 + (i - (n_fish + 1) / 2) * spacing
+            x_pos = 0.2f0 + (i - 1) * x_spacing
+            z_pos = 0.5f0 + (i - (n_fish + 1) / 2) * spacing
         elseif formation == :inline
-            x_pos = 0.15 + (i - 1) * (L/Lx + 0.1)
-            z_pos = 0.5
+            x_pos = 0.15f0 + (i - 1) * (L/Lx + 0.1f0)
+            z_pos = 0.5f0
         elseif formation == :side_by_side
-            x_pos = 0.25
-            z_pos = 0.5 + (i - (n_fish + 1) / 2) * spacing
+            x_pos = 0.25f0
+            z_pos = 0.5f0 + (i - (n_fish + 1) / 2) * spacing
         else
-            x_pos = 0.2 + (i - 1) * x_spacing
-            z_pos = 0.5 + (i - (n_fish + 1) / 2) * spacing
+            x_pos = 0.2f0 + (i - 1) * x_spacing
+            z_pos = 0.5f0 + (i - (n_fish + 1) / 2) * spacing
         end
         wave_phase = (i - 1) * phase_offset
         h_phase = (i - 1) * heave_phase_offset
@@ -787,7 +787,7 @@ function fish_school_amr_sim(; nx::Int=512, nz::Int=256,
 
     function thickness_envelope(s)
         s_norm = clamp(s / L, 0, 1)
-        return h * 4 * s_norm * (1 - s_norm) + 0.001
+        return h * 4 * s_norm * (1 - s_norm) + 0.001f0
     end
 
     function centerline_displacement(s, t, φ_wave, φ_heave, φ_pitch)
@@ -830,13 +830,13 @@ function fish_school_amr_sim(; nx::Int=512, nz::Int=256,
     amr_config = FlexibleBodyAMRConfig(
         max_level=amr_max_level,
         body_distance_threshold=amr_body_threshold,
-        indicator_change_threshold=0.03,  # More sensitive for multiple fish
+        indicator_change_threshold=0.03f0,  # More sensitive for multiple fish
         min_regrid_interval=2,
         buffer_size=3  # Larger buffer for school
     )
 
     sim = AMRSimulation((nx, nz), (Lx, Lz);
-                        inletBC=(U, 0.0),
+                        inletBC=(U, 0f0),
                         ν=ν,
                         ρ=ρ,
                         body=school,
@@ -928,20 +928,20 @@ end
 ```
 """
 function fsi_swimming_fish(; nx::Int=256, nz::Int=128,
-                              Lx::Real=1.0, Lz::Real=0.5,
-                              ν::Real=0.001, U::Real=1.0, ρ_fluid::Real=1000.0,
-                              fish_length::Real=0.2,
-                              fish_thickness::Real=0.02,
-                              center::Tuple{Real,Real}=(0.3, 0.5),
+                              Lx::Real=1f0, Lz::Real=0.5f0,
+                              ν::Real=0.001f0, U::Real=1f0, ρ_fluid::Real=1000f0,
+                              fish_length::Real=0.2f0,
+                              fish_thickness::Real=0.02f0,
+                              center::Tuple{Real,Real}=(0.3f0, 0.5f0),
                               # Beam structural properties
-                              beam_density::Real=1100.0,
-                              young_modulus::Real=1.0e6,
-                              beam_damping::Real=0.1,
+                              beam_density::Real=1100f0,
+                              young_modulus::Real=1f6,
+                              beam_damping::Real=0.1f0,
                               n_beam_nodes::Int=51,
                               # Active forcing
-                              force_amplitude::Real=50.0,
-                              force_frequency::Real=2.0,
-                              force_wavelength::Real=1.0,
+                              force_amplitude::Real=50f0,
+                              force_frequency::Real=2f0,
+                              force_wavelength::Real=1f0,
                               force_envelope::Symbol=:carangiform)
 
     L = fish_length
@@ -951,11 +951,11 @@ function fsi_swimming_fish(; nx::Int=256, nz::Int=128,
     z_center = center[2] * Lz
 
     # Create beam material and geometry
-    material = BeamMaterial(ρ=beam_density, E=young_modulus, ν_poisson=0.45)
+    material = BeamMaterial(ρ=beam_density, E=young_modulus, ν_poisson=0.45f0)
 
     # Fish-like thickness profile: thick in middle, thin at head and tail
     thickness_func = fish_thickness_profile(L, h)
-    width_func = s -> 0.5 * h  # Width proportional to thickness
+    width_func = s -> 0.5f0 * h  # Width proportional to thickness
 
     geometry = BeamGeometry(L, n_beam_nodes;
                             thickness=thickness_func,
@@ -1013,7 +1013,7 @@ function fsi_swimming_fish(; nx::Int=256, nz::Int=128,
 
     # Create fluid simulation
     sim = Simulation((nx, nz), (Lx, Lz);
-                     inletBC=(U, 0.0),
+                     inletBC=(U, 0f0),
                      ν=ν,
                      ρ=ρ_fluid,
                      body=fish,
@@ -1047,7 +1047,7 @@ sim, beam, history = run_fsi_fish(
 )
 ```
 """
-function run_fsi_fish(; steps::Int=1000, dt_beam::Real=1e-4, verbose::Bool=true, kwargs...)
+function run_fsi_fish(; steps::Int=1000, dt_beam::Real=1f-4, verbose::Bool=true, kwargs...)
     sim, beam, f_active = fsi_swimming_fish(; kwargs...)
     history = NamedTuple[]
 
@@ -1093,14 +1093,14 @@ sim, beam, history = run_fsi_passive_flag(
 ```
 """
 function fsi_passive_flag(; nx::Int=256, nz::Int=128,
-                            Lx::Real=1.0, Lz::Real=0.5,
-                            ν::Real=0.001, U::Real=1.0, ρ_fluid::Real=1000.0,
-                            flag_length::Real=0.2,
-                            flag_thickness::Real=0.01,
-                            center::Tuple{Real,Real}=(0.3, 0.5),
-                            beam_density::Real=1000.0,
-                            young_modulus::Real=1.0e5,
-                            beam_damping::Real=0.05,
+                            Lx::Real=1f0, Lz::Real=0.5f0,
+                            ν::Real=0.001f0, U::Real=1f0, ρ_fluid::Real=1000f0,
+                            flag_length::Real=0.2f0,
+                            flag_thickness::Real=0.01f0,
+                            center::Tuple{Real,Real}=(0.3f0, 0.5f0),
+                            beam_density::Real=1000f0,
+                            young_modulus::Real=1f5,
+                            beam_damping::Real=0.05f0,
                             n_beam_nodes::Int=41)
 
     L = flag_length
@@ -1110,8 +1110,8 @@ function fsi_passive_flag(; nx::Int=256, nz::Int=128,
     z_center = center[2] * Lz
 
     # Create beam (uniform thickness for flag)
-    material = BeamMaterial(ρ=beam_density, E=young_modulus, ν_poisson=0.3)
-    geometry = BeamGeometry(L, n_beam_nodes; thickness=h, width=0.5 * h)
+    material = BeamMaterial(ρ=beam_density, E=young_modulus, ν_poisson=0.3f0)
+    geometry = BeamGeometry(L, n_beam_nodes; thickness=h, width=0.5f0 * h)
 
     beam = EulerBernoulliBeam(geometry, material;
                               bc_left=CLAMPED,  # Fixed at leading edge
@@ -1143,7 +1143,7 @@ function fsi_passive_flag(; nx::Int=256, nz::Int=128,
     flag = AutoBody(flag_sdf)
 
     sim = Simulation((nx, nz), (Lx, Lz);
-                     inletBC=(U, 0.0),
+                     inletBC=(U, 0f0),
                      ν=ν,
                      ρ=ρ_fluid,
                      body=flag,
@@ -1158,7 +1158,7 @@ end
 
 Run the passive flag FSI simulation.
 """
-function run_fsi_passive_flag(; steps::Int=1000, dt_beam::Real=1e-4, verbose::Bool=true, kwargs...)
+function run_fsi_passive_flag(; steps::Int=1000, dt_beam::Real=1f-4, verbose::Bool=true, kwargs...)
     sim, beam = fsi_passive_flag(; kwargs...)
     history = NamedTuple[]
 
@@ -1196,31 +1196,31 @@ if abspath(PROGRAM_FILE) == @__FILE__
     # Example 1: Carangiform swimming (default, tail-dominated)
     @info "Example 1: Carangiform swimming fish (tail-dominated motion)..."
     sim1, history1 = run_swimming_fish(steps=200, amplitude_envelope=:carangiform)
-    stats1 = summarize_force_history(history1; discard=0.2)
+    stats1 = summarize_force_history(history1; discard=0.2f0)
     @info "Carangiform results:" mean_drag=round(stats1.drag_mean, digits=4) mean_lift=round(stats1.lift_mean, digits=4)
 
     # Example 2: Anguilliform swimming (whole-body motion)
     @info "\nExample 2: Anguilliform swimming fish (whole-body motion)..."
-    sim2, history2 = run_swimming_fish(steps=200, amplitude_envelope=:anguilliform, head_amplitude=0.05)
-    stats2 = summarize_force_history(history2; discard=0.2)
+    sim2, history2 = run_swimming_fish(steps=200, amplitude_envelope=:anguilliform, head_amplitude=0.05f0)
+    stats2 = summarize_force_history(history2; discard=0.2f0)
     @info "Anguilliform results:" mean_drag=round(stats2.drag_mean, digits=4) mean_lift=round(stats2.lift_mean, digits=4)
 
     # Example 3: Fish with leading edge heave motion
     @info "\nExample 3: Fish with leading edge heave motion..."
-    sim3, history3 = run_swimming_fish(steps=200, heave_amplitude=0.05)
-    stats3 = summarize_force_history(history3; discard=0.2)
+    sim3, history3 = run_swimming_fish(steps=200, heave_amplitude=0.05f0)
+    stats3 = summarize_force_history(history3; discard=0.2f0)
     @info "Heaving fish results:" mean_drag=round(stats3.drag_mean, digits=4) mean_lift=round(stats3.lift_mean, digits=4)
 
     # Example 4: Fish with leading edge pitch motion
     @info "\nExample 4: Fish with leading edge pitch motion..."
-    sim4, history4 = run_swimming_fish(steps=200, pitch_amplitude=0.15)
-    stats4 = summarize_force_history(history4; discard=0.2)
+    sim4, history4 = run_swimming_fish(steps=200, pitch_amplitude=0.15f0)
+    stats4 = summarize_force_history(history4; discard=0.2f0)
     @info "Pitching fish results:" mean_drag=round(stats4.drag_mean, digits=4) mean_lift=round(stats4.lift_mean, digits=4)
 
     # Example 5: Fish school in staggered formation
     @info "\nExample 5: Fish school (3 fish, staggered formation)..."
     sim5, history5, configs5 = run_fish_school(steps=200, n_fish=3, formation=:staggered)
-    stats5 = summarize_force_history(history5; discard=0.2)
+    stats5 = summarize_force_history(history5; discard=0.2f0)
     @info "Fish school results:" mean_drag=round(stats5.drag_mean, digits=4) mean_lift=round(stats5.lift_mean, digits=4)
 
     # Example 6: Fish school with anguilliform swimmers
@@ -1229,11 +1229,11 @@ if abspath(PROGRAM_FILE) == @__FILE__
         steps=200,
         n_fish=3,
         amplitude_envelope=:anguilliform,
-        head_amplitude=0.04,
-        heave_amplitude=0.02,
+        head_amplitude=0.04f0,
+        heave_amplitude=0.02f0,
         formation=:side_by_side
     )
-    stats6 = summarize_force_history(history6; discard=0.2)
+    stats6 = summarize_force_history(history6; discard=0.2f0)
     @info "Anguilliform school results:" mean_drag=round(stats6.drag_mean, digits=4) mean_lift=round(stats6.lift_mean, digits=4)
 
     println("\n" * "=" ^ 60)

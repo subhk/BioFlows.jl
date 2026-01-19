@@ -39,7 +39,7 @@ struct BeamMaterial{T<:Real}
     ν_poisson::T  # Poisson's ratio
 end
 
-BeamMaterial(; ρ=1100.0, E=1e6, ν_poisson=0.45) = BeamMaterial(ρ, E, ν_poisson)
+BeamMaterial(; ρ=1100.0f0, E=1f6, ν_poisson=0.45f0) = BeamMaterial(ρ, E, ν_poisson)
 
 """
     BeamGeometry
@@ -53,10 +53,10 @@ struct BeamGeometry{T<:Real, F1<:Function, F2<:Function}
     width::F2         # b(s): width at position s
 end
 
-function BeamGeometry(L::Real, n::Int; thickness=0.01, width=0.05)
-    h_func = thickness isa Function ? thickness : (s -> thickness)
-    b_func = width isa Function ? width : (s -> width)
-    BeamGeometry(Float64(L), n, h_func, b_func)
+function BeamGeometry(L::Real, n::Int; thickness=0.01f0, width=0.05f0, T::Type=Float32)
+    h_func = thickness isa Function ? thickness : (s -> T(thickness))
+    b_func = width isa Function ? width : (s -> T(width))
+    BeamGeometry(T(L), n, h_func, b_func)
 end
 
 # NACA-like fish profile
@@ -127,11 +127,11 @@ Create an Euler-Bernoulli beam with full FEM discretization.
 function EulerBernoulliBeam(geometry::BeamGeometry{T}, material::BeamMaterial{T};
                             bc_left::BeamBoundaryCondition=CLAMPED,
                             bc_right::BeamBoundaryCondition=FREE,
-                            damping::Real=0.0,
-                            tension::Real=0.0,
-                            β::Real=0.25,
-                            γ::Real=0.5,
-                            Δt::Real=1e-4) where T
+                            damping::Real=0f0,
+                            tension::Real=0f0,
+                            β::Real=0.25f0,
+                            γ::Real=0.5f0,
+                            Δt::Real=1f-4) where T
 
     n = geometry.n
     L = geometry.L

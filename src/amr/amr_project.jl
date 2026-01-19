@@ -129,8 +129,8 @@ function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractAr
             # Fallback: interpolate from coarse (scalar indexing - less common path)
             for I in inside(patch)
                 fi, fj = I.I
-                xf = (fi - 1.5) / ratio
-                zf = (fj - 1.5) / ratio
+                xf = (fi - T(1.5)) / ratio
+                zf = (fj - T(1.5)) / ratio
                 ic = floor(Int, xf) + ai
                 jc = floor(Int, zf) + aj
                 ic = clamp(ic, 2, size(u_coarse, 1) - 1)
@@ -278,7 +278,7 @@ function amr_mom_step!(flow::Flow{D,T}, cp::CompositePoisson{T};
     scale_u!(flow, T(0.5))  # Average predictor and corrector
     BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
 
-    amr_project!(flow, cp, 0.5)
+    amr_project!(flow, cp, T(0.5))
     BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
 
     # Update time step - use amr_cfl to account for refined patches
@@ -374,8 +374,8 @@ function synchronize_base_and_patches!(flow::Flow{D,T}, cp::CompositePoisson{T})
 
         for I in inside(patch)
             fi, fj = I.I
-            xf = (fi - 1.5) / ratio
-            zf = (fj - 1.5) / ratio
+            xf = (fi - T(1.5)) / ratio
+            zf = (fj - T(1.5)) / ratio
             ic = floor(Int, xf) + ai
             jc = floor(Int, zf) + aj
             ic = clamp(ic, 1, size(cp.base.x, 1))

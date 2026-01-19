@@ -23,10 +23,31 @@ function prolongate_pressure_to_boundary!(patch::PatchPoisson{T},
 end
 
 """
+    _restrict_cell_2d(x_fine, ci, cj, ratio)
+
+Helper function for restriction: compute sum of fine cells in a coarse cell.
+Pure function with no side effects, suitable for use in @loop.
+"""
+@inline function _restrict_cell_2d(x_fine::AbstractArray{T}, ci::Int, cj::Int, ratio::Int) where T
+    sum_val = zero(T)
+    @inbounds for di in 1:ratio, dj in 1:ratio
+        fi = (ci - 1) * ratio + di + 1  # +1 for ghost
+        fj = (cj - 1) * ratio + dj + 1
+        sum_val += x_fine[fi, fj]
+    end
+    return sum_val
+end
+
+"""
     restrict_pressure_to_coarse!(p_coarse, patch, anchor)
 
 Restrict patch pressure to coarse grid using volume-weighted averaging.
 Updates coarse cells covered by the patch.
+
+Note: This function uses scalar indexing for the restriction operation.
+On GPU, this will cause scalar indexing but executes correctly. The restriction
+operation is O(patch_size) and called once per solve iteration, so the
+performance impact is acceptable compared to the GPU-accelerated solver loops.
 
 # Arguments
 - `p_coarse`: Coarse pressure array to update
@@ -40,18 +61,10 @@ function restrict_pressure_to_coarse!(p_coarse::AbstractArray{T},
     ai, aj = anchor
     inv_ratio2 = one(T) / (ratio * ratio)
 
-    for ci in 1:patch.coarse_extent[1], cj in 1:patch.coarse_extent[2]
-        I_coarse = CartesianIndex(ai + ci - 1, aj + cj - 1)
-
-        # Average fine cells
-        sum_val = zero(T)
-        for di in 1:ratio, dj in 1:ratio
-            fi = (ci - 1) * ratio + di + 1  # +1 for ghost
-            fj = (cj - 1) * ratio + dj + 1
-            sum_val += patch.x[fi, fj]
-        end
-        p_coarse[I_coarse] = sum_val * inv_ratio2
-    end
+    # Use @loop with coarse indices for GPU-compatible restriction
+    R = CartesianIndices((1:patch.coarse_extent[1], 1:patch.coarse_extent[2]))
+    @loop p_coarse[CartesianIndex(ai + I[1] - 1, aj + I[2] - 1)] =
+        _restrict_cell_2d(patch.x, I[1], I[2], ratio) * inv_ratio2 over I ∈ R
 end
 
 """
@@ -423,8 +436,8 @@ function compute_fine_divergence!(patch::PatchPoisson{T},
         for I in inside(patch)
             fi, fj = I.I
             # Map to coarse location
-            xf = (fi - 1.5) / ratio
-            zf = (fj - 1.5) / ratio
+            xf = (fi - T(1.5)) / ratio
+            zf = (fj - T(1.5)) / ratio
             ic = floor(Int, xf) + ai
             jc = floor(Int, zf) + aj
             ic = clamp(ic, 2, size(u_coarse, 1) - 1)
@@ -541,10 +554,32 @@ function prolongate_pressure_to_boundary_3d!(patch::PatchPoisson3D{T},
 end
 
 """
+    _restrict_cell_3d(x_fine, ci, cj, ck, ratio)
+
+Helper function for 3D restriction: compute sum of fine cells in a coarse cell.
+Pure function with no side effects, suitable for use in @loop.
+"""
+@inline function _restrict_cell_3d(x_fine::AbstractArray{T}, ci::Int, cj::Int, ck::Int, ratio::Int) where T
+    sum_val = zero(T)
+    @inbounds for di in 1:ratio, dj in 1:ratio, dk in 1:ratio
+        fi = (ci - 1) * ratio + di + 1  # +1 for ghost
+        fj = (cj - 1) * ratio + dj + 1
+        fk = (ck - 1) * ratio + dk + 1
+        sum_val += x_fine[fi, fj, fk]
+    end
+    return sum_val
+end
+
+"""
     restrict_pressure_to_coarse_3d!(p_coarse, patch, anchor)
 
 Restrict 3D patch pressure to coarse grid using volume-weighted averaging.
 Updates coarse cells covered by the patch.
+
+Note: This function uses scalar indexing for the restriction operation.
+On GPU, this will cause scalar indexing but executes correctly. The restriction
+operation is O(patch_size) and called once per solve iteration, so the
+performance impact is acceptable compared to the GPU-accelerated solver loops.
 
 # Arguments
 - `p_coarse`: Coarse pressure array to update
@@ -558,22 +593,10 @@ function restrict_pressure_to_coarse_3d!(p_coarse::AbstractArray{T},
     ai, aj, ak = anchor
     inv_ratio3 = one(T) / (ratio * ratio * ratio)
 
-    for ci in 1:patch.coarse_extent[1],
-        cj in 1:patch.coarse_extent[2],
-        ck in 1:patch.coarse_extent[3]
-
-        I_coarse = CartesianIndex(ai + ci - 1, aj + cj - 1, ak + ck - 1)
-
-        # Average fine cells
-        sum_val = zero(T)
-        for di in 1:ratio, dj in 1:ratio, dk in 1:ratio
-            fi = (ci - 1) * ratio + di + 1  # +1 for ghost
-            fj = (cj - 1) * ratio + dj + 1
-            fk = (ck - 1) * ratio + dk + 1
-            sum_val += patch.x[fi, fj, fk]
-        end
-        p_coarse[I_coarse] = sum_val * inv_ratio3
-    end
+    # Use @loop with coarse indices for GPU-compatible restriction
+    R = CartesianIndices((1:patch.coarse_extent[1], 1:patch.coarse_extent[2], 1:patch.coarse_extent[3]))
+    @loop p_coarse[CartesianIndex(ai + I[1] - 1, aj + I[2] - 1, ak + I[3] - 1)] =
+        _restrict_cell_3d(patch.x, I[1], I[2], I[3], ratio) * inv_ratio3 over I ∈ R
 end
 
 """
@@ -1009,9 +1032,9 @@ function compute_fine_divergence_3d!(patch::PatchPoisson3D{T},
         for I in inside(patch)
             fi, fj, fk = I.I
             # Map to coarse location
-            xf = (fi - 1.5) / ratio
-            yf = (fj - 1.5) / ratio
-            zf = (fk - 1.5) / ratio
+            xf = (fi - T(1.5)) / ratio
+            yf = (fj - T(1.5)) / ratio
+            zf = (fk - T(1.5)) / ratio
             ic = floor(Int, xf) + ai
             jc = floor(Int, yf) + aj
             kc = floor(Int, zf) + ak

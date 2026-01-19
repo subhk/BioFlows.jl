@@ -5,7 +5,7 @@ using StaticArrays: SVector
 using LinearAlgebra: norm
 
 """
-    circle_sim(; n=3*2^5, m=2^6, ν=0.01, U=1)
+    circle_sim(; n=3*2^5, m=2^6, ν=0.01f0, U=1f0)
 
 Construct the classic 2D cylinder benchmark using BioFlows.
 Uses uniform inflow past a stationary cylinder.
@@ -15,13 +15,13 @@ Uses uniform inflow past a stationary cylinder.
 - `ν`: Kinematic viscosity (m²/s)
 - `U`: Inflow velocity (m/s)
 """
-function circle_sim(; n::Int=3*2^5, m::Int=2^6, ν::Real=0.01, U::Real=1)
+function circle_sim(; n::Int=3*2^5, m::Int=2^6, ν::Real=0.01f0, U::Real=1f0)
     radius = m / 8
     center = SVector(m / 2 - 1, m / 2 - 1)
     sdf(x, t) = norm(x .- center) - radius
     diameter = 2radius
     # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
-    Simulation((n, m), (Float64(n), Float64(m));
+    Simulation((n, m), (Float32(n), Float32(m));
                inletBC=(U, 0), ν=ν, body=AutoBody(sdf), L_char=diameter)
 end
 
@@ -38,7 +38,7 @@ function run_circle(; steps::Int=250, remeasure::Bool=false)
     history = Vector{NamedTuple}(undef, steps)
     for k in 1:steps
         sim_step!(sim; remeasure)
-        coeff = pressure_force(sim) ./ (0.5 * sim.L * sim.U^2)
+        coeff = pressure_force(sim) ./ (0.5f0 * sim.L * sim.U^2)
         history[k] = (step=k,
                       time=sim_time(sim),
                       drag=coeff[1],

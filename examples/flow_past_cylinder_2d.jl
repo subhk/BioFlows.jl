@@ -3,14 +3,14 @@ using Statistics
 using Random
 
 """
-    flow_past_cylinder_2d_sim(; nx=240, nz=240, Lx=4.0, Lz=4.0, ν=0.001, ...)
+    flow_past_cylinder_2d_sim(; nx=240, nz=240, Lx=4f0, Lz=4f0, ν=0.001f0, ...)
 
 Construct the classic 2D cylinder benchmark.
 Returns `(sim, meta)`.
 """
 function flow_past_cylinder_2d_sim(; nx::Int=240, nz::Int=240,
-                                      Lx::Real=4.0, Lz::Real=4.0,
-                                      ν::Real=0.001, U::Real=1.0,
+                                      Lx::Real=4f0, Lz::Real=4f0,
+                                      ν::Real=0.001f0, U::Real=1f0,
                                       radius::Union{Nothing,Real}=nothing,
                                       dt=nothing, inletBC=nothing,
                                       perdir=(2,), outletBC::Bool=true)
@@ -18,7 +18,7 @@ function flow_past_cylinder_2d_sim(; nx::Int=240, nz::Int=240,
     dz = Lz / nz
     @assert isapprox(dx, dz; atol=1e-8, rtol=1e-6) "Non-uniform cell spacing (Δx ≠ Δz) is not supported"
 
-    radius_phys = isnothing(radius) ? 0.2 : radius
+    radius_phys = isnothing(radius) ? 0.2f0 : radius
     center_x_cells = nx / 12 - 1
     center_z_cells = nz / 2 - 1
     radius_cells = radius_phys / dx

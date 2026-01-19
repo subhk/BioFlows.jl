@@ -117,7 +117,7 @@ not the non-conservative form u_j ∂u_i/∂x_j.
 - `Δx`: Grid spacing tuple (m), e.g., `(Δx, Δz)` or `(Δx, Δy, Δz)`
 - `perdir`: Tuple of periodic directions
 """
-function conv_diff!(r,u,Φ,λ::F;ν=0.1,Δx=(1,1),perdir=()) where {F}
+function conv_diff!(r,u,Φ,λ::F;ν=0.1f0,Δx=(1,1),perdir=()) where {F}
     r .= zero(eltype(r))
     N,n = size_u(u)
     T = eltype(r)
@@ -182,7 +182,7 @@ cell and subtracted from its neighbor, ensuring exact momentum conservation.
 - `Δx`: Grid spacing tuple (m)
 - `perdir`: Tuple of periodic directions
 """
-function compute_face_flux!(F_conv,F_diff,u,λ::F;ν=0.1,Δx=(1,1),perdir=()) where {F}
+function compute_face_flux!(F_conv,F_diff,u,λ::F;ν=0.1f0,Δx=(1,1),perdir=()) where {F}
     N,n = size_u(u)
     T = eltype(u)
     # Clear flux arrays
@@ -255,7 +255,7 @@ Finite Volume Method for convection-diffusion with explicit flux storage.
 Computes fluxes, stores them in F_conv/F_diff, and applies them conservatively.
 This is the FVM alternative to conv_diff! for use when store_fluxes=true.
 """
-function conv_diff_fvm!(r,u,F_conv,F_diff,λ::F;ν=0.1,Δx=(1,1),perdir=()) where {F}
+function conv_diff_fvm!(r,u,F_conv,F_diff,λ::F;ν=0.1f0,Δx=(1,1),perdir=()) where {F}
     compute_face_flux!(F_conv,F_diff,u,λ;ν,Δx,perdir)
     apply_fluxes!(r,F_conv,F_diff)
 end
@@ -347,7 +347,7 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     flow = Flow((200, 100); L=(2.0, 1.0), inletBC=(1.0, 0.0), ν=1.5e-5, ρ=1.2)
     ```
     """
-    function Flow(N::NTuple{D}; L::NTuple{D}, inletBC=nothing, f=Array, Δt=0.25, ν=0., ρ=1000., g=nothing,
+    function Flow(N::NTuple{D}; L::NTuple{D}, inletBC=nothing, f=Array, Δt=0.25f0, ν=0f0, ρ=1000f0, g=nothing,
             uλ=nothing, perdir=(), outletBC=false, store_fluxes=false, T=Float32, fixed_Δt=nothing) where D
         # Default inletBC: unit velocity in x-direction
         if isnothing(inletBC)
@@ -462,7 +462,7 @@ Solves the dimensional incompressible Navier-Stokes equations:
 
 Uses predictor-corrector time integration with proper Δx scaling.
 """
-@fastmath function mom_step!(a::Flow{N},b::AbstractPoisson;λ=quick,udf=nothing,kwargs...) where N
+@fastmath function mom_step!(a::Flow{N,T},b::AbstractPoisson;λ=quick,udf=nothing,kwargs...) where {N,T}
     a.u⁰ .= a.u; scale_u!(a,0); t₁ = sum(a.Δt); t₀ = t₁-a.Δt[end]
     # predictor u → u'
     @log "p"
@@ -485,8 +485,8 @@ Uses predictor-corrector time integration with proper Δx scaling.
     end
     udf!(a,udf,t₁; kwargs...)
     accelerate!(a.f,t₁,a.g,a.inletBC)
-    BDIM!(a); scale_u!(a,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
-    project!(a,b,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
+    BDIM!(a); scale_u!(a,T(0.5)); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
+    project!(a,b,T(0.5)); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
     # Use fixed time step if specified, otherwise adaptive CFL
     next_dt = isnothing(a.fixed_Δt) ? CFL(a) : a.fixed_Δt
     push!(a.Δt, next_dt)
@@ -515,16 +515,18 @@ end
 
 # Anisotropic flux out: Σ_d (max(0,u[I+d,d])/Δx[d] + max(0,-u[I,d])/Δx[d])
 @fastmath @inline function flux_out_aniso(I::CartesianIndex{d},u,Δx) where {d}
-    s = zero(eltype(u))
+    T = eltype(u)
+    s = zero(T)
     for i in 1:d
-        s += @inbounds((max(0.,u[I+δ(i,I),i])+max(0.,-u[I,i])) / Δx[i])
+        s += @inbounds((max(zero(T),u[I+δ(i,I),i])+max(zero(T),-u[I,i])) / Δx[i])
     end
     return s
 end
 @fastmath @inline function flux_out(I::CartesianIndex{d},u) where {d}
-    s = zero(eltype(u))
+    T = eltype(u)
+    s = zero(T)
     for i in 1:d
-        s += @inbounds(max(0.,u[I+δ(i,I),i])+max(0.,-u[I,i]))
+        s += @inbounds(max(zero(T),u[I+δ(i,I),i])+max(zero(T),-u[I,i]))
     end
     return s
 end

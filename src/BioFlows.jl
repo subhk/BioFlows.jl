@@ -195,7 +195,7 @@ mutable struct Simulation <: AbstractSimulation
     pois :: AbstractPoisson
 
     function Simulation(dims::NTuple{N}, L::NTuple{N};
-                        inletBC=nothing, L_char=nothing, Δt=0.25, ν=0., ρ=1000., g=nothing, U=nothing, ϵ=1, perdir=(),
+                        inletBC=nothing, L_char=nothing, Δt=0.25f0, ν=0f0, ρ=1000f0, g=nothing, U=nothing, ϵ=1, perdir=(),
                         uλ=nothing, outletBC=false, body::AbstractBody=NoBody(),
                         T=Float32, mem=Array, fixed_Δt=nothing, store_fluxes=false) where N
         # Default inletBC: unit velocity in x-direction
@@ -277,7 +277,7 @@ sim_info(sim::AbstractSimulation) = println("tU/L=",round(sim_time(sim),digits=4
     perturb!(sim; noise=0.1)
 Perturb the velocity field of a simulation with `noise` level with respect to velocity scale `U`.
 """
-perturb!(sim::AbstractSimulation; noise=0.1) = sim.flow.u .+= randn(size(sim.flow.u))*sim.U*noise |> typeof(sim.flow.u).name.wrapper
+perturb!(sim::AbstractSimulation; noise=0.1f0) = sim.flow.u .+= randn(size(sim.flow.u))*sim.U*noise |> typeof(sim.flow.u).name.wrapper
 
 export AbstractSimulation,Simulation,sim_step!,sim_time,measure!,sim_info,perturb!
 
@@ -307,19 +307,19 @@ Configuration for adaptive mesh refinement.
 - `regrid_on_measure`: Always regrid after body remeasurement (most accurate but expensive)
 - `min_regrid_interval`: Minimum steps between regrids (prevents excessive regridding)
 """
-struct AMRConfig
+struct AMRConfig{T<:Real}
     max_level::Int
-    body_distance_threshold::Float64
-    velocity_gradient_threshold::Float64
-    vorticity_threshold::Float64
+    body_distance_threshold::T
+    velocity_gradient_threshold::T
+    vorticity_threshold::T
     regrid_interval::Int
     buffer_size::Int
-    body_weight::Float64
-    gradient_weight::Float64
-    vorticity_weight::Float64
+    body_weight::T
+    gradient_weight::T
+    vorticity_weight::T
     # Flexible body support
     flexible_body::Bool
-    indicator_change_threshold::Float64
+    indicator_change_threshold::T
     regrid_on_measure::Bool
     min_regrid_interval::Int
 end
@@ -348,24 +348,25 @@ config = AMRConfig(
 ```
 """
 function AMRConfig(; max_level::Int=2,
-                    body_distance_threshold::Real=3.0,
-                    velocity_gradient_threshold::Real=1.0,
-                    vorticity_threshold::Real=1.0,
+                    body_distance_threshold::Real=3.0f0,
+                    velocity_gradient_threshold::Real=1.0f0,
+                    vorticity_threshold::Real=1.0f0,
                     regrid_interval::Int=10,
                     buffer_size::Int=1,
-                    body_weight::Real=0.5,
-                    gradient_weight::Real=0.3,
-                    vorticity_weight::Real=0.2,
+                    body_weight::Real=0.5f0,
+                    gradient_weight::Real=0.3f0,
+                    vorticity_weight::Real=0.2f0,
                     # Flexible body options
                     flexible_body::Bool=false,
-                    indicator_change_threshold::Real=0.1,
+                    indicator_change_threshold::Real=0.1f0,
                     regrid_on_measure::Bool=false,
-                    min_regrid_interval::Int=1)
-    AMRConfig(max_level, Float64(body_distance_threshold),
-              Float64(velocity_gradient_threshold), Float64(vorticity_threshold),
+                    min_regrid_interval::Int=1,
+                    T::Type=Float32)
+    AMRConfig{T}(max_level, T(body_distance_threshold),
+              T(velocity_gradient_threshold), T(vorticity_threshold),
               regrid_interval, buffer_size,
-              Float64(body_weight), Float64(gradient_weight), Float64(vorticity_weight),
-              flexible_body, Float64(indicator_change_threshold),
+              T(body_weight), T(gradient_weight), T(vorticity_weight),
+              flexible_body, T(indicator_change_threshold),
               regrid_on_measure, min_regrid_interval)
 end
 
@@ -710,7 +711,7 @@ function get_refinement_indicator(amr::AMRSimulation)
     )
 end
 
-perturb!(amr::AMRSimulation; noise=0.1) = perturb!(amr.sim; noise)
+perturb!(amr::AMRSimulation; noise=0.1f0) = perturb!(amr.sim; noise)
 
 function measure!(amr::AMRSimulation, t=sum(amr.sim.flow.Δt))
     measure!(amr.sim, t)
@@ -787,15 +788,15 @@ end
 ```
 """
 function FlexibleBodyAMRConfig(; max_level::Int=2,
-                                 body_distance_threshold::Real=4.0,
-                                 velocity_gradient_threshold::Real=1.0,
-                                 vorticity_threshold::Real=1.0,
+                                 body_distance_threshold::Real=4f0,
+                                 velocity_gradient_threshold::Real=1f0,
+                                 vorticity_threshold::Real=1f0,
                                  regrid_interval::Int=5,
                                  buffer_size::Int=2,
-                                 body_weight::Real=0.6,
-                                 gradient_weight::Real=0.2,
-                                 vorticity_weight::Real=0.2,
-                                 indicator_change_threshold::Real=0.05,
+                                 body_weight::Real=0.6f0,
+                                 gradient_weight::Real=0.2f0,
+                                 vorticity_weight::Real=0.2f0,
+                                 indicator_change_threshold::Real=0.05f0,
                                  regrid_on_measure::Bool=false,
                                  min_regrid_interval::Int=2)
     AMRConfig(;
@@ -854,15 +855,15 @@ end
 ```
 """
 function RigidBodyAMRConfig(; max_level::Int=2,
-                              body_distance_threshold::Real=3.0,
-                              velocity_gradient_threshold::Real=1.0,
-                              vorticity_threshold::Real=1.0,
+                              body_distance_threshold::Real=3f0,
+                              velocity_gradient_threshold::Real=1f0,
+                              vorticity_threshold::Real=1f0,
                               regrid_interval::Int=8,
                               buffer_size::Int=2,
-                              body_weight::Real=0.5,
-                              gradient_weight::Real=0.3,
-                              vorticity_weight::Real=0.2,
-                              indicator_change_threshold::Real=0.08,
+                              body_weight::Real=0.5f0,
+                              gradient_weight::Real=0.3f0,
+                              vorticity_weight::Real=0.2f0,
+                              indicator_change_threshold::Real=0.08f0,
                               regrid_on_measure::Bool=false,
                               min_regrid_interval::Int=3)
     AMRConfig(;
@@ -1091,6 +1092,9 @@ Returns a NamedTuple with fields:
 - `backend_name`: "CUDA" or "CPU"
 - `array_type`: CuArray for GPU or Array for CPU
 
+Uses the package extension mechanism to safely detect CUDA availability.
+Works correctly regardless of which module CUDA was loaded from.
+
 # Example
 ```julia
 using BioFlows
@@ -1100,11 +1104,16 @@ info = gpu_backend()
 ```
 """
 function gpu_backend()
-    if isdefined(Main, :CUDA) && isdefined(Main.CUDA, :functional) && Main.CUDA.functional()
-        return (available=true, backend_name="CUDA", array_type=Main.CUDA.CuArray)
-    else
-        return (available=false, backend_name="CPU", array_type=Array)
+    # Check if CUDA extension is loaded via package extension mechanism
+    ext = Base.get_extension(@__MODULE__, :BioFlowsCUDAExt)
+    if ext !== nothing
+        # Extension is loaded - CUDA module is available in the extension's namespace
+        # Access CUDA through the extension module which has `using CUDA`
+        if isdefined(ext, :CUDA) && ext.CUDA.functional()
+            return (available=true, backend_name="CUDA", array_type=ext.CUDA.CuArray)
+        end
     end
+    return (available=false, backend_name="CPU", array_type=Array)
 end
 
 """
@@ -1113,21 +1122,29 @@ end
 Convenience macro to create a CuArray if CUDA is available,
 otherwise falls back to a CPU array.
 
+Creates the array directly on GPU using the pipe operator,
+which is more efficient than creating on CPU and copying.
+
+The type parameter T ensures the array uses the specified precision
+(Float32 recommended for GPU performance).
+
 # Example
 ```julia
 using BioFlows
 using CUDA
-a = @gpu_array Float32 zeros(100, 100)  # Creates CuArray if CUDA is available
+a = @gpu_array Float32 zeros(100, 100)  # Creates Float32 CuArray if CUDA is available
 ```
 """
 macro gpu_array(T, ex)
     quote
-        arr = $(esc(ex))
         info = gpu_backend()
+        # Ensure array is created with correct element type
+        arr = $(esc(T)).($(esc(ex)))
         if info.available
-            convert(info.array_type{$(esc(T))}, arr)
+            # Pipe to GPU (uses efficient transfer)
+            arr |> info.array_type
         else
-            convert(Array{$(esc(T))}, arr)
+            arr
         end
     end
 end

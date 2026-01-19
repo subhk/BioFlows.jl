@@ -14,7 +14,7 @@ end
 
 """
     compute_body_refinement_indicator(flow::Flow, body::AbstractBody;
-                                      distance_threshold=2.0, t=0.0)
+                                      distance_threshold=2f0, t=0f0)
 
 Compute a refinement indicator based on proximity to the immersed body.
 Returns an array with values 1.0 where refinement is needed (near body),
@@ -30,8 +30,8 @@ and 0.0 elsewhere.
 - Array of same size as `flow.p` with indicator values in [0, 1]
 """
 function compute_body_refinement_indicator(flow::Flow{N,T}, body::AbstractBody;
-                                           distance_threshold::Real=2.0,
-                                           t::Real=0.0) where {N,T}
+                                           distance_threshold::Real=2f0,
+                                           t::Real=0f0) where {N,T}
     indicator = similar(flow.p)
     fill!(indicator, zero(T))
     threshold = T(distance_threshold)
@@ -219,9 +219,9 @@ end
 
 """
     compute_combined_indicator(flow::Flow, body::AbstractBody;
-                               body_threshold=2.0, gradient_threshold=1.0,
-                               vorticity_threshold=1.0, t=0.0,
-                               body_weight=0.5, gradient_weight=0.3, vorticity_weight=0.2)
+                               body_threshold=2f0, gradient_threshold=1f0,
+                               vorticity_threshold=1f0, t=0f0,
+                               body_weight=0.5f0, gradient_weight=0.3f0, vorticity_weight=0.2f0)
 
 Compute a combined refinement indicator using body proximity, velocity gradients,
 and vorticity. Returns values in [0, 1] where higher values indicate stronger
@@ -242,13 +242,13 @@ need for refinement.
 - Combined indicator array with values in [0, 1]
 """
 function compute_combined_indicator(flow::Flow{N,T}, body::AbstractBody;
-                                    body_threshold::Real=2.0,
-                                    gradient_threshold::Real=1.0,
-                                    vorticity_threshold::Real=1.0,
-                                    t::Real=0.0,
-                                    body_weight::Real=0.5,
-                                    gradient_weight::Real=0.3,
-                                    vorticity_weight::Real=0.2) where {N,T}
+                                    body_threshold::Real=2f0,
+                                    gradient_threshold::Real=1f0,
+                                    vorticity_threshold::Real=1f0,
+                                    t::Real=0f0,
+                                    body_weight::Real=0.5f0,
+                                    gradient_weight::Real=0.3f0,
+                                    vorticity_weight::Real=0.2f0) where {N,T}
 
     # Normalize weights
     total_weight = body_weight + gradient_weight + vorticity_weight
@@ -293,7 +293,7 @@ function compute_combined_indicator(flow::Flow{N,T}, body::AbstractBody;
 end
 
 """
-    mark_cells_for_refinement(indicator::AbstractArray, threshold::Real=0.5)
+    mark_cells_for_refinement(indicator::AbstractArray, threshold::Real=0.5f0)
 
 Mark cells for refinement based on the indicator values.
 Returns a vector of cell indices that should be refined.
@@ -306,7 +306,7 @@ Returns a vector of cell indices that should be refined.
 - Vector of CartesianIndex for cells to refine
 """
 function mark_cells_for_refinement(indicator::AbstractArray{T,N};
-                                   threshold::Real=0.5) where {T,N}
+                                   threshold::Real=0.5f0) where {T,N}
     cells = CartesianIndex{N}[]
     thresh = T(threshold)
 

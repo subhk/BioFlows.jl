@@ -5,7 +5,7 @@ using StaticArrays: SVector
 using LinearAlgebra: norm
 
 """
-    oscillating_cylinder_sim(; n=3*2^5, m=2^6, ν=0.01, U=1, St=0.2, amplitude=0.25)
+    oscillating_cylinder_sim(; n=3*2^5, m=2^6, ν=0.01f0, U=1f0, St=0.2f0, amplitude=0.25f0)
 
 Oscillating cylinder benchmark. The cylinder translates sinusoidally in the
 cross-flow direction with Strouhal number `St` and peak-to-peak amplitude
@@ -19,8 +19,8 @@ cross-flow direction with Strouhal number `St` and peak-to-peak amplitude
 - `amplitude`: Oscillation amplitude relative to radius
 """
 function oscillating_cylinder_sim(; n::Int=3*2^5, m::Int=2^6,
-                                     ν::Real=0.01, U::Real=1,
-                                     St::Real=0.2, amplitude::Real=0.25)
+                                     ν::Real=0.01f0, U::Real=1f0,
+                                     St::Real=0.2f0, amplitude::Real=0.25f0)
     radius = m / 8
     center = SVector(m / 2 - 1, m / 2 - 1)
     sdf(x, t) = norm(x .- center) - radius
@@ -28,7 +28,7 @@ function oscillating_cylinder_sim(; n::Int=3*2^5, m::Int=2^6,
     move(x, t) = x - SVector(zero(t), displacement(t))
     diameter = 2radius
     # Domain size = grid cells (Δx = 1), L_char = diameter for force coefficients
-    Simulation((n, m), (Float64(n), Float64(m));
+    Simulation((n, m), (Float32(n), Float32(m));
                inletBC=(U, 0),
                ν=ν,
                body=AutoBody(sdf, move),
@@ -36,14 +36,14 @@ function oscillating_cylinder_sim(; n::Int=3*2^5, m::Int=2^6,
 end
 
 """
-    run_oscillating_cylinder(; steps=400, St=0.2, amplitude=0.25, kwargs...)
+    run_oscillating_cylinder(; steps=400, St=0.2f0, amplitude=0.25f0, kwargs...)
 
 Advance the oscillating-cylinder case for `steps` solver iterations while
 recording the instantaneous displacement and total force coefficients.
 Returns `(sim, history)` where each history entry stores `(step, time, y_disp,
 drag, lift)`.
 """
-function run_oscillating_cylinder(; steps::Int=400, St::Real=0.2, amplitude::Real=0.25, kwargs...)
+function run_oscillating_cylinder(; steps::Int=400, St::Real=0.2f0, amplitude::Real=0.25f0, kwargs...)
     sim = oscillating_cylinder_sim(; St, amplitude, kwargs...)
     history = Vector{NamedTuple}(undef, steps)
     radius = sim.L / 2
@@ -51,7 +51,7 @@ function run_oscillating_cylinder(; steps::Int=400, St::Real=0.2, amplitude::Rea
         sim_step!(sim; remeasure=true)
         t = BioFlows.time(sim) # physical time used by the body motion
         disp = amplitude * radius * sin(2π * St * t)
-        coeff = total_force(sim) ./ (0.5 * sim.L * sim.U^2)
+        coeff = total_force(sim) ./ (0.5f0 * sim.L * sim.U^2)
         history[k] = (step=k,
                       time=sim_time(sim),
                       y_disp=disp,
@@ -70,8 +70,8 @@ end
 # =============================================================================
 
 """
-    oscillating_cylinder_amr_sim(; n=3*2^5, m=2^6, ν=0.01, U=1, St=0.2,
-                                   amplitude=0.25, max_level=2, kwargs...)
+    oscillating_cylinder_amr_sim(; n=3*2^5, m=2^6, ν=0.01f0, U=1f0, St=0.2f0,
+                                   amplitude=0.25f0, max_level=2, kwargs...)
 
 Create an oscillating cylinder simulation with Adaptive Mesh Refinement.
 Uses RigidBodyAMRConfig for optimal settings with moving rigid bodies.
@@ -94,8 +94,8 @@ end
 ```
 """
 function oscillating_cylinder_amr_sim(; n::Int=3*2^5, m::Int=2^6,
-                                        ν::Real=0.01, U::Real=1,
-                                        St::Real=0.2, amplitude::Real=0.25,
+                                        ν::Real=0.01f0, U::Real=1f0,
+                                        St::Real=0.2f0, amplitude::Real=0.25f0,
                                         max_level::Int=2, kwargs...)
     radius = m / 8
     center = SVector(m / 2 - 1, m / 2 - 1)
@@ -107,13 +107,13 @@ function oscillating_cylinder_amr_sim(; n::Int=3*2^5, m::Int=2^6,
     # Use RigidBodyAMRConfig for rigid moving bodies
     amr_config = BioFlows.RigidBodyAMRConfig(;
         max_level=max_level,
-        body_distance_threshold=2.5,  # Refinement distance in grid cells
+        body_distance_threshold=2.5f0,  # Refinement distance in grid cells
         regrid_interval=10,           # Regrid every 10 steps
-        indicator_change_threshold=0.15,  # Motion sensitivity
+        indicator_change_threshold=0.15f0,  # Motion sensitivity
         kwargs...
     )
 
-    BioFlows.AMRSimulation((n, m), (Float64(n), Float64(m));
+    BioFlows.AMRSimulation((n, m), (Float32(n), Float32(m));
                            inletBC=(U, 0),
                            ν=ν,
                            body=AutoBody(sdf, move),
@@ -122,7 +122,7 @@ function oscillating_cylinder_amr_sim(; n::Int=3*2^5, m::Int=2^6,
 end
 
 """
-    run_oscillating_cylinder_amr(; steps=400, St=0.2, amplitude=0.25, kwargs...)
+    run_oscillating_cylinder_amr(; steps=400, St=0.2f0, amplitude=0.25f0, kwargs...)
 
 Run oscillating cylinder simulation with AMR enabled.
 Records displacement, forces, and AMR statistics.
@@ -130,8 +130,8 @@ Records displacement, forces, and AMR statistics.
 # Returns
 - `(sim, history)` where history contains per-step data including AMR info
 """
-function run_oscillating_cylinder_amr(; steps::Int=400, St::Real=0.2,
-                                        amplitude::Real=0.25, verbose::Bool=false,
+function run_oscillating_cylinder_amr(; steps::Int=400, St::Real=0.2f0,
+                                        amplitude::Real=0.25f0, verbose::Bool=false,
                                         kwargs...)
     sim = oscillating_cylinder_amr_sim(; St, amplitude, kwargs...)
     history = Vector{NamedTuple}(undef, steps)
@@ -141,7 +141,7 @@ function run_oscillating_cylinder_amr(; steps::Int=400, St::Real=0.2,
         sim_step!(sim; remeasure=true)
         t = BioFlows.time(sim)
         disp = amplitude * radius * sin(2π * St * t)
-        coeff = total_force(sim) ./ (0.5 * sim.L * sim.U^2)
+        coeff = total_force(sim) ./ (0.5f0 * sim.L * sim.U^2)
 
         # Get AMR statistics
         amr_stats = BioFlows.amr_info(sim)
@@ -162,7 +162,7 @@ function run_oscillating_cylinder_amr(; steps::Int=400, St::Real=0.2,
 end
 
 """
-    rotating_cylinder_amr_sim(; n=3*2^5, m=2^6, ν=0.01, U=1, ω=0.5, max_level=2)
+    rotating_cylinder_amr_sim(; n=3*2^5, m=2^6, ν=0.01f0, U=1f0, ω=0.5f0, max_level=2)
 
 Create a rotating cylinder simulation with AMR.
 The cylinder rotates in place at angular velocity ω.
@@ -176,12 +176,12 @@ The cylinder rotates in place at angular velocity ω.
 
 # Example
 ```julia
-sim = rotating_cylinder_amr_sim(ω=1.0, max_level=2)
+sim = rotating_cylinder_amr_sim(ω=1f0, max_level=2)
 ```
 """
 function rotating_cylinder_amr_sim(; n::Int=3*2^5, m::Int=2^6,
-                                     ν::Real=0.01, U::Real=1,
-                                     ω::Real=0.5, max_level::Int=2)
+                                     ν::Real=0.01f0, U::Real=1f0,
+                                     ω::Real=0.5f0, max_level::Int=2)
     radius = m / 8
     center = SVector(m / 2 - 1, m / 2 - 1)
     sdf(x, t) = norm(x .- center) - radius
@@ -201,12 +201,12 @@ function rotating_cylinder_amr_sim(; n::Int=3*2^5, m::Int=2^6,
     # Rotating bodies use same RigidBodyAMRConfig
     amr_config = BioFlows.RigidBodyAMRConfig(;
         max_level=max_level,
-        body_distance_threshold=2.0,
+        body_distance_threshold=2f0,
         regrid_interval=15,  # Rotation is smooth, less frequent regridding
-        indicator_change_threshold=0.2
+        indicator_change_threshold=0.2f0
     )
 
-    BioFlows.AMRSimulation((n, m), (Float64(n), Float64(m));
+    BioFlows.AMRSimulation((n, m), (Float32(n), Float32(m));
                            inletBC=(U, 0),
                            ν=ν,
                            body=AutoBody(sdf, rotate),
@@ -215,8 +215,8 @@ function rotating_cylinder_amr_sim(; n::Int=3*2^5, m::Int=2^6,
 end
 
 """
-    orbiting_cylinder_amr_sim(; n=4*2^5, m=4*2^5, ν=0.01, orbit_radius=16,
-                                orbit_period=100, max_level=2)
+    orbiting_cylinder_amr_sim(; n=4*2^5, m=4*2^5, ν=0.01f0, orbit_radius=16f0,
+                                orbit_period=100f0, max_level=2)
 
 Create a cylinder orbiting in a circular path with AMR.
 Demonstrates large-amplitude rigid body motion tracking.
@@ -229,15 +229,15 @@ Demonstrates large-amplitude rigid body motion tracking.
 - `max_level`: AMR refinement level
 """
 function orbiting_cylinder_amr_sim(; n::Int=4*2^5, m::Int=4*2^5,
-                                     ν::Real=0.01,
-                                     orbit_radius::Real=16,
-                                     orbit_period::Real=100,
+                                     ν::Real=0.01f0,
+                                     orbit_radius::Real=16f0,
+                                     orbit_period::Real=100f0,
                                      max_level::Int=2)
     cylinder_radius = m / 12
     domain_center = SVector(n / 2, m / 2)
 
     # Initial center position (at t=0)
-    center_at_0 = domain_center .+ orbit_radius .* SVector(1.0, 0.0)
+    center_at_0 = domain_center .+ orbit_radius .* SVector(1f0, 0f0)
 
     # Center of cylinder orbits around domain center
     function orbit_center(t)
@@ -262,13 +262,13 @@ function orbiting_cylinder_amr_sim(; n::Int=4*2^5, m::Int=4*2^5,
     # For orbiting motion, use more aggressive motion tracking
     amr_config = BioFlows.RigidBodyAMRConfig(;
         max_level=max_level,
-        body_distance_threshold=3.0,
+        body_distance_threshold=3f0,
         regrid_interval=8,  # More frequent for larger motion
-        indicator_change_threshold=0.12,
+        indicator_change_threshold=0.12f0,
         min_regrid_interval=3
     )
 
-    BioFlows.AMRSimulation((n, m), (Float64(n), Float64(m));
+    BioFlows.AMRSimulation((n, m), (Float32(n), Float32(m));
                            inletBC=(0, 0),  # Quiescent fluid
                            ν=ν,
                            body=AutoBody(sdf, move),

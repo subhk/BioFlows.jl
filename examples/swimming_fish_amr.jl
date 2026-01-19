@@ -25,17 +25,17 @@ println("=" ^ 70)
 # =============================================================================
 
 # Fish parameters
-L_fish = 0.2        # Fish body length [m]
-h_max = 0.02        # Maximum body thickness [m]
-ρ_fish = 1050.0     # Fish density [kg/m³]
-E = 5e5             # Young's modulus [Pa]
+L_fish = 0.2f0        # Fish body length [m]
+h_max = 0.02f0        # Maximum body thickness [m]
+ρ_fish = 1050f0       # Fish density [kg/m³]
+E = 5f5               # Young's modulus [Pa]
 
 # Flow parameters
 Re = 500            # Reynolds number (lower for faster test)
-St = 0.3            # Strouhal number for tail beat
+St = 0.3f0          # Strouhal number for tail beat
 
 # Domain and grid
-domain = (2.0, 1.0)         # Physical domain [m]
+domain = (2f0, 1f0)         # Physical domain [m]
 grid_size = (128, 64)       # Base grid (coarse for testing)
 
 # Time stepping
@@ -52,12 +52,12 @@ println("\n[1] Setting up simulation...")
 # AMR configuration for flexible body
 amr_config = BeamAMRConfig(
     max_level = 2,                  # Up to 4x refinement
-    beam_distance_threshold = 4.0,  # Refine within 4 cells of beam
-    beam_weight = 0.7,              # Prioritize beam proximity
-    gradient_weight = 0.2,          # Also refine at velocity gradients
-    vorticity_weight = 0.1,         # And at vorticity features
+    beam_distance_threshold = 4f0,  # Refine within 4 cells of beam
+    beam_weight = 0.7f0,            # Prioritize beam proximity
+    gradient_weight = 0.2f0,        # Also refine at velocity gradients
+    vorticity_weight = 0.1f0,       # And at vorticity features
     min_regrid_interval = 10,       # Don't regrid too often
-    motion_threshold = 0.002,       # Regrid when beam moves 2mm
+    motion_threshold = 0.002f0,     # Regrid when beam moves 2mm
     regrid_interval = 50            # Force regrid every 50 steps
 )
 
@@ -96,8 +96,8 @@ println("\n[3] Running simulation...")
 println("-" ^ 50)
 
 # Track metrics
-force_history = Float64[]
-displacement_history = Float64[]
+force_history = Float32[]
+displacement_history = Float32[]
 regrid_count = 0
 last_regrid = 0
 

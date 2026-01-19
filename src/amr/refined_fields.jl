@@ -49,9 +49,9 @@ function RefinedVelocityPatch(anchor::NTuple{D,Int}, coarse_extent::NTuple{D,Int
 end
 
 # Convenience constructors
-RefinedVelocityPatch(anchor::NTuple{2,Int}, extent::NTuple{2,Int}, level::Int, T::Type=Float64; mem=Array) =
+RefinedVelocityPatch(anchor::NTuple{2,Int}, extent::NTuple{2,Int}, level::Int, T::Type=Float32; mem=Array) =
     RefinedVelocityPatch(anchor, extent, level, Val{2}(), T; mem=mem)
-RefinedVelocityPatch(anchor::NTuple{3,Int}, extent::NTuple{3,Int}, level::Int, T::Type=Float64; mem=Array) =
+RefinedVelocityPatch(anchor::NTuple{3,Int}, extent::NTuple{3,Int}, level::Int, T::Type=Float32; mem=Array) =
     RefinedVelocityPatch(anchor, extent, level, Val{3}(), T; mem=mem)
 
 """
@@ -222,11 +222,11 @@ Create an empty refined velocity field.
 RefinedVelocityField(::Val{N}, ::Type{T}; mem=Array) where {N,T} =
     RefinedVelocityField{T,N}(Dict{NTuple{N,Int}, RefinedVelocityPatch{T,N}}(), mem)
 
-RefinedVelocityField(N::Int, T::Type=Float64; mem=Array) = RefinedVelocityField(Val{N}(), T; mem=mem)
+RefinedVelocityField(N::Int, T::Type=Float32; mem=Array) = RefinedVelocityField(Val{N}(), T; mem=mem)
 
 # Convenience for 2D/3D
-RefinedVelocityField2D(T::Type=Float64; mem=Array) = RefinedVelocityField(Val{2}(), T; mem=mem)
-RefinedVelocityField3D(T::Type=Float64; mem=Array) = RefinedVelocityField(Val{3}(), T; mem=mem)
+RefinedVelocityField2D(T::Type=Float32; mem=Array) = RefinedVelocityField(Val{2}(), T; mem=mem)
+RefinedVelocityField3D(T::Type=Float32; mem=Array) = RefinedVelocityField(Val{3}(), T; mem=mem)
 
 """
     add_patch!(field, anchor, coarse_extent, level)

@@ -86,13 +86,13 @@ end
 # =============================================================================
 
 # Kernel function (used for visualization, not in solver)
-@fastmath kern(d) = 0.5+0.5cos(π*d)
+@fastmath kern(d::T) where T = T(0.5)+T(0.5)*cos(T(π)*d)
 
 # Zeroth moment: integrated kernel = volume fraction
-@fastmath kern₀(d) = 0.5+0.5d+0.5sin(π*d)/π
+@fastmath kern₀(d::T) where T = T(0.5)+T(0.5)*d+T(0.5)*sin(T(π)*d)/T(π)
 
 # First moment: integrated kernel weighted by distance
-@fastmath kern₁(d) = 0.25*(d^2-1)+0.5*(d*sin(π*d)+(1+cos(π*d))/π)/π
+@fastmath kern₁(d::T) where T = T(0.25)*(d^2-one(T))+T(0.5)*(d*sin(T(π)*d)+(one(T)+cos(T(π)*d))/T(π))/T(π)
 
 # μ₀: volume fraction at distance d with kernel width ϵ
 # Returns 0 (inside solid), 1 (outside solid), smooth transition in between

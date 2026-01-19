@@ -101,11 +101,12 @@ Return the velocity field averaged to cell centres for each component.
 The last dimension indexes the velocity components.
 """
 function cell_center_velocity(sim::AbstractSimulation; strip_ghosts::Bool=true)
+    T = eltype(sim.flow.u)
     spatial_dims = ndims(sim.flow.p)
     vel = similar(sim.flow.u, (size(sim.flow.p)..., spatial_dims))
-    fill!(vel, zero(eltype(vel)))
+    fill!(vel, zero(T))
     for comp in 1:spatial_dims
-        @loop vel[I, comp] = 0.5 * (sim.flow.u[I, comp] + sim.flow.u[I + δ(comp, I), comp]) over I ∈ inside(sim.flow.p)
+        @loop vel[I, comp] = T(0.5) * (sim.flow.u[I, comp] + sim.flow.u[I + δ(comp, I), comp]) over I ∈ inside(sim.flow.p)
     end
     return strip_ghosts ? _strip_ghosts(vel, spatial_dims) : vel
 end

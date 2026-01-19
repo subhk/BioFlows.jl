@@ -75,7 +75,7 @@ Create a PatchPoisson solver for a 2D refined patch.
 - `coarse_extent`: Number of coarse cells in (x, z)
 - `level`: Refinement level (1, 2, or 3)
 - `μ₀_coarse`: Coarse grid μ₀ coefficient array
-- `T`: Element type (Float32 or Float64)
+- `T`: Element type (default: Float32)
 
 Uses the same "unit spacing" convention as the base Poisson solver.
 The L coefficients are NOT scaled by ratio² - this is consistent with
@@ -85,7 +85,7 @@ function PatchPoisson(anchor::NTuple{2,Int},
                       coarse_extent::NTuple{2,Int},
                       level::Int,
                       μ₀_coarse::AbstractArray{Tc},
-                      ::Type{T}=Float64;
+                      ::Type{T}=Float32;
                       mem=Array) where {Tc,T}
     ratio = 2^level
     fine_dims = coarse_extent .* ratio
@@ -96,21 +96,32 @@ function PatchPoisson(anchor::NTuple{2,Int},
     # Grid spacing relative to coarse (coarse = 1)
     Δx = one(T) / ratio
 
-    # Create arrays (use mem for GPU support)
-    x = zeros(T, Ng) |> mem
-    z = zeros(T, Ng) |> mem
-    r = zeros(T, Ng) |> mem
-    ϵ = zeros(T, Ng) |> mem
-    D = zeros(T, Ng) |> mem
-    iD = zeros(T, Ng) |> mem
-    L = ones(T, Ng..., 2) |> mem
+    # Create arrays on CPU first for initialization
+    # This avoids scalar indexing on GPU during initialization
+    x_cpu = zeros(T, Ng)
+    z_cpu = zeros(T, Ng)
+    r_cpu = zeros(T, Ng)
+    ϵ_cpu = zeros(T, Ng)
+    D_cpu = zeros(T, Ng)
+    iD_cpu = zeros(T, Ng)
+    L_cpu = ones(T, Ng..., 2)
 
-    # Initialize L from coarse μ₀ (interpolated)
-    # Uses unit spacing convention - NO ratio² scaling
-    initialize_patch_coefficients!(L, μ₀_coarse, anchor, coarse_extent, ratio)
+    # Run CPU-based initialization (uses scalar indexing)
+    # Convert μ₀_coarse to CPU for initialization if needed
+    μ₀_cpu = μ₀_coarse isa Array ? μ₀_coarse : Array(μ₀_coarse)
+    initialize_patch_coefficients!(L_cpu, μ₀_cpu, anchor, coarse_extent, ratio)
 
-    # Compute diagonal
-    patch_set_diag!(D, iD, L, Ng)
+    # Compute diagonal on CPU
+    patch_set_diag!(D_cpu, iD_cpu, L_cpu, Ng)
+
+    # Now pipe to GPU (or keep on CPU if mem=Array)
+    x = x_cpu |> mem
+    z = z_cpu |> mem
+    r = r_cpu |> mem
+    ϵ = ϵ_cpu |> mem
+    D = D_cpu |> mem
+    iD = iD_cpu |> mem
+    L = L_cpu |> mem
 
     PatchPoisson{T, typeof(x), typeof(L)}(
         L, D, iD, x, ϵ, r, z, Int16[],
@@ -134,8 +145,8 @@ function initialize_patch_coefficients!(L::AbstractArray{T},
 
     for fi in 1:nx+2, fj in 1:nz+2
         # Position in coarse cell units
-        xf = (fi - 1.5) / ratio
-        zf = (fj - 1.5) / ratio
+        xf = (fi - T(1.5)) / ratio
+        zf = (fj - T(1.5)) / ratio
 
         # Coarse cell and interpolation weights
         ic = clamp(floor(Int, xf) + ai, 1, size(μ₀_coarse, 1) - 1)
@@ -295,46 +306,46 @@ function patch_pcg!(patch::PatchPoisson{T}; it::Int=6) where T
     # z = M⁻¹r (Jacobi preconditioner), ϵ = z (search direction)
     @loop (z[I] = r[I] * iD[I]; ϵ[I] = z[I]) over I ∈ R
 
-    # rho = r·z (GPU-compatible dot product)
+    # ρ = r·z (GPU-compatible dot product)
     r_inside = @view r[R]
     z_inside = @view z[R]
-    rho = sum(r_inside .* z_inside)
-    abs(rho) < 10eps(T) && return
+    ρ = sum(r_inside .* z_inside)
+    abs(ρ) < 10eps(T) && return
 
     for iter in 1:it
         # z = A*ϵ (reusing z array)
         @loop z[I] = ϵ[I]*D[I] + ϵ[I-δ(1,I)]*L[I,1] + ϵ[I+δ(1,I)]*L[I+δ(1,I),1] +
                      ϵ[I-δ(2,I)]*L[I,2] + ϵ[I+δ(2,I)]*L[I+δ(2,I),2] over I ∈ R
 
-        # alpha = rho / (z·ϵ)
+        # α = ρ / (z·ϵ)
         ϵ_inside = @view ϵ[R]
         z_inside = @view z[R]
-        zϵ = sum(z_inside .* ϵ_inside)
-        abs(zϵ) < 10eps(T) && return
-        alpha = rho / zϵ
-        (!isfinite(alpha) || abs(alpha) < 1e-2 || abs(alpha) > 1e2) && return
+        σ = sum(z_inside .* ϵ_inside)  # σ = ϵᵀAϵ
+        abs(σ) < 10eps(T) && return
+        α = ρ / σ
+        (!isfinite(α) || abs(α) < T(1e-2) || abs(α) > T(1e2)) && return
 
-        # x += alpha*ϵ, r -= alpha*z
-        @loop (x[I] = x[I] + alpha * ϵ[I]; r[I] = r[I] - alpha * z[I]) over I ∈ R
+        # x += α*ϵ, r -= α*z
+        @loop (x[I] = x[I] + α * ϵ[I]; r[I] = r[I] - α * z[I]) over I ∈ R
 
         iter == it && return
 
         # z = M⁻¹r
         @loop z[I] = r[I] * iD[I] over I ∈ R
 
-        # rho2 = r·z
+        # ρ₂ = r·z
         r_inside = @view r[R]
         z_inside = @view z[R]
-        rho2 = sum(r_inside .* z_inside)
-        abs(rho2) < 10eps(T) && return
+        ρ₂ = sum(r_inside .* z_inside)
+        abs(ρ₂) < 10eps(T) && return
 
-        # beta = rho2/rho
-        beta = rho2 / rho
+        # β = ρ₂/ρ
+        β = ρ₂ / ρ
 
-        # ϵ = z + beta*ϵ
-        @loop ϵ[I] = z[I] + beta * ϵ[I] over I ∈ R
+        # ϵ = z + β*ϵ
+        @loop ϵ[I] = z[I] + β * ϵ[I] over I ∈ R
 
-        rho = rho2
+        ρ = ρ₂
     end
 end
 
@@ -535,7 +546,7 @@ Create a PatchPoisson3D solver for a 3D refined patch.
 - `coarse_extent`: Number of coarse cells in (x, y, z)
 - `level`: Refinement level (1, 2, or 3)
 - `μ₀_coarse`: Coarse grid μ₀ coefficient array
-- `T`: Element type (Float32 or Float64)
+- `T`: Element type (default: Float32)
 
 Uses the same "unit spacing" convention as the base Poisson solver.
 The L coefficients are NOT scaled by ratio² - this is consistent with
@@ -545,7 +556,7 @@ function PatchPoisson3D(anchor::NTuple{3,Int},
                         coarse_extent::NTuple{3,Int},
                         level::Int,
                         μ₀_coarse::AbstractArray{Tc},
-                        ::Type{T}=Float64;
+                        ::Type{T}=Float32;
                         mem=Array) where {Tc,T}
     ratio = 2^level
     fine_dims = coarse_extent .* ratio
@@ -556,21 +567,32 @@ function PatchPoisson3D(anchor::NTuple{3,Int},
     # Grid spacing relative to coarse (coarse = 1)
     Δx = one(T) / ratio
 
-    # Create arrays (use mem for GPU support)
-    x = zeros(T, Ng) |> mem
-    z = zeros(T, Ng) |> mem
-    r = zeros(T, Ng) |> mem
-    ϵ = zeros(T, Ng) |> mem
-    D = zeros(T, Ng) |> mem
-    iD = zeros(T, Ng) |> mem
-    L = ones(T, Ng..., 3) |> mem
+    # Create arrays on CPU first for initialization
+    # This avoids scalar indexing on GPU during initialization
+    x_cpu = zeros(T, Ng)
+    z_cpu = zeros(T, Ng)
+    r_cpu = zeros(T, Ng)
+    ϵ_cpu = zeros(T, Ng)
+    D_cpu = zeros(T, Ng)
+    iD_cpu = zeros(T, Ng)
+    L_cpu = ones(T, Ng..., 3)
 
-    # Initialize L from coarse μ₀ (interpolated)
-    # Uses unit spacing convention - NO ratio² scaling
-    initialize_patch_coefficients_3d!(L, μ₀_coarse, anchor, coarse_extent, ratio)
+    # Run CPU-based initialization (uses scalar indexing)
+    # Convert μ₀_coarse to CPU for initialization if needed
+    μ₀_cpu = μ₀_coarse isa Array ? μ₀_coarse : Array(μ₀_coarse)
+    initialize_patch_coefficients_3d!(L_cpu, μ₀_cpu, anchor, coarse_extent, ratio)
 
-    # Compute diagonal
-    patch_set_diag_3d!(D, iD, L, Ng)
+    # Compute diagonal on CPU
+    patch_set_diag_3d!(D_cpu, iD_cpu, L_cpu, Ng)
+
+    # Now pipe to GPU (or keep on CPU if mem=Array)
+    x = x_cpu |> mem
+    z = z_cpu |> mem
+    r = r_cpu |> mem
+    ϵ = ϵ_cpu |> mem
+    D = D_cpu |> mem
+    iD = iD_cpu |> mem
+    L = L_cpu |> mem
 
     PatchPoisson3D{T, typeof(x), typeof(L)}(
         L, D, iD, x, ϵ, r, z, Int16[],
@@ -594,9 +616,9 @@ function initialize_patch_coefficients_3d!(L::AbstractArray{T},
 
     for fi in 1:nx+2, fj in 1:ny+2, fk in 1:nz+2
         # Position in coarse cell units
-        xf = (fi - 1.5) / ratio
-        yf = (fj - 1.5) / ratio
-        zf = (fk - 1.5) / ratio
+        xf = (fi - T(1.5)) / ratio
+        yf = (fj - T(1.5)) / ratio
+        zf = (fk - T(1.5)) / ratio
 
         # Coarse cell and interpolation weights
         ic = clamp(floor(Int, xf) + ai, 1, size(μ₀_coarse, 1) - 1)
@@ -765,11 +787,11 @@ function patch_pcg_3d!(patch::PatchPoisson3D{T}; it::Int=6) where T
     # z = M⁻¹r (Jacobi preconditioner), ϵ = z (search direction)
     @loop (z[I] = r[I] * iD[I]; ϵ[I] = z[I]) over I ∈ R
 
-    # rho = r·z (GPU-compatible dot product)
+    # ρ = r·z (GPU-compatible dot product)
     r_inside = @view r[R]
     z_inside = @view z[R]
-    rho = sum(r_inside .* z_inside)
-    abs(rho) < 10eps(T) && return
+    ρ = sum(r_inside .* z_inside)
+    abs(ρ) < 10eps(T) && return
 
     for iter in 1:it
         # z = A*ϵ (reusing z array)
@@ -777,35 +799,35 @@ function patch_pcg_3d!(patch::PatchPoisson3D{T}; it::Int=6) where T
                      ϵ[I-δ(2,I)]*L[I,2] + ϵ[I+δ(2,I)]*L[I+δ(2,I),2] +
                      ϵ[I-δ(3,I)]*L[I,3] + ϵ[I+δ(3,I)]*L[I+δ(3,I),3] over I ∈ R
 
-        # alpha = rho / (z·ϵ)
+        # α = ρ / (z·ϵ)
         ϵ_inside = @view ϵ[R]
         z_inside = @view z[R]
-        zϵ = sum(z_inside .* ϵ_inside)
-        abs(zϵ) < 10eps(T) && return
-        alpha = rho / zϵ
-        (!isfinite(alpha) || abs(alpha) < 1e-2 || abs(alpha) > 1e2) && return
+        σ = sum(z_inside .* ϵ_inside)  # σ = ϵᵀAϵ
+        abs(σ) < 10eps(T) && return
+        α = ρ / σ
+        (!isfinite(α) || abs(α) < T(1e-2) || abs(α) > T(1e2)) && return
 
-        # x += alpha*ϵ, r -= alpha*z
-        @loop (x[I] = x[I] + alpha * ϵ[I]; r[I] = r[I] - alpha * z[I]) over I ∈ R
+        # x += α*ϵ, r -= α*z
+        @loop (x[I] = x[I] + α * ϵ[I]; r[I] = r[I] - α * z[I]) over I ∈ R
 
         iter == it && return
 
         # z = M⁻¹r
         @loop z[I] = r[I] * iD[I] over I ∈ R
 
-        # rho2 = r·z
+        # ρ₂ = r·z
         r_inside = @view r[R]
         z_inside = @view z[R]
-        rho2 = sum(r_inside .* z_inside)
-        abs(rho2) < 10eps(T) && return
+        ρ₂ = sum(r_inside .* z_inside)
+        abs(ρ₂) < 10eps(T) && return
 
-        # beta = rho2/rho
-        beta = rho2 / rho
+        # β = ρ₂/ρ
+        β = ρ₂ / ρ
 
-        # ϵ = z + beta*ϵ
-        @loop ϵ[I] = z[I] + beta * ϵ[I] over I ∈ R
+        # ϵ = z + β*ϵ
+        @loop ϵ[I] = z[I] + β * ϵ[I] over I ∈ R
 
-        rho = rho2
+        ρ = ρ₂
     end
 end
 
