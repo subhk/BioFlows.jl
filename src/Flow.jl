@@ -73,11 +73,12 @@ end
 # BDIM first-moment correction: μ₁·∇f (directional derivative weighted by μ₁)
 # Part of the immersed boundary forcing that smoothly transitions flow at body surface
 @fastmath @inline function μddn(I::CartesianIndex{np1},μ,f) where np1
-    s = zero(eltype(f))
+    T = eltype(f)
+    s = zero(T)
     for j ∈ 1:np1-1
         s+= @inbounds μ[I,j]*(f[I+δ(j,I)]-f[I-δ(j,I)])
     end
-    return 0.5s
+    return T(0.5)*s
 end
 
 # Median of three values - used by QUICK scheme as flux limiter

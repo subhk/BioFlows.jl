@@ -175,7 +175,8 @@ function force_components(sim::AbstractSimulation;
     viscous = viscous_force(sim)
     total = pressure .+ viscous
     ρ = sim.flow.ρ  # Use density from simulation
-    coeff_scale = with_coefficients ? (0.5 * ρ * sim.U^2 * reference_area) : nothing
+    T = eltype(sim.flow.u)
+    coeff_scale = with_coefficients ? (T(0.5) * ρ * sim.U^2 * reference_area) : nothing
     coefficients = isnothing(coeff_scale) ? nothing : (
         pressure ./ coeff_scale,
         viscous ./ coeff_scale,
@@ -241,10 +242,11 @@ function compute_diagnostics(sim::AbstractSimulation)
     Δt = sim.flow.Δt[end]
     h = minimum(sim.flow.Δx)
     cfl = maximum(max_components) * Δt / h
+    T = eltype(max_components)
     return (
         max_u = max_components[1],
-        max_w = spatial_dims ≥ 2 ? max_components[2] : 0.0,
-        max_v = spatial_dims ≥ 3 ? max_components[3] : 0.0,
+        max_w = spatial_dims ≥ 2 ? max_components[2] : zero(T),
+        max_v = spatial_dims ≥ 3 ? max_components[3] : zero(T),
         CFL = cfl,
         Δt = Δt,
         length_scale = sim.L,

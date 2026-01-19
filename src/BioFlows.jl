@@ -21,32 +21,6 @@ _silent_include(path::AbstractString) = _suppress_warnings ?
     end :
     include(path)
 
-const _has_pencilarrays = let
-    try
-        @eval begin
-            _suppress_warnings ? Logging.with_logger(_silent_logger) do
-                using PencilArrays
-            end : using PencilArrays
-        end
-        true
-    catch err
-        _suppress_warnings || @warn "PencilArrays not available; distributed helpers will use no-op stubs." exception=(err, catch_backtrace())
-        @eval module PencilArrays
-            module Pencils
-                struct MPITopology end
-                MPITopology(args...; kwargs...) = MPITopology()
-                struct Pencil end
-                Pencil(args...; kwargs...) = Pencil()
-            end
-            function exchange_halo!(field, args...; kwargs...)
-                field
-            end
-            exchange_halo!(args...; kwargs...) = nothing
-        end
-        false
-    end
-end
-
 # Core utilities and macros
 _silent_include("util.jl")
 export L₂,BC!,@inside,inside,δ,apply!,loc,@log,set_backend,backend
@@ -630,7 +604,7 @@ function amr_regrid!(amr::AMRSimulation)
     end
 
     # Mark cells for refinement
-    cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5)
+    cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5f0)
 
     # Update refined grid tracking
     update_refined_cells!(amr.refined_grid, cells_to_refine, config.max_level)
@@ -938,7 +912,7 @@ Returns the fraction of cells that have changed refinement status.
 """
 function estimate_body_displacement(amr::AMRSimulation)
     if !amr.config.flexible_body || isnothing(amr.last_body_indicator)
-        return 0.0
+        return 0f0
     end
 
     flow = amr.sim.flow

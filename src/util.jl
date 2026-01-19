@@ -182,7 +182,8 @@ macro loop(args...)
                 @fastmath @inbounds $ex
             end
             function $kern($(symWtypes...)) where {$(symT...)}
-                wait($kern_(get_backend($(sym[1])),64)($(sym...),$R[1]-oneunit($R[1]),ndrange=size($R)))
+                event = $kern_(get_backend($(sym[1])),64)($(sym...),$R[1]-oneunit($R[1]),ndrange=size($R))
+                event !== nothing && wait(event)
             end
             $kern($(sym...))
         end |> esc
