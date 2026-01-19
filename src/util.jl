@@ -277,10 +277,10 @@ on serial execution (backend="SIMD"), or
         I ∈ @index(Global,Cartesian)+I0
         @fastmath @inbounds a[I,i] += sum(loc(i,I))
     end
-    kern(_get_backend(a),64)(a,i,R[1]-oneunit(R[1]),ndrange=size(R))
+    kern(BioFlows._get_backend(a),64)(a,i,R[1]-oneunit(R[1]),ndrange=size(R))
 
 when using KernelAbstractions (backend="KernelAbstractions").
-Note that `_get_backend` is used on the _first_ variable in `expr` (`a` in this example),
+Note that `_get_backend` is called on the _first_ variable in `expr` (`a` in this example),
 which returns a multithreaded CPU backend for Arrays or the native GPU backend for CuArrays.
 """
 macro loop(args...)
@@ -301,7 +301,8 @@ macro loop(args...)
             end
             function $kern($(symWtypes...)) where {$(symT...)}
                 # Use _get_backend for CPU multithreading support
-                event = $kern_(_get_backend($(sym[1])),64)($(sym...),$R[1]-oneunit($R[1]),ndrange=size($R))
+                # Note: $_get_backend is interpolated to capture the function before esc
+                event = $kern_($_get_backend($(sym[1])),64)($(sym...),$R[1]-oneunit($R[1]),ndrange=size($R))
                 event !== nothing && wait(event)
             end
             $kern($(sym...))
