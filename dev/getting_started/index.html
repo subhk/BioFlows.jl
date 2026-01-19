@@ -1,65 +1,161 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Getting Started · BioFlows.jl</title><meta name="title" content="Getting Started · BioFlows.jl"/><meta property="og:title" content="Getting Started · BioFlows.jl"/><meta property="twitter:title" content="Getting Started · BioFlows.jl"/><meta name="description" content="Documentation for BioFlows.jl."/><meta property="og:description" content="Documentation for BioFlows.jl."/><meta property="twitter:description" content="Documentation for BioFlows.jl."/><meta property="og:url" content="https://subhk.github.io/BioFlows.jl/getting_started/"/><meta property="twitter:url" content="https://subhk.github.io/BioFlows.jl/getting_started/"/><link rel="canonical" href="https://subhk.github.io/BioFlows.jl/getting_started/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">BioFlows.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li class="is-active"><a class="tocitem" href>Getting Started</a><ul class="internal"><li><a class="tocitem" href="#Installation"><span>Installation</span></a></li><li><a class="tocitem" href="#Your-First-Simulation"><span>Your First Simulation</span></a></li><li><a class="tocitem" href="#Key-Concepts"><span>Key Concepts</span></a></li><li><a class="tocitem" href="#Running-Examples"><span>Running Examples</span></a></li></ul></li><li><a class="tocitem" href="../codebase_structure/">Codebase Structure</a></li><li><a class="tocitem" href="../numerical_methods/">Numerical Methods</a></li><li><a class="tocitem" href="../core_types/">Core Types</a></li><li><a class="tocitem" href="../amr/">Adaptive Mesh Refinement</a></li><li><a class="tocitem" href="../diagnostics/">Diagnostics</a></li><li><a class="tocitem" href="../examples/">Examples</a></li><li><a class="tocitem" href="../api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Getting Started</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Getting Started</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/subhk/BioFlows.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/subhk/BioFlows.jl/blob/main/docs/src/getting_started.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Getting-Started"><a class="docs-heading-anchor" href="#Getting-Started">Getting Started</a><a id="Getting-Started-1"></a><a class="docs-heading-anchor-permalink" href="#Getting-Started" title="Permalink"></a></h1><h2 id="Installation"><a class="docs-heading-anchor" href="#Installation">Installation</a><a id="Installation-1"></a><a class="docs-heading-anchor-permalink" href="#Installation" title="Permalink"></a></h2><h3 id="From-GitHub"><a class="docs-heading-anchor" href="#From-GitHub">From GitHub</a><a id="From-GitHub-1"></a><a class="docs-heading-anchor-permalink" href="#From-GitHub" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Pkg
-Pkg.add(url = &quot;https://github.com/subhk/BioFlows.jl&quot;)</code></pre><h3 id="Local-Development"><a class="docs-heading-anchor" href="#Local-Development">Local Development</a><a id="Local-Development-1"></a><a class="docs-heading-anchor-permalink" href="#Local-Development" title="Permalink"></a></h3><p>Clone the repository and activate:</p><pre><code class="language-bash hljs">git clone https://github.com/subhk/BioFlows.jl.git
-cd BioFlows.jl
-julia --project</code></pre><p>Then instantiate dependencies:</p><pre><code class="language-julia hljs">using Pkg
-Pkg.instantiate()</code></pre><h2 id="Your-First-Simulation"><a class="docs-heading-anchor" href="#Your-First-Simulation">Your First Simulation</a><a id="Your-First-Simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Your-First-Simulation" title="Permalink"></a></h2><p>Here&#39;s a complete example of simulating flow past a 2D cylinder:</p><pre><code class="language-julia hljs">using BioFlows
-
-# Physical parameters
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Getting Started · BioFlows.jl</title><meta name="title" content="Getting Started · BioFlows.jl"/><meta property="og:title" content="Getting Started · BioFlows.jl"/><meta property="twitter:title" content="Getting Started · BioFlows.jl"/><meta name="description" content="Documentation for BioFlows.jl."/><meta property="og:description" content="Documentation for BioFlows.jl."/><meta property="twitter:description" content="Documentation for BioFlows.jl."/><meta property="og:url" content="https://subhk.github.io/BioFlows.jl/getting_started/"/><meta property="twitter:url" content="https://subhk.github.io/BioFlows.jl/getting_started/"/><link rel="canonical" href="https://subhk.github.io/BioFlows.jl/getting_started/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script><link href="../assets/custom.css" rel="stylesheet" type="text/css"/></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">BioFlows.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li class="is-active"><a class="tocitem" href>Getting Started</a><ul class="internal"><li><a class="tocitem" href="#Installation"><span>Installation</span></a></li><li><a class="tocitem" href="#Your-First-Simulation"><span>Your First Simulation</span></a></li><li><a class="tocitem" href="#Understanding-the-Output"><span>Understanding the Output</span></a></li><li><a class="tocitem" href="#Visualizing-Results"><span>Visualizing Results</span></a></li><li><a class="tocitem" href="#Key-Concepts"><span>Key Concepts</span></a></li><li><a class="tocitem" href="#Next-Steps"><span>Next Steps</span></a></li><li><a class="tocitem" href="#Running-Examples"><span>Running Examples</span></a></li><li><a class="tocitem" href="#Troubleshooting"><span>Troubleshooting</span></a></li><li><a class="tocitem" href="#Getting-Help"><span>Getting Help</span></a></li></ul></li><li><a class="tocitem" href="../gpu/">GPU Acceleration</a></li><li><a class="tocitem" href="../core_types/">Core Types</a></li><li><a class="tocitem" href="../amr/">Adaptive Mesh Refinement</a></li><li><a class="tocitem" href="../diagnostics/">Diagnostics</a></li><li><a class="tocitem" href="../examples/">Examples</a></li><li><a class="tocitem" href="../numerical_methods/">Numerical Methods</a></li><li><a class="tocitem" href="../codebase_structure/">Codebase Structure</a></li><li><a class="tocitem" href="../api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Getting Started</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Getting Started</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/subhk/BioFlows.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/subhk/BioFlows.jl/blob/main/docs/src/getting_started.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Getting-Started"><a class="docs-heading-anchor" href="#Getting-Started">Getting Started</a><a id="Getting-Started-1"></a><a class="docs-heading-anchor-permalink" href="#Getting-Started" title="Permalink"></a></h1><p>This guide will walk you through installing BioFlows.jl and running your first simulation.</p><hr/><h2 id="Installation"><a class="docs-heading-anchor" href="#Installation">Installation</a><a id="Installation-1"></a><a class="docs-heading-anchor-permalink" href="#Installation" title="Permalink"></a></h2><h3 id="Option-1:-From-GitHub-(Recommended)"><a class="docs-heading-anchor" href="#Option-1:-From-GitHub-(Recommended)">Option 1: From GitHub (Recommended)</a><a id="Option-1:-From-GitHub-(Recommended)-1"></a><a class="docs-heading-anchor-permalink" href="#Option-1:-From-GitHub-(Recommended)" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Pkg
+Pkg.add(url=&quot;https://github.com/subhk/BioFlows.jl&quot;)</code></pre><h3 id="Option-2:-Local-Development"><a class="docs-heading-anchor" href="#Option-2:-Local-Development">Option 2: Local Development</a><a id="Option-2:-Local-Development-1"></a><a class="docs-heading-anchor-permalink" href="#Option-2:-Local-Development" title="Permalink"></a></h3><pre><code class="language-bash hljs">git clone https://github.com/subhk/BioFlows.jl.git
+cd BioFlows.jl</code></pre><pre><code class="language-julia hljs">using Pkg
+Pkg.activate(&quot;.&quot;)
+Pkg.instantiate()</code></pre><h3 id="Optional:-GPU-Support"><a class="docs-heading-anchor" href="#Optional:-GPU-Support">Optional: GPU Support</a><a id="Optional:-GPU-Support-1"></a><a class="docs-heading-anchor-permalink" href="#Optional:-GPU-Support" title="Permalink"></a></h3><p>For NVIDIA GPU acceleration (10-50× speedup):</p><pre><code class="language-julia hljs">using Pkg
+Pkg.add(&quot;CUDA&quot;)</code></pre><p>See the <a href="../gpu/#gpu">GPU Guide</a> for detailed setup instructions.</p><hr/><h2 id="Your-First-Simulation"><a class="docs-heading-anchor" href="#Your-First-Simulation">Your First Simulation</a><a id="Your-First-Simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Your-First-Simulation" title="Permalink"></a></h2><p>Let&#39;s simulate flow past a 2D cylinder - a classic CFD benchmark.</p><h3 id="Step-1:-Import-BioFlows"><a class="docs-heading-anchor" href="#Step-1:-Import-BioFlows">Step 1: Import BioFlows</a><a id="Step-1:-Import-BioFlows-1"></a><a class="docs-heading-anchor-permalink" href="#Step-1:-Import-BioFlows" title="Permalink"></a></h3><pre><code class="language-julia hljs">using BioFlows</code></pre><h3 id="Step-2:-Define-Parameters"><a class="docs-heading-anchor" href="#Step-2:-Define-Parameters">Step 2: Define Parameters</a><a id="Step-2:-Define-Parameters-1"></a><a class="docs-heading-anchor-permalink" href="#Step-2:-Define-Parameters" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Physical parameters
 Re = 100        # Reynolds number
-U = 1.0         # Inlet velocity
+U = 1.0         # Inlet velocity (m/s)
 D = 16.0        # Cylinder diameter (length scale)
 
-# Grid and domain parameters
-nx, nz = 128, 64
-Lx, Lz = Float64(nx), Float64(nz)  # Domain size (Δx = 1)
-
-# Define cylinder geometry
-center_x = nx / 4
-center_z = nz / 2
+# Grid dimensions
+nx, nz = 128, 64            # Grid points
+Lx, Lz = Float32(nx), Float32(nz)  # Domain size (using Δx = 1)</code></pre><h3 id="Step-3:-Define-Geometry"><a class="docs-heading-anchor" href="#Step-3:-Define-Geometry">Step 3: Define Geometry</a><a id="Step-3:-Define-Geometry-1"></a><a class="docs-heading-anchor-permalink" href="#Step-3:-Define-Geometry" title="Permalink"></a></h3><p>BioFlows uses <strong>signed distance functions (SDF)</strong> to define geometry:</p><pre><code class="language-julia hljs"># Cylinder center position
+center_x = nx / 4   # Place at 1/4 of domain
+center_z = nz / 2   # Center vertically
 radius = D / 2
 
-# Signed distance function (negative inside body)
-sdf(x, t) = sqrt((x[1] - center_x)^2 + (x[2] - center_z)^2) - radius
-
-# Create simulation
-sim = Simulation((nx, nz), (Lx, Lz);
-                 inletBC = (U, 0.0),
-                 ν = U * D / Re,
-                 body = AutoBody(sdf),
-                 L_char = D)
-
-# Time integration
-final_time = 10.0  # Convective time units
+# SDF: negative inside, positive outside, zero on surface
+sdf(x, t) = sqrt((x[1] - center_x)^2 + (x[2] - center_z)^2) - radius</code></pre><div style="background: #e3f2fd; padding: 1rem; border-radius: 8px; border-left: 4px solid #2196f3; margin: 1rem 0;">
+<strong>What is an SDF?</strong><br>
+A signed distance function returns the distance from point <code>x</code> to the nearest surface:
+<ul style="margin-bottom: 0;">
+<li><code>sdf(x, t) &lt; 0</code> → Inside the body</li>
+<li><code>sdf(x, t) = 0</code> → On the surface</li>
+<li><code>sdf(x, t) &gt; 0</code> → Outside the body</li>
+</ul>
+</div><h3 id="Step-4:-Create-Simulation"><a class="docs-heading-anchor" href="#Step-4:-Create-Simulation">Step 4: Create Simulation</a><a id="Step-4:-Create-Simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Step-4:-Create-Simulation" title="Permalink"></a></h3><pre><code class="language-julia hljs">sim = Simulation((nx, nz), (Lx, Lz);
+                 inletBC = (U, 0f0),       # Inlet velocity (u, w)
+                 ν = U * D / Re,           # Kinematic viscosity
+                 body = AutoBody(sdf),     # Immersed body
+                 L_char = D)               # Length scale for coefficients</code></pre><h3 id="Step-5:-Run-Simulation"><a class="docs-heading-anchor" href="#Step-5:-Run-Simulation">Step 5: Run Simulation</a><a id="Step-5:-Run-Simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Step-5:-Run-Simulation" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Run until t* = 10 (convective time units)
+final_time = 10.0
 
 while sim_time(sim) &lt; final_time
     sim_step!(sim; remeasure=false)
 
     # Print progress every 100 steps
     if length(sim.flow.Δt) % 100 == 0
-        println(&quot;t = &quot;, round(sim_time(sim), digits=2))
+        println(&quot;t* = &quot;, round(sim_time(sim), digits=2))
     end
 end
 
-println(&quot;Simulation complete!&quot;)</code></pre><h2 id="Key-Concepts"><a class="docs-heading-anchor" href="#Key-Concepts">Key Concepts</a><a id="Key-Concepts-1"></a><a class="docs-heading-anchor-permalink" href="#Key-Concepts" title="Permalink"></a></h2><h3 id="Dimensionless-Time"><a class="docs-heading-anchor" href="#Dimensionless-Time">Dimensionless Time</a><a id="Dimensionless-Time-1"></a><a class="docs-heading-anchor-permalink" href="#Dimensionless-Time" title="Permalink"></a></h3><p>BioFlows uses dimensionless (convective) time:</p><p class="math-container">\[t^* = \frac{t \cdot U}{L}\]</p><p>where <code>U</code> is the velocity scale and <code>L</code> is the length scale.</p><ul><li><code>sim_time(sim)</code> returns the current dimensionless time <code>t*</code></li><li><code>time(sim.flow)</code> returns the raw simulation time <code>t</code></li></ul><h3 id="Signed-Distance-Functions"><a class="docs-heading-anchor" href="#Signed-Distance-Functions">Signed Distance Functions</a><a id="Signed-Distance-Functions-1"></a><a class="docs-heading-anchor-permalink" href="#Signed-Distance-Functions" title="Permalink"></a></h3><p>Geometry is defined implicitly via signed distance functions (SDF):</p><ul><li><code>sdf(x, t) &lt; 0</code>: Inside the body</li><li><code>sdf(x, t) = 0</code>: On the body surface</li><li><code>sdf(x, t) &gt; 0</code>: Outside the body</li></ul><p>Example SDFs:</p><pre><code class="language-julia hljs"># Circle/Cylinder
+println(&quot;Simulation complete!&quot;)</code></pre><h3 id="Complete-Code"><a class="docs-heading-anchor" href="#Complete-Code">Complete Code</a><a id="Complete-Code-1"></a><a class="docs-heading-anchor-permalink" href="#Complete-Code" title="Permalink"></a></h3><pre><code class="language-julia hljs">using BioFlows
+
+# Parameters
+Re, U, D = 100, 1f0, 16f0
+nx, nz = 128, 64
+Lx, Lz = Float32(nx), Float32(nz)
+
+# Geometry
+center_x, center_z = nx/4, nz/2
+radius = D/2
+sdf(x, t) = sqrt((x[1] - center_x)^2 + (x[2] - center_z)^2) - radius
+
+# Create and run
+sim = Simulation((nx, nz), (Lx, Lz);
+                 inletBC = (U, 0f0),
+                 ν = U * D / Re,
+                 body = AutoBody(sdf),
+                 L_char = D)
+
+sim_step!(sim, 10.0)  # Run to t* = 10
+
+println(&quot;Final time: t* = &quot;, sim_time(sim))</code></pre><hr/><h2 id="Understanding-the-Output"><a class="docs-heading-anchor" href="#Understanding-the-Output">Understanding the Output</a><a id="Understanding-the-Output-1"></a><a class="docs-heading-anchor-permalink" href="#Understanding-the-Output" title="Permalink"></a></h2><h3 id="Dimensionless-Time"><a class="docs-heading-anchor" href="#Dimensionless-Time">Dimensionless Time</a><a id="Dimensionless-Time-1"></a><a class="docs-heading-anchor-permalink" href="#Dimensionless-Time" title="Permalink"></a></h3><p>BioFlows reports <strong>dimensionless (convective) time</strong>:</p><p class="math-container">\[t^* = \frac{t \cdot U}{L}\]</p><ul><li><code>sim_time(sim)</code> → Dimensionless time <code>t*</code></li><li><code>time(sim.flow)</code> → Raw simulation time in seconds</li></ul><h3 id="Checking-Simulation-State"><a class="docs-heading-anchor" href="#Checking-Simulation-State">Checking Simulation State</a><a id="Checking-Simulation-State-1"></a><a class="docs-heading-anchor-permalink" href="#Checking-Simulation-State" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Print simulation info
+sim_info(sim)
+
+# Get diagnostics
+diag = compute_diagnostics(sim)
+println(&quot;Max velocity: &quot;, diag.max_u)
+println(&quot;CFL number: &quot;, diag.CFL)
+println(&quot;Time step: &quot;, diag.Δt)</code></pre><hr/><h2 id="Visualizing-Results"><a class="docs-heading-anchor" href="#Visualizing-Results">Visualizing Results</a><a id="Visualizing-Results-1"></a><a class="docs-heading-anchor-permalink" href="#Visualizing-Results" title="Permalink"></a></h2><h3 id="With-Plots.jl"><a class="docs-heading-anchor" href="#With-Plots.jl">With Plots.jl</a><a id="With-Plots.jl-1"></a><a class="docs-heading-anchor-permalink" href="#With-Plots.jl" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Plots
+
+# Get vorticity field
+ω = vorticity_component(sim, 3)  # Component 3 = out-of-plane (ω_z)
+
+# Create heatmap
+heatmap(ω&#39;,
+        c = :RdBu,           # Red-blue colormap
+        clim = (-2, 2),      # Color limits
+        aspect_ratio = :equal,
+        xlabel = &quot;x&quot;, ylabel = &quot;z&quot;,
+        title = &quot;Vorticity ωz at t* = $(round(sim_time(sim), digits=2))&quot;)</code></pre><h3 id="With-Makie.jl"><a class="docs-heading-anchor" href="#With-Makie.jl">With Makie.jl</a><a id="With-Makie.jl-1"></a><a class="docs-heading-anchor-permalink" href="#With-Makie.jl" title="Permalink"></a></h3><pre><code class="language-julia hljs">using CairoMakie
+
+ω = vorticity_component(sim, 3)
+
+fig = Figure(size = (800, 400))
+ax = Axis(fig[1,1], xlabel=&quot;x&quot;, ylabel=&quot;z&quot;, title=&quot;Vorticity&quot;)
+hm = heatmap!(ax, ω&#39;, colormap=:RdBu, colorrange=(-2, 2))
+Colorbar(fig[1,2], hm, label=&quot;ωz&quot;)
+fig</code></pre><hr/><h2 id="Key-Concepts"><a class="docs-heading-anchor" href="#Key-Concepts">Key Concepts</a><a id="Key-Concepts-1"></a><a class="docs-heading-anchor-permalink" href="#Key-Concepts" title="Permalink"></a></h2><h3 id="Signed-Distance-Functions-(SDF)"><a class="docs-heading-anchor" href="#Signed-Distance-Functions-(SDF)">Signed Distance Functions (SDF)</a><a id="Signed-Distance-Functions-(SDF)-1"></a><a class="docs-heading-anchor-permalink" href="#Signed-Distance-Functions-(SDF)" title="Permalink"></a></h3><p>Geometry is defined implicitly - no mesh generation required!</p><pre><code class="language-julia hljs"># Circle/Cylinder
 sdf_circle(x, t) = sqrt(x[1]^2 + x[2]^2) - radius
 
 # Rectangle
 sdf_rect(x, t) = max(abs(x[1]) - width/2, abs(x[2]) - height/2)
 
 # Sphere (3D)
-sdf_sphere(x, t) = sqrt(x[1]^2 + x[2]^2 + x[3]^2) - radius</code></pre><h3 id="Boundary-Conditions"><a class="docs-heading-anchor" href="#Boundary-Conditions">Boundary Conditions</a><a id="Boundary-Conditions-1"></a><a class="docs-heading-anchor-permalink" href="#Boundary-Conditions" title="Permalink"></a></h3><p>Specify inlet boundary conditions via the <code>inletBC</code> keyword argument:</p><pre><code class="language-julia hljs"># Constant inlet velocity (uniform flow)
-sim = Simulation(dims, L; inletBC=(1.0, 0.0), ...)
+sdf_sphere(x, t) = sqrt(x[1]^2 + x[2]^2 + x[3]^2) - radius
 
-# Spatially-varying inlet (parabolic profile in z)
-# Function signature: inletBC(i, x, t) where i=component, x=position, t=time
-H = Lz / 2  # channel half-height
-U_max = 1.5
-inletBC(i, x, t) = i == 1 ? U_max * (1 - ((x[2] - H) / H)^2) : 0.0
-sim = Simulation(dims, L; inletBC=inletBC, U=U_max, ...)  # Must specify U for functions
+# Ellipse
+sdf_ellipse(x, t) = sqrt((x[1]/a)^2 + (x[2]/b)^2) - 1</code></pre><h3 id="Moving-Bodies"><a class="docs-heading-anchor" href="#Moving-Bodies">Moving Bodies</a><a id="Moving-Bodies-1"></a><a class="docs-heading-anchor-permalink" href="#Moving-Bodies" title="Permalink"></a></h3><p>Use a <code>map</code> function for time-dependent motion:</p><pre><code class="language-julia hljs"># Oscillating cylinder (vertical)
+sdf(x, t) = sqrt(x[1]^2 + x[2]^2) - radius
+map(x, t) = x .- [0, A * sin(ω * t)]
 
-# Time-varying inlet (oscillating)
+body = AutoBody(sdf, map)
+sim = Simulation(...; body = body)
+
+# Important: use remeasure=true for moving bodies!
+sim_step!(sim, 10.0; remeasure=true)</code></pre><h3 id="Boundary-Conditions"><a class="docs-heading-anchor" href="#Boundary-Conditions">Boundary Conditions</a><a id="Boundary-Conditions-1"></a><a class="docs-heading-anchor-permalink" href="#Boundary-Conditions" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Constant inlet velocity
+sim = Simulation(...; inletBC = (1.0, 0.0))
+
+# Parabolic profile (Poiseuille)
+H = Lz / 2
+inletBC(i, x, t) = i == 1 ? 1.5 * (1 - ((x[2] - H) / H)^2) : 0.0
+sim = Simulation(...; inletBC = inletBC, U = 1.5)
+
+# Time-varying inlet
 inletBC(i, x, t) = i == 1 ? 1.0 + 0.1*sin(2π*t) : 0.0
-sim = Simulation(dims, L; inletBC=inletBC, U=1.0, ...)</code></pre><p>Additional boundary options:</p><ul><li><code>perdir=(2,)</code>: Make direction 2 (z) periodic</li><li><code>outletBC=true</code>: Convective outlet in x-direction</li></ul><h2 id="Running-Examples"><a class="docs-heading-anchor" href="#Running-Examples">Running Examples</a><a id="Running-Examples-1"></a><a class="docs-heading-anchor-permalink" href="#Running-Examples" title="Permalink"></a></h2><p>The <code>examples/</code> directory contains ready-to-run scripts:</p><pre><code class="language-bash hljs">julia --project examples/flow_past_cylinder_2d.jl
-julia --project examples/circle_benchmark.jl
-julia --project examples/oscillating_cylinder.jl</code></pre><p>See <a href="@ref">Examples</a> for detailed descriptions.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../codebase_structure/">Codebase Structure »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Monday 19 January 2026 13:18">Monday 19 January 2026</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+sim = Simulation(...; inletBC = inletBC, U = 1.0)
+
+# Periodic in z-direction
+sim = Simulation(...; perdir = (2,))
+
+# Convective outlet
+sim = Simulation(...; outletBC = true)</code></pre><hr/><h2 id="Next-Steps"><a class="docs-heading-anchor" href="#Next-Steps">Next Steps</a><a id="Next-Steps-1"></a><a class="docs-heading-anchor-permalink" href="#Next-Steps" title="Permalink"></a></h2><div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 1.5rem 0;">
+
+<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #667eea;">
+    <strong>GPU Acceleration</strong>
+    <p style="margin: 0.5rem 0 0 0; font-size: 0.95em;">Speed up your simulations 10-50x with CUDA.</p>
+    <a href="../gpu/">Read GPU Guide</a>
+</div>
+
+<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #43e97b;">
+    <strong>Adaptive Mesh</strong>
+    <p style="margin: 0.5rem 0 0 0; font-size: 0.95em;">Automatic refinement near bodies and features.</p>
+    <a href="../amr/">Read AMR Guide</a>
+</div>
+
+<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #f093fb;">
+    <strong>Examples</strong>
+    <p style="margin: 0.5rem 0 0 0; font-size: 0.95em;">Cylinders, fish, FSI, and more.</p>
+    <a href="../examples/">Browse Examples</a>
+</div>
+
+<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #4facfe;">
+    <strong>Core Types</strong>
+    <p style="margin: 0.5rem 0 0 0; font-size: 0.95em;">Deep dive into Simulation, Flow, AutoBody.</p>
+    <a href="../core_types/">Read Core Types</a>
+</div>
+
+</div><hr/><h2 id="Running-Examples"><a class="docs-heading-anchor" href="#Running-Examples">Running Examples</a><a id="Running-Examples-1"></a><a class="docs-heading-anchor-permalink" href="#Running-Examples" title="Permalink"></a></h2><p>The <code>examples/</code> directory contains ready-to-run scripts:</p><pre><code class="language-bash hljs"># Flow past cylinder (2D)
+julia --project examples/flow_past_cylinder_2d.jl
+
+# Oscillating cylinder
+julia --project examples/oscillating_cylinder.jl
+
+# Swimming fish
+julia --project examples/swimming_fish.jl
+
+# 3D sphere
+julia --project examples/sphere_3d.jl</code></pre><hr/><h2 id="Troubleshooting"><a class="docs-heading-anchor" href="#Troubleshooting">Troubleshooting</a><a id="Troubleshooting-1"></a><a class="docs-heading-anchor-permalink" href="#Troubleshooting" title="Permalink"></a></h2><h3 id="Simulation-Explodes-(NaN-values)"><a class="docs-heading-anchor" href="#Simulation-Explodes-(NaN-values)">Simulation Explodes (NaN values)</a><a id="Simulation-Explodes-(NaN-values)-1"></a><a class="docs-heading-anchor-permalink" href="#Simulation-Explodes-(NaN-values)" title="Permalink"></a></h3><p><strong>Cause:</strong> Time step too large or unstable SDF.</p><p><strong>Solutions:</strong></p><ol><li>Reduce initial time step: <code>Δt = 0.1f0</code></li><li>Use fixed time step: <code>fixed_Δt = 0.05f0</code></li><li>Check SDF is smooth and continuous</li></ol><h3 id="Slow-Performance"><a class="docs-heading-anchor" href="#Slow-Performance">Slow Performance</a><a id="Slow-Performance-1"></a><a class="docs-heading-anchor-permalink" href="#Slow-Performance" title="Permalink"></a></h3><p><strong>Solutions:</strong></p><ol><li>Enable GPU: <code>mem = CuArray</code></li><li>Use Float32 (default) instead of Float64</li><li>Reduce grid size for testing</li></ol><h3 id="Memory-Error"><a class="docs-heading-anchor" href="#Memory-Error">Memory Error</a><a id="Memory-Error-1"></a><a class="docs-heading-anchor-permalink" href="#Memory-Error" title="Permalink"></a></h3><p><strong>Solutions:</strong></p><ol><li>Reduce grid dimensions</li><li>Reduce AMR <code>max_level</code></li><li>For GPU: check <code>CUDA.memory_status()</code></li></ol><hr/><h2 id="Getting-Help"><a class="docs-heading-anchor" href="#Getting-Help">Getting Help</a><a id="Getting-Help-1"></a><a class="docs-heading-anchor-permalink" href="#Getting-Help" title="Permalink"></a></h2><ul><li><strong>Documentation:</strong> You&#39;re here! Check the sidebar for more topics.</li><li><strong>Issues:</strong> <a href="https://github.com/subhk/BioFlows.jl/issues">GitHub Issues</a></li><li><strong>Examples:</strong> <code>examples/</code> directory in the repository</li></ul></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../gpu/">GPU Acceleration »</a><div class="flexbox-break"></div><p class="footer-message">BioFlows.jl — High-Performance CFD in Julia</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Monday 19 January 2026 14:00">Monday 19 January 2026</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>GPU Acceleration · BioFlows.jl</title><meta name="title" content="GPU Acceleration · BioFlows.jl"/><meta property="og:title" content="GPU Acceleration · BioFlows.jl"/><meta property="twitter:title" content="GPU Acceleration · BioFlows.jl"/><meta name="description" content="Documentation for BioFlows.jl."/><meta property="og:description" content="Documentation for BioFlows.jl."/><meta property="twitter:description" content="Documentation for BioFlows.jl."/><meta property="og:url" content="https://subhk.github.io/BioFlows.jl/gpu/"/><meta property="twitter:url" content="https://subhk.github.io/BioFlows.jl/gpu/"/><link rel="canonical" href="https://subhk.github.io/BioFlows.jl/gpu/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script><link href="../assets/custom.css" rel="stylesheet" type="text/css"/></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">BioFlows.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../getting_started/">Getting Started</a></li><li class="is-active"><a class="tocitem" href>GPU Acceleration</a><ul class="internal"><li><a class="tocitem" href="#Prerequisites"><span>Prerequisites</span></a></li><li><a class="tocitem" href="#Installation"><span>Installation</span></a></li><li><a class="tocitem" href="#Basic-Usage"><span>Basic Usage</span></a></li><li><a class="tocitem" href="#Performance-Tips"><span>Performance Tips</span></a></li><li><a class="tocitem" href="#GPU-with-AMR"><span>GPU with AMR</span></a></li><li><a class="tocitem" href="#GPU-with-Moving-Bodies"><span>GPU with Moving Bodies</span></a></li><li><a class="tocitem" href="#Reading-Results-from-GPU"><span>Reading Results from GPU</span></a></li><li><a class="tocitem" href="#Saving-GPU-Simulation-Data"><span>Saving GPU Simulation Data</span></a></li><li><a class="tocitem" href="#3D-GPU-Simulations"><span>3D GPU Simulations</span></a></li><li><a class="tocitem" href="#Troubleshooting"><span>Troubleshooting</span></a></li><li><a class="tocitem" href="#Benchmarking"><span>Benchmarking</span></a></li><li><a class="tocitem" href="#Multi-GPU-(Advanced)"><span>Multi-GPU (Advanced)</span></a></li><li><a class="tocitem" href="#Summary"><span>Summary</span></a></li></ul></li><li><a class="tocitem" href="../core_types/">Core Types</a></li><li><a class="tocitem" href="../amr/">Adaptive Mesh Refinement</a></li><li><a class="tocitem" href="../diagnostics/">Diagnostics</a></li><li><a class="tocitem" href="../examples/">Examples</a></li><li><a class="tocitem" href="../numerical_methods/">Numerical Methods</a></li><li><a class="tocitem" href="../codebase_structure/">Codebase Structure</a></li><li><a class="tocitem" href="../api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>GPU Acceleration</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>GPU Acceleration</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/subhk/BioFlows.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/subhk/BioFlows.jl/blob/main/docs/src/gpu.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="gpu"><a class="docs-heading-anchor" href="#gpu">GPU Acceleration</a><a id="gpu-1"></a><a class="docs-heading-anchor-permalink" href="#gpu" title="Permalink"></a></h1><p>BioFlows.jl supports GPU acceleration via CUDA for NVIDIA GPUs. This can provide <strong>10-50x speedup</strong> over CPU execution, especially for larger simulations.</p><div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 12px; margin: 1.5rem 0;">
+    <h3 style="margin-top: 0; color: white;">Key Point</h3>
+    <p style="margin-bottom: 0;">Enabling GPU is as simple as adding <code style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">mem = CuArray</code> to your Simulation constructor. Everything else stays the same!</p>
+</div><hr/><h2 id="Prerequisites"><a class="docs-heading-anchor" href="#Prerequisites">Prerequisites</a><a id="Prerequisites-1"></a><a class="docs-heading-anchor-permalink" href="#Prerequisites" title="Permalink"></a></h2><h3 id="Hardware-Requirements"><a class="docs-heading-anchor" href="#Hardware-Requirements">Hardware Requirements</a><a id="Hardware-Requirements-1"></a><a class="docs-heading-anchor-permalink" href="#Hardware-Requirements" title="Permalink"></a></h3><ul><li>NVIDIA GPU with CUDA Compute Capability 5.0+ (Maxwell or newer)</li><li>Recommended: RTX 2000/3000/4000 series, Tesla V100/A100, or Quadro series</li><li>Minimum 4GB GPU memory (8GB+ recommended for larger simulations)</li></ul><h3 id="Software-Requirements"><a class="docs-heading-anchor" href="#Software-Requirements">Software Requirements</a><a id="Software-Requirements-1"></a><a class="docs-heading-anchor-permalink" href="#Software-Requirements" title="Permalink"></a></h3><ul><li>Julia 1.9 or later</li><li>NVIDIA CUDA Toolkit (automatically installed with CUDA.jl)</li><li>NVIDIA GPU drivers (version 450+ recommended)</li></ul><hr/><h2 id="Installation"><a class="docs-heading-anchor" href="#Installation">Installation</a><a id="Installation-1"></a><a class="docs-heading-anchor-permalink" href="#Installation" title="Permalink"></a></h2><h3 id="Step-1:-Install-CUDA.jl"><a class="docs-heading-anchor" href="#Step-1:-Install-CUDA.jl">Step 1: Install CUDA.jl</a><a id="Step-1:-Install-CUDA.jl-1"></a><a class="docs-heading-anchor-permalink" href="#Step-1:-Install-CUDA.jl" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Pkg
+Pkg.add(&quot;CUDA&quot;)</code></pre><h3 id="Step-2:-Verify-GPU-Access"><a class="docs-heading-anchor" href="#Step-2:-Verify-GPU-Access">Step 2: Verify GPU Access</a><a id="Step-2:-Verify-GPU-Access-1"></a><a class="docs-heading-anchor-permalink" href="#Step-2:-Verify-GPU-Access" title="Permalink"></a></h3><pre><code class="language-julia hljs">using CUDA
+
+# Check if CUDA is functional
+println(&quot;CUDA functional: &quot;, CUDA.functional())
+
+# List available GPUs
+CUDA.devices()
+
+# Check GPU memory
+CUDA.memory_status()</code></pre><p>Expected output:</p><pre><code class="nohighlight hljs">CUDA functional: true
+CUDA.DeviceIterator() for 1 devices:
+0. NVIDIA GeForce RTX 3080</code></pre><h3 id="Step-3:-Install-BioFlows.jl"><a class="docs-heading-anchor" href="#Step-3:-Install-BioFlows.jl">Step 3: Install BioFlows.jl</a><a id="Step-3:-Install-BioFlows.jl-1"></a><a class="docs-heading-anchor-permalink" href="#Step-3:-Install-BioFlows.jl" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Pkg
+Pkg.add(url=&quot;https://github.com/subhk/BioFlows.jl&quot;)</code></pre><h3 id="Step-4:-Verify-Backend-Setting"><a class="docs-heading-anchor" href="#Step-4:-Verify-Backend-Setting">Step 4: Verify Backend Setting</a><a id="Step-4:-Verify-Backend-Setting-1"></a><a class="docs-heading-anchor-permalink" href="#Step-4:-Verify-Backend-Setting" title="Permalink"></a></h3><p>BioFlows uses a compile-time backend preference. For GPU support, ensure it&#39;s set to &quot;KernelAbstractions&quot; (the default):</p><pre><code class="language-julia hljs">using BioFlows
+
+# Check current backend (should be &quot;KernelAbstractions&quot; for GPU)
+println(&quot;Backend: &quot;, BioFlows.backend)
+
+# If it shows &quot;SIMD&quot;, switch to KernelAbstractions:
+# BioFlows.set_backend(&quot;KernelAbstractions&quot;)
+# Then restart Julia</code></pre><div class="admonition is-info" id="Note-b0a14f1267be2790"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-b0a14f1267be2790" title="Permalink"></a></header><div class="admonition-body"><p>If you previously set the backend to &quot;SIMD&quot; for serial CPU execution, you must switch back to &quot;KernelAbstractions&quot; for GPU support. The <code>Simulation</code> constructor will error if there&#39;s a mismatch between the backend and array type.</p></div></div><hr/><h2 id="Basic-Usage"><a class="docs-heading-anchor" href="#Basic-Usage">Basic Usage</a><a id="Basic-Usage-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-Usage" title="Permalink"></a></h2><h3 id="CPU-vs-GPU-Comparison"><a class="docs-heading-anchor" href="#CPU-vs-GPU-Comparison">CPU vs GPU Comparison</a><a id="CPU-vs-GPU-Comparison-1"></a><a class="docs-heading-anchor-permalink" href="#CPU-vs-GPU-Comparison" title="Permalink"></a></h3><pre><code class="language-julia hljs">using BioFlows
+
+# Define geometry
+sdf(x, t) = sqrt((x[1] - 64)^2 + (x[2] - 64)^2) - 8
+
+# CPU Simulation (default)
+sim_cpu = Simulation((128, 128), (128.0, 128.0);
+                     ν = 0.01,
+                     body = AutoBody(sdf))
+
+# GPU Simulation - just add mem=CuArray
+using CUDA
+sim_gpu = Simulation((128, 128), (128.0, 128.0);
+                     ν = 0.01,
+                     body = AutoBody(sdf),
+                     mem = CuArray)  # ← This is the only change!</code></pre><h3 id="Running-a-GPU-Simulation"><a class="docs-heading-anchor" href="#Running-a-GPU-Simulation">Running a GPU Simulation</a><a id="Running-a-GPU-Simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Running-a-GPU-Simulation" title="Permalink"></a></h3><pre><code class="language-julia hljs">using CUDA
+using BioFlows
+
+# Setup
+radius, center = 16, 128
+sdf(x, t) = sqrt((x[1] - center)^2 + (x[2] - center)^2) - radius
+
+# Create GPU simulation
+sim = Simulation((512, 256), (512.0, 256.0);
+                 inletBC = (1.0, 0.0),
+                 ν = 2radius / 200,  # Re = 200
+                 body = AutoBody(sdf),
+                 mem = CuArray)
+
+# Time integration (runs on GPU)
+sim_step!(sim, 10.0)
+
+println(&quot;Simulation complete at t* = &quot;, sim_time(sim))</code></pre><hr/><h2 id="Performance-Tips"><a class="docs-heading-anchor" href="#Performance-Tips">Performance Tips</a><a id="Performance-Tips-1"></a><a class="docs-heading-anchor-permalink" href="#Performance-Tips" title="Permalink"></a></h2><h3 id="1.-Use-Larger-Grids"><a class="docs-heading-anchor" href="#1.-Use-Larger-Grids">1. Use Larger Grids</a><a id="1.-Use-Larger-Grids-1"></a><a class="docs-heading-anchor-permalink" href="#1.-Use-Larger-Grids" title="Permalink"></a></h3><p>GPU acceleration is most beneficial for larger problems:</p><table><tr><th style="text-align: right">Grid Size</th><th style="text-align: right">CPU Time</th><th style="text-align: right">GPU Time</th><th style="text-align: right">Speedup</th></tr><tr><td style="text-align: right">64×64</td><td style="text-align: right">1.0s</td><td style="text-align: right">0.5s</td><td style="text-align: right">2×</td></tr><tr><td style="text-align: right">256×256</td><td style="text-align: right">15s</td><td style="text-align: right">0.8s</td><td style="text-align: right">19×</td></tr><tr><td style="text-align: right">512×512</td><td style="text-align: right">120s</td><td style="text-align: right">2.5s</td><td style="text-align: right">48×</td></tr><tr><td style="text-align: right">1024×512</td><td style="text-align: right">480s</td><td style="text-align: right">8s</td><td style="text-align: right">60×</td></tr></table><p><em>Times are illustrative - actual performance depends on hardware.</em></p><h3 id="2.-Batch-Operations"><a class="docs-heading-anchor" href="#2.-Batch-Operations">2. Batch Operations</a><a id="2.-Batch-Operations-1"></a><a class="docs-heading-anchor-permalink" href="#2.-Batch-Operations" title="Permalink"></a></h3><p>The GPU is most efficient when doing many operations at once. Avoid reading results too frequently:</p><pre><code class="language-julia hljs"># BAD: Inefficient - transfers data every step
+for step in 1:1000
+    sim_step!(sim)
+    ω = vorticity_component(sim, 3)  # Transfers from GPU
+    println(maximum(ω))
+end
+
+# GOOD: Efficient - transfer only when needed
+for step in 1:1000
+    sim_step!(sim)
+    if step % 100 == 0  # Only every 100 steps
+        ω = vorticity_component(sim, 3)
+        println(&quot;Step $step: max ω = &quot;, maximum(ω))
+    end
+end</code></pre><h3 id="3.-Single-Precision-(Float32)"><a class="docs-heading-anchor" href="#3.-Single-Precision-(Float32)">3. Single Precision (Float32)</a><a id="3.-Single-Precision-(Float32)-1"></a><a class="docs-heading-anchor-permalink" href="#3.-Single-Precision-(Float32)" title="Permalink"></a></h3><p>BioFlows uses Float32 by default, which is optimal for GPU:</p><pre><code class="language-julia hljs"># Default: Float32 (recommended for GPU)
+sim = Simulation((512, 256), (512.0, 256.0); mem=CuArray, ...)
+
+# Float64 if needed (2x slower on most GPUs)
+sim = Simulation((512, 256), (512.0, 256.0); mem=CuArray, T=Float64, ...)</code></pre><div class="admonition is-success" id="Float32-vs-Float64-6176ee47c9b611d9"><header class="admonition-header">Float32 vs Float64<a class="admonition-anchor" href="#Float32-vs-Float64-6176ee47c9b611d9" title="Permalink"></a></header><div class="admonition-body"><p>Most NVIDIA consumer GPUs have ~32× more Float32 throughput than Float64. Tesla/A100 GPUs have ~2× more. Always use Float32 unless you need extra precision.</p></div></div><h3 id="4.-Avoid-Scalar-Indexing"><a class="docs-heading-anchor" href="#4.-Avoid-Scalar-Indexing">4. Avoid Scalar Indexing</a><a id="4.-Avoid-Scalar-Indexing-1"></a><a class="docs-heading-anchor-permalink" href="#4.-Avoid-Scalar-Indexing" title="Permalink"></a></h3><p>Never access individual GPU array elements directly:</p><pre><code class="language-julia hljs"># BAD: scalar indexing (extremely slow)
+for i in 1:size(sim.flow.u, 1)
+    sim.flow.u[i, 1, 1] = 0.0  # Each access is a GPU transfer!
+end
+
+# GOOD: use broadcast or kernel operations
+sim.flow.u .= 0  # Single GPU operation</code></pre><hr/><h2 id="GPU-with-AMR"><a class="docs-heading-anchor" href="#GPU-with-AMR">GPU with AMR</a><a id="GPU-with-AMR-1"></a><a class="docs-heading-anchor-permalink" href="#GPU-with-AMR" title="Permalink"></a></h2><p>Adaptive Mesh Refinement works on GPU:</p><pre><code class="language-julia hljs">using CUDA
+using BioFlows
+
+sdf(x, t) = sqrt((x[1] - 64)^2 + (x[2] - 64)^2) - 8
+
+config = AMRConfig(
+    max_level = 2,
+    body_distance_threshold = 4.0,
+    regrid_interval = 10
+)
+
+sim = AMRSimulation((256, 256), (256.0, 256.0);
+                    inletBC = (1.0, 0.0),
+                    ν = 0.01,
+                    body = AutoBody(sdf),
+                    amr_config = config,
+                    mem = CuArray)
+
+for step in 1:500
+    sim_step!(sim; remeasure=true)
+end
+
+amr_info(sim)</code></pre><hr/><h2 id="GPU-with-Moving-Bodies"><a class="docs-heading-anchor" href="#GPU-with-Moving-Bodies">GPU with Moving Bodies</a><a id="GPU-with-Moving-Bodies-1"></a><a class="docs-heading-anchor-permalink" href="#GPU-with-Moving-Bodies" title="Permalink"></a></h2><p>Moving bodies work seamlessly on GPU:</p><pre><code class="language-julia hljs">using CUDA
+using BioFlows
+
+# Oscillating cylinder
+sdf(x, t) = sqrt(x[1]^2 + x[2]^2) - 8
+map(x, t) = x .- [0, 4*sin(0.5*t)]
+
+body = AutoBody(sdf, map)
+
+sim = Simulation((256, 128), (256.0, 128.0);
+                 inletBC = (1.0, 0.0),
+                 ν = 0.08,
+                 body = body,
+                 mem = CuArray)
+
+# remeasure=true updates body position each step
+for step in 1:1000
+    sim_step!(sim; remeasure=true)
+end</code></pre><hr/><h2 id="Reading-Results-from-GPU"><a class="docs-heading-anchor" href="#Reading-Results-from-GPU">Reading Results from GPU</a><a id="Reading-Results-from-GPU-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-Results-from-GPU" title="Permalink"></a></h2><p>Results are automatically transferred from GPU when accessed:</p><pre><code class="language-julia hljs">using CUDA
+using BioFlows
+
+sim = Simulation((256, 128), (256.0, 128.0);
+                 ν = 0.01, body = AutoBody(sdf), mem = CuArray)
+
+sim_step!(sim, 5.0)
+
+# These functions handle GPU→CPU transfer automatically
+ω = vorticity_component(sim, 3)       # Returns CPU Array
+vel = cell_center_velocity(sim)        # Returns CPU Array
+p = cell_center_pressure(sim)          # Returns CPU Array
+
+# Force computation also works
+forces = force_components(sim)
+println(&quot;Drag: &quot;, forces.total[1])
+println(&quot;Lift: &quot;, forces.total[2])</code></pre><h3 id="Manual-Transfer"><a class="docs-heading-anchor" href="#Manual-Transfer">Manual Transfer</a><a id="Manual-Transfer-1"></a><a class="docs-heading-anchor-permalink" href="#Manual-Transfer" title="Permalink"></a></h3><p>If you need direct array access:</p><pre><code class="language-julia hljs"># Transfer GPU array to CPU
+u_cpu = Array(sim.flow.u)
+
+# Transfer CPU array to GPU
+u_gpu = CuArray(u_cpu)</code></pre><hr/><h2 id="Saving-GPU-Simulation-Data"><a class="docs-heading-anchor" href="#Saving-GPU-Simulation-Data">Saving GPU Simulation Data</a><a id="Saving-GPU-Simulation-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Saving-GPU-Simulation-Data" title="Permalink"></a></h2><p>Output writers work with GPU simulations:</p><pre><code class="language-julia hljs">using CUDA
+using BioFlows
+
+sim = Simulation((256, 128), (256.0, 128.0);
+                 ν = 0.01, body = AutoBody(sdf), mem = CuArray)
+
+# Create writer (saves to JLD2)
+writer = CenterFieldWriter(&quot;output.jld2&quot;; interval = 0.5)
+
+for step in 1:1000
+    sim_step!(sim)
+    write!(writer, sim)  # Handles GPU→CPU transfer internally
+end
+
+close!(writer)</code></pre><hr/><h2 id="3D-GPU-Simulations"><a class="docs-heading-anchor" href="#3D-GPU-Simulations">3D GPU Simulations</a><a id="3D-GPU-Simulations-1"></a><a class="docs-heading-anchor-permalink" href="#3D-GPU-Simulations" title="Permalink"></a></h2><p>3D simulations benefit even more from GPU acceleration:</p><pre><code class="language-julia hljs">using CUDA
+using BioFlows
+
+# 3D sphere
+center = [64, 64, 64]
+sdf(x, t) = sqrt(sum((x .- center).^2)) - 12
+
+sim = Simulation((128, 128, 128), (128.0, 128.0, 128.0);
+                 inletBC = (1.0, 0.0, 0.0),
+                 ν = 0.01,
+                 body = AutoBody(sdf),
+                 mem = CuArray)
+
+# 3D simulations are compute-intensive - GPU is essential
+sim_step!(sim, 5.0)</code></pre><hr/><h2 id="Troubleshooting"><a class="docs-heading-anchor" href="#Troubleshooting">Troubleshooting</a><a id="Troubleshooting-1"></a><a class="docs-heading-anchor-permalink" href="#Troubleshooting" title="Permalink"></a></h2><h3 id="CUDA-Not-Found"><a class="docs-heading-anchor" href="#CUDA-Not-Found">CUDA Not Found</a><a id="CUDA-Not-Found-1"></a><a class="docs-heading-anchor-permalink" href="#CUDA-Not-Found" title="Permalink"></a></h3><pre><code class="language-julia hljs">julia&gt; using CUDA
+ERROR: CUDA.jl could not find an appropriate CUDA runtime</code></pre><p><strong>Solution:</strong> Install CUDA drivers from NVIDIA website, or let Julia install them:</p><pre><code class="language-julia hljs">using CUDA
+CUDA.set_runtime_version!(v&quot;12.0&quot;)  # Or your preferred version</code></pre><h3 id="Out-of-GPU-Memory"><a class="docs-heading-anchor" href="#Out-of-GPU-Memory">Out of GPU Memory</a><a id="Out-of-GPU-Memory-1"></a><a class="docs-heading-anchor-permalink" href="#Out-of-GPU-Memory" title="Permalink"></a></h3><pre><code class="nohighlight hljs">ERROR: Out of GPU memory trying to allocate X bytes</code></pre><p><strong>Solutions:</strong></p><ol><li>Reduce grid size</li><li>Use smaller <code>max_level</code> for AMR</li><li>Close other GPU applications</li><li>Check memory with <code>CUDA.memory_status()</code></li></ol><h3 id="Scalar-Indexing-Warning"><a class="docs-heading-anchor" href="#Scalar-Indexing-Warning">Scalar Indexing Warning</a><a id="Scalar-Indexing-Warning-1"></a><a class="docs-heading-anchor-permalink" href="#Scalar-Indexing-Warning" title="Permalink"></a></h3><pre><code class="nohighlight hljs">Warning: Performing scalar indexing on task...</code></pre><p><strong>Solution:</strong> This indicates slow GPU access. Review code to avoid direct array indexing. You can disable the warning (not recommended) with:</p><pre><code class="language-julia hljs">CUDA.allowscalar(false)  # Will error instead of warn</code></pre><h3 id="NaN-Values"><a class="docs-heading-anchor" href="#NaN-Values">NaN Values</a><a id="NaN-Values-1"></a><a class="docs-heading-anchor-permalink" href="#NaN-Values" title="Permalink"></a></h3><p>If simulation produces NaN on GPU but not CPU:</p><ol><li>Check for division by zero in SDF</li><li>Reduce time step with <code>fixed_Δt</code></li><li>Ensure SDF is smooth and continuous</li></ol><h3 id="Backend-Mismatch-Error"><a class="docs-heading-anchor" href="#Backend-Mismatch-Error">Backend Mismatch Error</a><a id="Backend-Mismatch-Error-1"></a><a class="docs-heading-anchor-permalink" href="#Backend-Mismatch-Error" title="Permalink"></a></h3><pre><code class="nohighlight hljs">ERROR: Backend mismatch: The @loop backend is set to &quot;SIMD&quot;...</code></pre><p><strong>Cause:</strong> The compile-time backend preference is set to &quot;SIMD&quot; (serial CPU), but you&#39;re trying to use GPU arrays.</p><p><strong>Solution:</strong></p><pre><code class="language-julia hljs">using BioFlows
+BioFlows.set_backend(&quot;KernelAbstractions&quot;)
+# Restart Julia, then try again</code></pre><hr/><h2 id="Benchmarking"><a class="docs-heading-anchor" href="#Benchmarking">Benchmarking</a><a id="Benchmarking-1"></a><a class="docs-heading-anchor-permalink" href="#Benchmarking" title="Permalink"></a></h2><p>Compare CPU vs GPU performance:</p><pre><code class="language-julia hljs">using CUDA
+using BioFlows
+using BenchmarkTools
+
+sdf(x, t) = sqrt((x[1] - 64)^2 + (x[2] - 64)^2) - 8
+
+# CPU benchmark
+sim_cpu = Simulation((256, 256), (256.0, 256.0); ν=0.01, body=AutoBody(sdf))
+@btime sim_step!($sim_cpu) setup=(sim_cpu.flow.Δt[end]=0.1)
+
+# GPU benchmark
+sim_gpu = Simulation((256, 256), (256.0, 256.0); ν=0.01, body=AutoBody(sdf), mem=CuArray)
+CUDA.@sync @btime sim_step!($sim_gpu) setup=(sim_gpu.flow.Δt[end]=0.1)</code></pre><div class="admonition is-info" id="Note-ab23bdd3d8a9e804"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-ab23bdd3d8a9e804" title="Permalink"></a></header><div class="admonition-body"><p>Use <code>CUDA.@sync</code> when benchmarking GPU code to ensure operations complete.</p></div></div><hr/><h2 id="Multi-GPU-(Advanced)"><a class="docs-heading-anchor" href="#Multi-GPU-(Advanced)">Multi-GPU (Advanced)</a><a id="Multi-GPU-(Advanced)-1"></a><a class="docs-heading-anchor-permalink" href="#Multi-GPU-(Advanced)" title="Permalink"></a></h2><p>For very large simulations, BioFlows supports MPI for multi-GPU setups:</p><pre><code class="language-julia hljs"># Run with: mpiexecjl -n 4 julia script.jl
+using MPI
+using CUDA
+using BioFlows
+
+MPI.Init()
+comm = MPI.COMM_WORLD
+rank = MPI.Comm_rank(comm)
+
+# Each rank uses one GPU
+device!(rank % length(devices()))
+
+# Create distributed simulation
+sim = Simulation((1024, 512), (1024.0, 512.0);
+                 ν = 0.01,
+                 body = AutoBody(sdf),
+                 mem = CuArray)
+
+# Simulation automatically handles domain decomposition
+sim_step!(sim, 10.0)
+
+MPI.Finalize()</code></pre><hr/><h2 id="Summary"><a class="docs-heading-anchor" href="#Summary">Summary</a><a id="Summary-1"></a><a class="docs-heading-anchor-permalink" href="#Summary" title="Permalink"></a></h2><div style="background: #f8f9fa; padding: 1.5rem; border-radius: 8px; margin: 1.5rem 0;">
+<h3 style="margin-top: 0;">Quick Reference</h3>
+
+<table style="width: 100%;">
+<tr>
+    <td><strong>Enable GPU</strong></td>
+    <td><code>Simulation(...; mem = CuArray)</code></td>
+</tr>
+<tr>
+    <td><strong>Check GPU</strong></td>
+    <td><code>CUDA.functional()</code></td>
+</tr>
+<tr>
+    <td><strong>Memory status</strong></td>
+    <td><code>CUDA.memory_status()</code></td>
+</tr>
+<tr>
+    <td><strong>Transfer to CPU</strong></td>
+    <td><code>Array(gpu_array)</code></td>
+</tr>
+<tr>
+    <td><strong>Best precision</strong></td>
+    <td>Float32 (default)</td>
+</tr>
+</table>
+</div><p><strong>Remember:</strong> GPU acceleration shines with larger grids (256×256+). For small test cases, CPU may be faster due to transfer overhead.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../getting_started/">« Getting Started</a><a class="docs-footer-nextpage" href="../core_types/">Core Types »</a><div class="flexbox-break"></div><p class="footer-message">BioFlows.jl — High-Performance CFD in Julia</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Monday 19 January 2026 14:00">Monday 19 January 2026</span>. Using Julia version 1.10.10.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
