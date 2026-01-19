@@ -303,11 +303,12 @@ Useful for verification. GPU-compatible via maximum reduction.
 """
 function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
                               verbose::Bool=false) where {D,T}
-    # Base grid divergence with unit spacing (GPU-compatible)
+    # Base grid divergence with unit spacing
     # Compute divergence into σ temporarily
     R = inside(flow.p)
     @loop flow.σ[I] = abs(div(I, flow.u)) over I ∈ R
-    base_div = maximum(@view flow.σ[R])
+    # GPU-safe reduction: transfer to CPU to avoid scalar indexing
+    base_div = _safe_maximum(identity, @view flow.σ[R])
 
     if verbose
         println("Base grid max |∇·u|: ", base_div)
@@ -320,10 +321,11 @@ function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
 
-        # Compute divergence into patch.r temporarily (GPU-compatible)
+        # Compute divergence into patch.r temporarily
         Rp = inside(patch)
         @loop patch.r[I] = abs(div(I, vel_patch.u)) over I ∈ Rp
-        patch_div = maximum(@view patch.r[Rp])
+        # GPU-safe reduction: transfer to CPU
+        patch_div = _safe_maximum(identity, @view patch.r[Rp])
 
         if verbose
             println("Patch at ", anchor, " max |∇·u|: ", patch_div)

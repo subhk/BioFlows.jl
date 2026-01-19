@@ -193,6 +193,20 @@ mutable struct Simulation <: AbstractSimulation
                   "Got Δx = $Δx. Adjust grid resolution or domain size to ensure Δx = Δy = Δz.")
         end
 
+        # Check backend/memory compatibility
+        # The @loop macro generates code at compile time based on the backend preference.
+        # If backend="SIMD" but GPU arrays are used, scalar indexing will occur.
+        if backend == "SIMD" && mem !== Array
+            error("Backend mismatch: The @loop backend is set to \"SIMD\" (serial CPU), " *
+                  "but GPU arrays (mem=$mem) were requested.\n" *
+                  "This would cause extremely slow scalar indexing on GPU.\n" *
+                  "Solutions:\n" *
+                  "  1. Use CPU arrays: mem=Array (default)\n" *
+                  "  2. Switch to KernelAbstractions backend for GPU support:\n" *
+                  "     using BioFlows; BioFlows.set_backend(\"KernelAbstractions\")\n" *
+                  "     Then restart Julia for the change to take effect.")
+        end
+
         new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
     end
 end
@@ -1096,8 +1110,12 @@ end
 Convenience macro to create a CuArray if CUDA is available,
 otherwise falls back to a CPU array.
 
-Creates the array directly on GPU using the pipe operator,
-which is more efficient than creating on CPU and copying.
+Note: This macro creates the array on CPU first, then transfers to GPU.
+For performance-critical initialization of large arrays, prefer using
+CUDA's native constructors directly:
+- `CUDA.zeros(T, dims...)` - zeros directly on GPU
+- `CUDA.ones(T, dims...)` - ones directly on GPU
+- `CUDA.fill(val, dims...)` - filled array directly on GPU
 
 The type parameter T ensures the array uses the specified precision
 (Float32 recommended for GPU performance).
@@ -1106,16 +1124,21 @@ The type parameter T ensures the array uses the specified precision
 ```julia
 using BioFlows
 using CUDA
-a = @gpu_array Float32 zeros(100, 100)  # Creates Float32 CuArray if CUDA is available
+
+# Using the macro (creates on CPU, transfers to GPU)
+a = @gpu_array Float32 zeros(100, 100)
+
+# More efficient for large arrays - direct GPU allocation
+b = CUDA.zeros(Float32, 100, 100)
 ```
 """
 macro gpu_array(T, ex)
     quote
         info = gpu_backend()
-        # Ensure array is created with correct element type
+        # Create array with correct element type on CPU
         arr = $(esc(T)).($(esc(ex)))
         if info.available
-            # Pipe to GPU (uses efficient transfer)
+            # Transfer to GPU
             arr |> info.array_type
         else
             arr

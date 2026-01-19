@@ -622,15 +622,17 @@ end
 
 Compute maximum divergence at base and all refined levels.
 Returns tuple (base_div, patch_divs_2d, patch_divs_3d) for verification.
-GPU-compatible via @loop and maximum reduction.
+Uses GPU-safe reductions that transfer to CPU to avoid scalar indexing
+with CartesianIndices views on CuArray.
 """
 function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) where {D,T}
-    # Base grid divergence (GPU-compatible)
+    # Base grid divergence
     R = inside(flow.p)
     @loop flow.σ[I] = abs(div(I, flow.u)) over I ∈ R
-    base_div = maximum(@view flow.σ[R])
+    # GPU-safe reduction: transfer to CPU
+    base_div = _safe_maximum(identity, @view flow.σ[R])
 
-    # 2D patch divergences (GPU-compatible)
+    # 2D patch divergences
     patch_divs_2d = Dict{Tuple{Int,Int}, T}()
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
@@ -638,10 +640,11 @@ function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) wher
 
         Rp = inside(patch)
         @loop patch.r[I] = abs(div(I, vel_patch.u)) over I ∈ Rp
-        patch_divs_2d[anchor] = maximum(@view patch.r[Rp])
+        # GPU-safe reduction: transfer to CPU
+        patch_divs_2d[anchor] = _safe_maximum(identity, @view patch.r[Rp])
     end
 
-    # 3D patch divergences (GPU-compatible)
+    # 3D patch divergences
     patch_divs_3d = Dict{Tuple{Int,Int,Int}, T}()
     for (anchor, patch) in cp.patches_3d
         vel_patch = get_patch(cp.refined_velocity, anchor)
@@ -649,7 +652,8 @@ function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) wher
 
         Rp = inside(patch)
         @loop patch.r[I] = abs(div(I, vel_patch.u)) over I ∈ Rp
-        patch_divs_3d[anchor] = maximum(@view patch.r[Rp])
+        # GPU-safe reduction: transfer to CPU
+        patch_divs_3d[anchor] = _safe_maximum(identity, @view patch.r[Rp])
     end
 
     return base_div, patch_divs_2d, patch_divs_3d

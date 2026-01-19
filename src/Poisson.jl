@@ -210,9 +210,10 @@ end
 smooth!(p) = pcg!(p)  # Default smoother
 
 # Squared L₂ norm of residual: ||r||₂² = r·r (not ||r||₂ = √(r·r))
-# Uses dot product directly since ghost cells are zero
+# Uses dot product directly since ghost cells are zero (GPU-safe via CUBLAS)
 L₂(p::Poisson) = p.r ⋅ p.r
-L∞(p::Poisson) = maximum(abs,p.r)
+# GPU-safe: transfer to CPU for reduction to avoid potential scalar indexing
+L∞(p::Poisson) = _safe_maximum(abs, p.r)
 
 """
     solver!(p::Poisson; tol=1e-4, itmx=1000)

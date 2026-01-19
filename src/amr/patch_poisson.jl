@@ -275,21 +275,25 @@ end
 """
     patch_L₂(patch::PatchPoisson)
 
-Compute L₂ norm of residual (GPU-compatible via sum).
+Compute L₂ norm of residual.
+Uses GPU-safe reduction that transfers to CPU to avoid scalar indexing
+with CartesianIndices views on CuArray.
 """
 function patch_L₂(patch::PatchPoisson{T}) where T
     R = inside(patch)
-    return sum(abs2, @view patch.r[R])
+    return _safe_sum_abs2(@view patch.r[R])
 end
 
 """
     patch_L∞(patch::PatchPoisson)
 
-Compute L∞ norm of residual (GPU-compatible via maximum).
+Compute L∞ norm of residual.
+Uses GPU-safe reduction that transfers to CPU to avoid scalar indexing
+with CartesianIndices views on CuArray.
 """
 function patch_L∞(patch::PatchPoisson{T}) where T
     R = inside(patch)
-    return maximum(abs, @view patch.r[R])
+    return _safe_maximum(abs, @view patch.r[R])
 end
 
 """
@@ -766,11 +770,13 @@ end
 """
     patch_L₂_3d(patch::PatchPoisson3D)
 
-Compute L₂ norm of residual for 3D patch (GPU-compatible).
+Compute L₂ norm of residual for 3D patch.
+Uses GPU-safe reduction that transfers to CPU to avoid scalar indexing
+with CartesianIndices views on CuArray.
 """
 function patch_L₂_3d(patch::PatchPoisson3D{T}) where T
     R = inside(patch)
-    return sum(abs2, @view patch.r[R])
+    return _safe_sum_abs2(@view patch.r[R])
 end
 
 """

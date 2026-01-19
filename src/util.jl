@@ -93,12 +93,48 @@ end
 splitn(n) = Base.front(n),last(n)
 size_u(u) = splitn(size(u))
 
+# =============================================================================
+# GPU-SAFE REDUCTION HELPERS
+# =============================================================================
+# CartesianIndices views on CuArray can cause scalar indexing with
+# CUDA.allowscalar(false). These helpers transfer small boundary slices
+# to CPU for reduction, which is safe and efficient for boundary operations.
+# =============================================================================
+
+"""
+    _safe_sum(v)
+
+GPU-safe sum that handles CartesianIndices views by transferring to CPU.
+For boundary slices, the transfer overhead is negligible compared to the
+GPU kernel launch overhead for small reductions.
+"""
+_safe_sum(v::AbstractArray) = sum(Array(v))
+_safe_sum(v::Array) = sum(v)  # Already on CPU, no transfer needed
+
+"""
+    _safe_maximum(f, v)
+
+GPU-safe maximum with function `f` applied element-wise.
+Transfers to CPU to avoid scalar indexing issues with CartesianIndices views.
+"""
+_safe_maximum(f, v::AbstractArray) = maximum(f, Array(v))
+_safe_maximum(f, v::Array) = maximum(f, v)  # Already on CPU
+
+"""
+    _safe_sum_abs2(v)
+
+GPU-safe sum of squared absolute values.
+"""
+_safe_sum_abs2(v::AbstractArray) = sum(abs2, Array(v))
+_safe_sum_abs2(v::Array) = sum(abs2, v)
+
 """
     L₂(a)
 
 L₂ norm of array `a` excluding ghosts.
+Uses GPU-safe reduction that transfers the interior view to CPU.
 """
-L₂(a) = sum(abs2,@inbounds(a[I]) for I ∈ inside(a))
+L₂(a) = _safe_sum_abs2(@view a[inside(a)])
 
 """
     @inside <arr[I] = value>
@@ -144,7 +180,24 @@ end
 Macro to automate fast loops using @simd when running in serial,
 or KernelAbstractions when running multi-threaded CPU or GPU.
 
-For example
+## Backend Selection
+
+The backend is determined at **compile time** by the `backend` preference:
+- `"KernelAbstractions"` (default): Uses KernelAbstractions.jl for GPU/parallel execution
+- `"SIMD"`: Uses @simd loops for serial CPU execution
+
+To change the backend:
+```julia
+using BioFlows
+BioFlows.set_backend("KernelAbstractions")  # or "SIMD"
+# Restart Julia for changes to take effect
+```
+
+**Important:** The backend must match your array type. Using `mem=CuArray` with
+`backend="SIMD"` will cause scalar indexing errors. The `Simulation` constructor
+validates this automatically.
+
+## Example
 
     @loop a[I,i] += sum(loc(i,I)) over I ∈ R
 
@@ -154,7 +207,7 @@ becomes
         @fastmath @inbounds a[I,i] += sum(loc(i,I))
     end
 
-on serial execution, or
+on serial execution (backend="SIMD"), or
 
     @kernel function kern(a,i,@Const(I0))
         I ∈ @index(Global,Cartesian)+I0
@@ -162,7 +215,7 @@ on serial execution, or
     end
     kern(get_backend(a),64)(a,i,R[1]-oneunit(R[1]),ndrange=size(R))
 
-when multi-threading on CPU or using CuArrays.
+when using KernelAbstractions (backend="KernelAbstractions").
 Note that `get_backend` is used on the _first_ variable in `expr` (`a` in this example).
 """
 macro loop(args...)
@@ -288,13 +341,18 @@ end
     exitBC!(u,u⁰,Δt)
 
 Apply a 1D convection scheme to fill the ghost cell on the outlet of the domain.
+Uses GPU-safe reductions that transfer boundary slices to CPU to avoid
+scalar indexing issues with CartesianIndices views on CuArray.
 """
 function exitBC!(u,u⁰,Δt)
     N,_ = size_u(u)
     exitR = slice(N.-1,N[1],1,2)              # exit slice excluding ghosts
-    U = sum(@view(u[slice(N.-1,2,1,2),1]))/length(exitR) # inflow mass flux
+    # GPU-safe sum: transfer boundary slice to CPU for reduction
+    inletV = @view(u[slice(N.-1,2,1,2),1])
+    U = _safe_sum(inletV)/length(exitR)       # inflow mass flux
     @loop u[I,1] = u⁰[I,1]-U*Δt*(u⁰[I,1]-u⁰[I-δ(1,I),1]) over I ∈ exitR
-    ∮u = sum(@view(u[exitR,1]))/length(exitR)-U   # mass flux imbalance
+    exitV = @view(u[exitR,1])
+    ∮u = _safe_sum(exitV)/length(exitR)-U     # mass flux imbalance
     @loop u[I,1] -= ∮u over I ∈ exitR         # correct flux
 end
 """
@@ -309,8 +367,13 @@ end
 """
     interp(x::SVector, arr::AbstractArray)
 
-    Linear interpolation from array `arr` at Cartesian-coordinate `x`.
-    Note: This routine works for any number of dimensions.
+Linear interpolation from array `arr` at Cartesian-coordinate `x`.
+Note: This routine works for any number of dimensions.
+
+Warning: This function uses scalar indexing and is intended for CPU arrays.
+On GPU arrays (CuArray), this will cause scalar indexing which is extremely
+slow or may error with `CUDA.allowscalar(false)`. For GPU usage, transfer
+the array to CPU first: `interp(x, Array(arr))`.
 """
 function interp(x::SVector{D,T}, arr::AbstractArray{T,D}) where {D,T}
     # Index below the interpolation coordinate and the difference

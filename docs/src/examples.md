@@ -1,6 +1,34 @@
 # Examples
 
-BioFlows includes several example scripts in the `examples/` directory.
+```@raw html
+<div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 1.5rem; border-radius: 12px; margin-bottom: 2rem;">
+    <h3 style="margin-top: 0; color: white;">Ready-to-Run Examples</h3>
+    <p style="margin-bottom: 0;">BioFlows includes comprehensive examples in the <code style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">examples/</code> directory. From simple cylinders to swimming fish schools with FSI coupling.</p>
+</div>
+```
+
+```@raw html
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; text-align: center;">
+    <strong>2D Cylinder</strong><br>
+    <small style="color: #666;">Classic benchmark</small>
+</div>
+<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; text-align: center;">
+    <strong>Moving Bodies</strong><br>
+    <small style="color: #666;">Oscillating & rotating</small>
+</div>
+<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; text-align: center;">
+    <strong>Swimming Fish</strong><br>
+    <small style="color: #666;">Flexible bodies</small>
+</div>
+<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; text-align: center;">
+    <strong>3D Simulations</strong><br>
+    <small style="color: #666;">Sphere & torus</small>
+</div>
+</div>
+```
+
+---
 
 ## Flow Past Cylinder (2D)
 

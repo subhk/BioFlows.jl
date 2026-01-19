@@ -237,7 +237,8 @@ function compute_diagnostics(sim::AbstractSimulation)
     max_components = Vector{eltype(sim.flow.p)}(undef, spatial_dims)
     for comp in 1:spatial_dims
         slice = view(vel, colon_dims..., comp)
-        max_components[comp] = maximum(abs, slice)
+        # GPU-safe: transfer to CPU for reduction to avoid potential scalar indexing
+        max_components[comp] = _safe_maximum(abs, slice)
     end
     Δt = sim.flow.Δt[end]
     h = minimum(sim.flow.Δx)
@@ -260,7 +261,7 @@ end
 Compute summary statistics from a force history vector. Optionally discard
 the first `discard` fraction of samples (0.0 to 1.0).
 """
-function summarize_force_history(history::Vector; discard::Real=0.0)
+function summarize_force_history(history::Vector; discard::Real=0f0)
     n = length(history)
     start_idx = max(1, round(Int, discard * n) + 1)
     subset = history[start_idx:end]

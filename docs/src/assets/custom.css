@@ -1,0 +1,292 @@
+/* BioFlows.jl Custom Documentation Styles */
+
+/* ============================================
+   ROOT VARIABLES
+   ============================================ */
+:root {
+    --bioflows-primary: #667eea;
+    --bioflows-secondary: #764ba2;
+    --bioflows-accent: #f5576c;
+    --bioflows-success: #43e97b;
+    --bioflows-info: #4facfe;
+    --bioflows-warning: #ffa726;
+}
+
+/* ============================================
+   GENERAL TYPOGRAPHY
+   ============================================ */
+.md-content {
+    font-size: 16px;
+    line-height: 1.7;
+}
+
+.md-typeset h1 {
+    font-weight: 700;
+    color: var(--bioflows-primary);
+    border-bottom: 3px solid var(--bioflows-primary);
+    padding-bottom: 0.5rem;
+}
+
+.md-typeset h2 {
+    font-weight: 600;
+    color: #333;
+    margin-top: 2rem;
+}
+
+.md-typeset h3 {
+    color: #555;
+}
+
+/* ============================================
+   CODE BLOCKS
+   ============================================ */
+.md-typeset code {
+    background: #f4f4f5;
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.md-typeset pre {
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.md-typeset pre > code {
+    font-size: 0.85em;
+    line-height: 1.6;
+}
+
+/* Syntax highlighting enhancements */
+.highlight .c1 { color: #6a737d; }  /* Comments */
+.highlight .k { color: #d73a49; }   /* Keywords */
+.highlight .s { color: #032f62; }   /* Strings */
+.highlight .nf { color: #6f42c1; }  /* Function names */
+
+/* ============================================
+   TABLES
+   ============================================ */
+.md-typeset table:not([class]) {
+    border-collapse: collapse;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.md-typeset table:not([class]) th {
+    background: linear-gradient(135deg, var(--bioflows-primary), var(--bioflows-secondary));
+    color: white;
+    font-weight: 600;
+    padding: 12px 16px;
+    text-align: left;
+}
+
+.md-typeset table:not([class]) td {
+    padding: 10px 16px;
+    border-bottom: 1px solid #eee;
+}
+
+.md-typeset table:not([class]) tr:hover td {
+    background: #f8f9fa;
+}
+
+.md-typeset table:not([class]) tr:last-child td {
+    border-bottom: none;
+}
+
+/* ============================================
+   ADMONITIONS (Notes, Tips, Warnings)
+   ============================================ */
+.md-typeset .admonition,
+.md-typeset details {
+    border-radius: 8px;
+    border: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.md-typeset .admonition-title,
+.md-typeset summary {
+    font-weight: 600;
+}
+
+.md-typeset .admonition.note {
+    border-left: 4px solid var(--bioflows-info);
+}
+
+.md-typeset .admonition.tip {
+    border-left: 4px solid var(--bioflows-success);
+}
+
+.md-typeset .admonition.warning {
+    border-left: 4px solid var(--bioflows-warning);
+}
+
+.md-typeset .admonition.danger {
+    border-left: 4px solid var(--bioflows-accent);
+}
+
+/* ============================================
+   NAVIGATION
+   ============================================ */
+.md-nav__link {
+    font-size: 0.95rem;
+}
+
+.md-nav__link--active {
+    font-weight: 600;
+    color: var(--bioflows-primary) !important;
+}
+
+/* ============================================
+   SIDEBAR
+   ============================================ */
+.md-sidebar__scrollwrap {
+    scrollbar-width: thin;
+}
+
+/* ============================================
+   FEATURE CARDS (for raw HTML sections)
+   ============================================ */
+.feature-card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.feature-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+}
+
+/* ============================================
+   LINKS
+   ============================================ */
+.md-typeset a {
+    color: var(--bioflows-primary);
+    text-decoration: none;
+}
+
+.md-typeset a:hover {
+    color: var(--bioflows-secondary);
+    text-decoration: underline;
+}
+
+/* ============================================
+   HORIZONTAL RULES
+   ============================================ */
+.md-typeset hr {
+    border: none;
+    border-top: 2px solid #eee;
+    margin: 2.5rem 0;
+}
+
+/* ============================================
+   HEADER
+   ============================================ */
+.md-header {
+    background: linear-gradient(135deg, var(--bioflows-primary), var(--bioflows-secondary));
+}
+
+/* ============================================
+   FOOTER
+   ============================================ */
+.md-footer {
+    background: #2d3748;
+}
+
+/* ============================================
+   SCROLLBAR
+   ============================================ */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+}
+
+/* ============================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================ */
+@media screen and (max-width: 76.1875em) {
+    .md-typeset h1 {
+        font-size: 1.8rem;
+    }
+}
+
+@media screen and (max-width: 44.9375em) {
+    .md-typeset h1 {
+        font-size: 1.5rem;
+    }
+
+    .md-typeset table:not([class]) {
+        font-size: 0.9em;
+    }
+}
+
+/* ============================================
+   DOCUMENTER.JL SPECIFIC STYLES
+   ============================================ */
+
+/* Better docstring styling */
+.docstring {
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    margin: 1.5rem 0;
+    overflow: hidden;
+}
+
+.docstring header {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.docstring-binding {
+    font-family: monospace;
+    font-size: 1.1em;
+    color: var(--bioflows-primary);
+}
+
+.docstring section {
+    padding: 1rem;
+}
+
+/* Search results */
+.search-result-link {
+    color: var(--bioflows-primary);
+}
+
+/* Contents table of contents */
+.documenter-toc {
+    border-left: 3px solid var(--bioflows-primary);
+    padding-left: 1rem;
+    margin: 1.5rem 0;
+}
+
+/* ============================================
+   PRINT STYLES
+   ============================================ */
+@media print {
+    .md-header,
+    .md-footer,
+    .md-sidebar {
+        display: none;
+    }
+
+    .md-typeset h1 {
+        border-bottom: 2px solid #333;
+    }
+}

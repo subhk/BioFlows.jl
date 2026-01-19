@@ -462,7 +462,7 @@ end
 time(meanflow::MeanFlow) = meanflow.t[end]-meanflow.t[1]
 
 # Reset statistics to zero
-function reset!(meanflow::MeanFlow; t_init=0.0)
+function reset!(meanflow::MeanFlow; t_init=0f0)
     fill!(meanflow.P, 0); fill!(meanflow.U, 0)
     !isnothing(meanflow.UU) && fill!(meanflow.UU, 0)
     deleteat!(meanflow.t, collect(1:length(meanflow.t)))
