@@ -11,7 +11,6 @@ makedocs(
         assets = ["assets/custom.css"],
         sidebar_sitename = true,
         collapselevel = 2,
-        highlights = ["julia"],
         footer = "BioFlows.jl — High-Performance CFD in Julia",
     ),
     pages = [
