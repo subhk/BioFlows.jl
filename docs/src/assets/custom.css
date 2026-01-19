@@ -1,292 +1,905 @@
-/* BioFlows.jl Custom Documentation Styles */
+/* =============================================================================
+   BioFlows.jl Documentation - Custom Styles
+   A modern, clean design for Documenter.jl
+   ============================================================================= */
 
-/* ============================================
-   ROOT VARIABLES
-   ============================================ */
+/* Import Inter font for modern typography */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* -----------------------------------------------------------------------------
+   CSS Variables - Color Palette
+   ----------------------------------------------------------------------------- */
 :root {
-    --bioflows-primary: #667eea;
-    --bioflows-secondary: #764ba2;
-    --bioflows-accent: #f5576c;
-    --bioflows-success: #43e97b;
-    --bioflows-info: #4facfe;
-    --bioflows-warning: #ffa726;
+    /* Primary brand colors */
+    --bio-primary: #6366f1;
+    --bio-primary-dark: #4f46e5;
+    --bio-primary-light: #818cf8;
+    --bio-secondary: #8b5cf6;
+
+    /* Accent colors */
+    --bio-accent: #ec4899;
+    --bio-success: #10b981;
+    --bio-warning: #f59e0b;
+    --bio-info: #06b6d4;
+
+    /* Neutral colors */
+    --bio-gray-50: #f8fafc;
+    --bio-gray-100: #f1f5f9;
+    --bio-gray-200: #e2e8f0;
+    --bio-gray-300: #cbd5e1;
+    --bio-gray-400: #94a3b8;
+    --bio-gray-500: #64748b;
+    --bio-gray-600: #475569;
+    --bio-gray-700: #334155;
+    --bio-gray-800: #1e293b;
+    --bio-gray-900: #0f172a;
+
+    /* Spacing */
+    --bio-space-xs: 0.25rem;
+    --bio-space-sm: 0.5rem;
+    --bio-space-md: 1rem;
+    --bio-space-lg: 1.5rem;
+    --bio-space-xl: 2rem;
+    --bio-space-2xl: 3rem;
+
+    /* Typography */
+    --bio-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --bio-font-mono: 'JuliaMono', 'Fira Code', 'Consolas', monospace;
+
+    /* Borders & Shadows */
+    --bio-radius-sm: 6px;
+    --bio-radius-md: 8px;
+    --bio-radius-lg: 12px;
+    --bio-radius-xl: 16px;
+    --bio-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --bio-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --bio-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --bio-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+    /* Transitions */
+    --bio-transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --bio-transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ============================================
-   GENERAL TYPOGRAPHY
-   ============================================ */
-.md-content {
-    font-size: 16px;
-    line-height: 1.7;
+/* -----------------------------------------------------------------------------
+   Base Typography & Layout
+   ----------------------------------------------------------------------------- */
+html {
+    scroll-behavior: smooth;
 }
 
-.md-typeset h1 {
+body {
+    font-family: var(--bio-font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Main content area */
+article.content {
+    max-width: 900px;
+    padding: var(--bio-space-xl) var(--bio-space-2xl);
+    line-height: 1.75;
+    color: var(--bio-gray-700);
+}
+
+article.content p {
+    margin-bottom: var(--bio-space-lg);
+}
+
+/* -----------------------------------------------------------------------------
+   Headings
+   ----------------------------------------------------------------------------- */
+article.content h1 {
+    font-size: 2.25rem;
+    font-weight: 800;
+    color: var(--bio-gray-900);
+    margin-top: 0;
+    margin-bottom: var(--bio-space-lg);
+    padding-bottom: var(--bio-space-md);
+    border-bottom: 3px solid var(--bio-primary);
+    letter-spacing: -0.025em;
+}
+
+article.content h2 {
+    font-size: 1.5rem;
     font-weight: 700;
-    color: var(--bioflows-primary);
-    border-bottom: 3px solid var(--bioflows-primary);
-    padding-bottom: 0.5rem;
+    color: var(--bio-gray-800);
+    margin-top: var(--bio-space-2xl);
+    margin-bottom: var(--bio-space-md);
+    padding-bottom: var(--bio-space-sm);
+    border-bottom: 2px solid var(--bio-gray-200);
 }
 
-.md-typeset h2 {
+article.content h3 {
+    font-size: 1.25rem;
     font-weight: 600;
-    color: #333;
-    margin-top: 2rem;
+    color: var(--bio-gray-700);
+    margin-top: var(--bio-space-xl);
+    margin-bottom: var(--bio-space-sm);
 }
 
-.md-typeset h3 {
-    color: #555;
+article.content h4 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--bio-gray-600);
+    margin-top: var(--bio-space-lg);
+    margin-bottom: var(--bio-space-sm);
 }
 
-/* ============================================
-   CODE BLOCKS
-   ============================================ */
-.md-typeset code {
-    background: #f4f4f5;
-    padding: 0.15em 0.4em;
-    border-radius: 4px;
-    font-size: 0.9em;
+/* Heading anchor links */
+.docs-heading-anchor-permalink {
+    opacity: 0;
+    transition: opacity var(--bio-transition);
+    margin-left: var(--bio-space-sm);
 }
 
-.md-typeset pre {
-    border-radius: 8px;
-    border: 1px solid #e0e0e0;
+h1:hover .docs-heading-anchor-permalink,
+h2:hover .docs-heading-anchor-permalink,
+h3:hover .docs-heading-anchor-permalink,
+h4:hover .docs-heading-anchor-permalink {
+    opacity: 0.5;
 }
 
-.md-typeset pre > code {
-    font-size: 0.85em;
-    line-height: 1.6;
+/* -----------------------------------------------------------------------------
+   Links
+   ----------------------------------------------------------------------------- */
+article.content a {
+    color: var(--bio-primary);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color var(--bio-transition);
+    border-bottom: 1px solid transparent;
 }
 
-/* Syntax highlighting enhancements */
-.highlight .c1 { color: #6a737d; }  /* Comments */
-.highlight .k { color: #d73a49; }   /* Keywords */
-.highlight .s { color: #032f62; }   /* Strings */
-.highlight .nf { color: #6f42c1; }  /* Function names */
+article.content a:hover {
+    color: var(--bio-primary-dark);
+    border-bottom-color: var(--bio-primary-light);
+}
 
-/* ============================================
-   TABLES
-   ============================================ */
-.md-typeset table:not([class]) {
-    border-collapse: collapse;
-    border-radius: 8px;
+/* -----------------------------------------------------------------------------
+   Inline Code
+   ----------------------------------------------------------------------------- */
+article.content code {
+    font-family: var(--bio-font-mono);
+    font-size: 0.875em;
+    background: var(--bio-gray-100);
+    color: var(--bio-primary-dark);
+    padding: 0.2em 0.4em;
+    border-radius: var(--bio-radius-sm);
+    font-weight: 500;
+}
+
+/* Don't style code inside code blocks */
+article.content pre code {
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font-weight: normal;
+}
+
+/* -----------------------------------------------------------------------------
+   Code Blocks
+   ----------------------------------------------------------------------------- */
+article.content pre {
+    background: var(--bio-gray-900);
+    border-radius: var(--bio-radius-lg);
+    padding: var(--bio-space-lg);
+    overflow-x: auto;
+    margin: var(--bio-space-lg) 0;
+    box-shadow: var(--bio-shadow-lg);
+    border: 1px solid var(--bio-gray-800);
+}
+
+article.content pre code {
+    font-family: var(--bio-font-mono);
+    font-size: 0.875rem;
+    line-height: 1.7;
+    color: #e2e8f0;
+}
+
+/* Syntax highlighting - Monokai-inspired */
+article.content pre .hljs-keyword { color: #f472b6; font-weight: 500; }
+article.content pre .hljs-string { color: #a5f3fc; }
+article.content pre .hljs-number { color: #fcd34d; }
+article.content pre .hljs-comment { color: #6b7280; font-style: italic; }
+article.content pre .hljs-function { color: #a78bfa; }
+article.content pre .hljs-built_in { color: #67e8f9; }
+article.content pre .hljs-type { color: #fbbf24; }
+article.content pre .hljs-literal { color: #fb923c; }
+article.content pre .hljs-variable { color: #f9fafb; }
+article.content pre .hljs-operator { color: #f472b6; }
+article.content pre .hljs-punctuation { color: #9ca3af; }
+
+/* Code copy button styling */
+article.content pre .copy-button {
+    position: absolute;
+    top: var(--bio-space-sm);
+    right: var(--bio-space-sm);
+    background: var(--bio-gray-700);
+    border: none;
+    border-radius: var(--bio-radius-sm);
+    padding: var(--bio-space-xs) var(--bio-space-sm);
+    color: var(--bio-gray-300);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--bio-transition), background var(--bio-transition);
+}
+
+article.content pre:hover .copy-button {
+    opacity: 1;
+}
+
+article.content pre .copy-button:hover {
+    background: var(--bio-gray-600);
+}
+
+/* -----------------------------------------------------------------------------
+   Tables
+   ----------------------------------------------------------------------------- */
+article.content table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: var(--bio-space-lg) 0;
+    border-radius: var(--bio-radius-lg);
     overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    box-shadow: var(--bio-shadow-md);
+    border: 1px solid var(--bio-gray-200);
 }
 
-.md-typeset table:not([class]) th {
-    background: linear-gradient(135deg, var(--bioflows-primary), var(--bioflows-secondary));
+article.content table thead {
+    background: linear-gradient(135deg, var(--bio-primary) 0%, var(--bio-secondary) 100%);
+}
+
+article.content table th {
     color: white;
     font-weight: 600;
-    padding: 12px 16px;
+    padding: var(--bio-space-md) var(--bio-space-lg);
     text-align: left;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
-.md-typeset table:not([class]) td {
-    padding: 10px 16px;
-    border-bottom: 1px solid #eee;
+article.content table td {
+    padding: var(--bio-space-md) var(--bio-space-lg);
+    border-bottom: 1px solid var(--bio-gray-100);
+    color: var(--bio-gray-700);
 }
 
-.md-typeset table:not([class]) tr:hover td {
-    background: #f8f9fa;
+article.content table tbody tr {
+    transition: background var(--bio-transition);
 }
 
-.md-typeset table:not([class]) tr:last-child td {
+article.content table tbody tr:hover {
+    background: var(--bio-gray-50);
+}
+
+article.content table tbody tr:last-child td {
     border-bottom: none;
 }
 
-/* ============================================
-   ADMONITIONS (Notes, Tips, Warnings)
-   ============================================ */
-.md-typeset .admonition,
-.md-typeset details {
-    border-radius: 8px;
+/* -----------------------------------------------------------------------------
+   Lists
+   ----------------------------------------------------------------------------- */
+article.content ul,
+article.content ol {
+    margin: var(--bio-space-md) 0;
+    padding-left: var(--bio-space-xl);
+}
+
+article.content li {
+    margin-bottom: var(--bio-space-sm);
+    color: var(--bio-gray-700);
+}
+
+article.content li::marker {
+    color: var(--bio-primary);
+}
+
+/* Nested lists */
+article.content li ul,
+article.content li ol {
+    margin-top: var(--bio-space-sm);
+    margin-bottom: var(--bio-space-sm);
+}
+
+/* -----------------------------------------------------------------------------
+   Blockquotes
+   ----------------------------------------------------------------------------- */
+article.content blockquote {
+    border-left: 4px solid var(--bio-primary);
+    background: var(--bio-gray-50);
+    padding: var(--bio-space-md) var(--bio-space-lg);
+    margin: var(--bio-space-lg) 0;
+    border-radius: 0 var(--bio-radius-md) var(--bio-radius-md) 0;
+    color: var(--bio-gray-600);
+    font-style: italic;
+}
+
+/* -----------------------------------------------------------------------------
+   Horizontal Rules
+   ----------------------------------------------------------------------------- */
+article.content hr {
     border: none;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    height: 2px;
+    background: linear-gradient(90deg, var(--bio-gray-200) 0%, transparent 100%);
+    margin: var(--bio-space-2xl) 0;
 }
 
-.md-typeset .admonition-title,
-.md-typeset summary {
+/* -----------------------------------------------------------------------------
+   Admonitions (Notes, Tips, Warnings)
+   ----------------------------------------------------------------------------- */
+article.content .admonition {
+    margin: var(--bio-space-lg) 0;
+    padding: var(--bio-space-md) var(--bio-space-lg);
+    border-radius: var(--bio-radius-lg);
+    border-left: 4px solid;
+    box-shadow: var(--bio-shadow-sm);
+}
+
+article.content .admonition-title,
+article.content .admonition > p:first-child strong {
+    display: flex;
+    align-items: center;
     font-weight: 600;
+    margin-bottom: var(--bio-space-sm);
 }
 
-.md-typeset .admonition.note {
-    border-left: 4px solid var(--bioflows-info);
+article.content .admonition.is-info,
+article.content .admonition.note {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border-color: var(--bio-info);
 }
 
-.md-typeset .admonition.tip {
-    border-left: 4px solid var(--bioflows-success);
+article.content .admonition.is-success,
+article.content .admonition.tip {
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    border-color: var(--bio-success);
 }
 
-.md-typeset .admonition.warning {
-    border-left: 4px solid var(--bioflows-warning);
+article.content .admonition.is-warning,
+article.content .admonition.warning {
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    border-color: var(--bio-warning);
 }
 
-.md-typeset .admonition.danger {
-    border-left: 4px solid var(--bioflows-accent);
+article.content .admonition.is-danger,
+article.content .admonition.danger {
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    border-color: var(--bio-accent);
 }
 
-/* ============================================
-   NAVIGATION
-   ============================================ */
-.md-nav__link {
-    font-size: 0.95rem;
+/* -----------------------------------------------------------------------------
+   Sidebar Navigation
+   ----------------------------------------------------------------------------- */
+.docs-sidebar {
+    background: var(--bio-gray-50);
+    border-right: 1px solid var(--bio-gray-200);
 }
 
-.md-nav__link--active {
-    font-weight: 600;
-    color: var(--bioflows-primary) !important;
+.docs-sidebar .docs-package-name {
+    padding: var(--bio-space-lg);
+    border-bottom: 1px solid var(--bio-gray-200);
 }
 
-/* ============================================
-   SIDEBAR
-   ============================================ */
-.md-sidebar__scrollwrap {
-    scrollbar-width: thin;
+.docs-sidebar .docs-package-name a {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--bio-gray-900);
+    text-decoration: none;
+    background: linear-gradient(135deg, var(--bio-primary) 0%, var(--bio-secondary) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
-/* ============================================
-   FEATURE CARDS (for raw HTML sections)
-   ============================================ */
-.feature-card {
+/* Search box */
+#documenter-search-query {
+    margin: var(--bio-space-md);
+    border-radius: var(--bio-radius-lg);
+    border: 2px solid var(--bio-gray-200);
     background: white;
-    border-radius: 12px;
-    padding: 1.5rem;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition: border-color var(--bio-transition), box-shadow var(--bio-transition);
 }
 
-.feature-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+#documenter-search-query:hover,
+#documenter-search-query:focus {
+    border-color: var(--bio-primary-light);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
-/* ============================================
-   LINKS
-   ============================================ */
-.md-typeset a {
-    color: var(--bioflows-primary);
+/* Navigation links */
+.docs-menu a.tocitem {
+    color: var(--bio-gray-600);
+    padding: var(--bio-space-sm) var(--bio-space-lg);
+    border-radius: var(--bio-radius-md);
+    margin: 2px var(--bio-space-sm);
+    transition: all var(--bio-transition);
+    font-weight: 500;
+    display: block;
+}
+
+.docs-menu a.tocitem:hover {
+    color: var(--bio-primary);
+    background: white;
+    box-shadow: var(--bio-shadow-sm);
+}
+
+.docs-menu li.is-active > a.tocitem {
+    color: var(--bio-primary);
+    background: white;
+    box-shadow: var(--bio-shadow-md);
+    font-weight: 600;
+}
+
+/* Nested navigation */
+.docs-menu ul.internal {
+    border-left: 2px solid var(--bio-gray-200);
+    margin-left: var(--bio-space-lg);
+    padding-left: var(--bio-space-sm);
+}
+
+.docs-menu ul.internal a.tocitem {
+    font-size: 0.875rem;
+    padding: var(--bio-space-xs) var(--bio-space-md);
+}
+
+/* -----------------------------------------------------------------------------
+   Top Navigation Bar
+   ----------------------------------------------------------------------------- */
+.docs-navbar {
+    background: white;
+    border-bottom: 1px solid var(--bio-gray-200);
+    box-shadow: var(--bio-shadow-sm);
+    padding: var(--bio-space-sm) var(--bio-space-lg);
+}
+
+.docs-navbar .breadcrumb a {
+    color: var(--bio-gray-500);
+    font-weight: 500;
+}
+
+.docs-navbar .breadcrumb li.is-active a {
+    color: var(--bio-gray-800);
+    font-weight: 600;
+}
+
+.docs-navbar .docs-right a {
+    color: var(--bio-gray-500);
+    transition: color var(--bio-transition);
+}
+
+.docs-navbar .docs-right a:hover {
+    color: var(--bio-primary);
+}
+
+/* -----------------------------------------------------------------------------
+   Docstrings
+   ----------------------------------------------------------------------------- */
+article.content .docstring {
+    margin: var(--bio-space-xl) 0;
+    border-radius: var(--bio-radius-lg);
+    border: 1px solid var(--bio-gray-200);
+    overflow: hidden;
+    box-shadow: var(--bio-shadow-md);
+    transition: box-shadow var(--bio-transition);
+}
+
+article.content .docstring:hover {
+    box-shadow: var(--bio-shadow-lg);
+}
+
+article.content .docstring > header {
+    background: linear-gradient(135deg, var(--bio-gray-50) 0%, var(--bio-gray-100) 100%);
+    padding: var(--bio-space-md) var(--bio-space-lg);
+    border-bottom: 1px solid var(--bio-gray-200);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+article.content .docstring .docstring-binding {
+    font-family: var(--bio-font-mono);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--bio-primary-dark);
+}
+
+article.content .docstring .docstring-category {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--bio-gray-500);
+    background: var(--bio-gray-200);
+    padding: var(--bio-space-xs) var(--bio-space-sm);
+    border-radius: var(--bio-radius-sm);
+}
+
+article.content .docstring > section {
+    padding: var(--bio-space-lg);
+}
+
+article.content .docstring > section > p:first-child {
+    margin-top: 0;
+}
+
+/* Source link in docstrings */
+article.content .docstring .docs-sourcelink {
+    font-size: 0.75rem;
+    color: var(--bio-gray-400);
     text-decoration: none;
 }
 
-.md-typeset a:hover {
-    color: var(--bioflows-secondary);
-    text-decoration: underline;
+article.content .docstring .docs-sourcelink:hover {
+    color: var(--bio-primary);
 }
 
-/* ============================================
-   HORIZONTAL RULES
-   ============================================ */
-.md-typeset hr {
-    border: none;
-    border-top: 2px solid #eee;
-    margin: 2.5rem 0;
+/* -----------------------------------------------------------------------------
+   Footer
+   ----------------------------------------------------------------------------- */
+.docs-footer {
+    background: var(--bio-gray-50);
+    border-top: 1px solid var(--bio-gray-200);
+    padding: var(--bio-space-lg) var(--bio-space-xl);
+    margin-top: var(--bio-space-2xl);
 }
 
-/* ============================================
-   HEADER
-   ============================================ */
-.md-header {
-    background: linear-gradient(135deg, var(--bioflows-primary), var(--bioflows-secondary));
+.docs-footer a {
+    color: var(--bio-primary);
+    font-weight: 500;
 }
 
-/* ============================================
-   FOOTER
-   ============================================ */
-.md-footer {
-    background: #2d3748;
+.docs-footer .footer-message {
+    color: var(--bio-gray-500);
+    font-size: 0.875rem;
 }
 
-/* ============================================
-   SCROLLBAR
-   ============================================ */
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+/* Footer navigation */
+.docs-footer-nextpage,
+.docs-footer-prevpage {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--bio-space-sm) var(--bio-space-md);
+    background: white;
+    border-radius: var(--bio-radius-md);
+    box-shadow: var(--bio-shadow-sm);
+    transition: all var(--bio-transition);
 }
 
-::-webkit-scrollbar-track {
-    background: #f1f1f1;
+.docs-footer-nextpage:hover,
+.docs-footer-prevpage:hover {
+    box-shadow: var(--bio-shadow-md);
+    transform: translateY(-1px);
 }
 
-::-webkit-scrollbar-thumb {
-    background: #c1c1c1;
-    border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: #a1a1a1;
-}
-
-/* ============================================
-   RESPONSIVE ADJUSTMENTS
-   ============================================ */
-@media screen and (max-width: 76.1875em) {
-    .md-typeset h1 {
-        font-size: 1.8rem;
-    }
-}
-
-@media screen and (max-width: 44.9375em) {
-    .md-typeset h1 {
-        font-size: 1.5rem;
-    }
-
-    .md-typeset table:not([class]) {
-        font-size: 0.9em;
-    }
-}
-
-/* ============================================
-   DOCUMENTER.JL SPECIFIC STYLES
-   ============================================ */
-
-/* Better docstring styling */
-.docstring {
-    border-radius: 8px;
-    border: 1px solid #e0e0e0;
-    margin: 1.5rem 0;
+/* -----------------------------------------------------------------------------
+   Search Modal
+   ----------------------------------------------------------------------------- */
+.search-modal .modal-card {
+    border-radius: var(--bio-radius-xl);
     overflow: hidden;
+    box-shadow: var(--bio-shadow-xl);
 }
 
-.docstring header {
-    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #e0e0e0;
+.search-modal .modal-card-head {
+    background: linear-gradient(135deg, var(--bio-primary) 0%, var(--bio-secondary) 100%);
+    border-bottom: none;
 }
 
-.docstring-binding {
-    font-family: monospace;
-    font-size: 1.1em;
-    color: var(--bioflows-primary);
-}
-
-.docstring section {
-    padding: 1rem;
+.search-modal .modal-card-title {
+    color: white;
 }
 
 /* Search results */
+.search-result {
+    padding: var(--bio-space-md);
+    border-radius: var(--bio-radius-md);
+    margin-bottom: var(--bio-space-sm);
+    transition: background var(--bio-transition);
+}
+
+.search-result:hover {
+    background: var(--bio-gray-50);
+}
+
 .search-result-link {
-    color: var(--bioflows-primary);
+    color: var(--bio-primary);
+    font-weight: 600;
 }
 
-/* Contents table of contents */
-.documenter-toc {
-    border-left: 3px solid var(--bioflows-primary);
-    padding-left: 1rem;
-    margin: 1.5rem 0;
+/* -----------------------------------------------------------------------------
+   Settings Modal
+   ----------------------------------------------------------------------------- */
+#documenter-settings .modal-card {
+    border-radius: var(--bio-radius-xl);
+    overflow: hidden;
 }
 
-/* ============================================
-   PRINT STYLES
-   ============================================ */
+#documenter-settings .modal-card-head {
+    background: var(--bio-gray-100);
+}
+
+#documenter-settings .select select {
+    border-radius: var(--bio-radius-md);
+    border: 2px solid var(--bio-gray-200);
+}
+
+/* -----------------------------------------------------------------------------
+   Version Selector
+   ----------------------------------------------------------------------------- */
+.docs-version-selector {
+    padding: var(--bio-space-md);
+    border-top: 1px solid var(--bio-gray-200);
+}
+
+.docs-version-selector .select select {
+    border-radius: var(--bio-radius-md);
+    border: 2px solid var(--bio-gray-200);
+    font-size: 0.875rem;
+}
+
+/* -----------------------------------------------------------------------------
+   Images
+   ----------------------------------------------------------------------------- */
+article.content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--bio-radius-lg);
+    box-shadow: var(--bio-shadow-md);
+    margin: var(--bio-space-lg) 0;
+}
+
+/* -----------------------------------------------------------------------------
+   Dark Mode Overrides
+   ----------------------------------------------------------------------------- */
+html[data-theme="documenter-dark"],
+html[data-theme="catppuccin-mocha"],
+html[data-theme="catppuccin-macchiato"],
+html[data-theme="catppuccin-frappe"] {
+    --bio-gray-50: #1e293b;
+    --bio-gray-100: #334155;
+    --bio-gray-200: #475569;
+    --bio-gray-700: #cbd5e1;
+    --bio-gray-800: #e2e8f0;
+    --bio-gray-900: #f8fafc;
+}
+
+html[data-theme="documenter-dark"] article.content,
+html[data-theme="catppuccin-mocha"] article.content,
+html[data-theme="catppuccin-macchiato"] article.content,
+html[data-theme="catppuccin-frappe"] article.content {
+    color: var(--bio-gray-700);
+}
+
+html[data-theme="documenter-dark"] article.content h1,
+html[data-theme="documenter-dark"] article.content h2,
+html[data-theme="catppuccin-mocha"] article.content h1,
+html[data-theme="catppuccin-mocha"] article.content h2 {
+    color: var(--bio-gray-900);
+}
+
+html[data-theme="documenter-dark"] article.content code,
+html[data-theme="catppuccin-mocha"] article.content code {
+    background: var(--bio-gray-100);
+    color: var(--bio-primary-light);
+}
+
+html[data-theme="documenter-dark"] .docs-sidebar,
+html[data-theme="catppuccin-mocha"] .docs-sidebar {
+    background: var(--bio-gray-50);
+    border-color: var(--bio-gray-200);
+}
+
+html[data-theme="documenter-dark"] article.content table thead,
+html[data-theme="catppuccin-mocha"] article.content table thead {
+    background: linear-gradient(135deg, var(--bio-primary-dark) 0%, var(--bio-secondary) 100%);
+}
+
+/* -----------------------------------------------------------------------------
+   Responsive Design
+   ----------------------------------------------------------------------------- */
+@media screen and (max-width: 1024px) {
+    article.content {
+        padding: var(--bio-space-lg);
+    }
+
+    article.content h1 {
+        font-size: 1.875rem;
+    }
+
+    article.content h2 {
+        font-size: 1.375rem;
+    }
+}
+
+@media screen and (max-width: 768px) {
+    article.content {
+        padding: var(--bio-space-md);
+    }
+
+    article.content h1 {
+        font-size: 1.5rem;
+    }
+
+    article.content h2 {
+        font-size: 1.25rem;
+    }
+
+    article.content table {
+        font-size: 0.875rem;
+    }
+
+    article.content table th,
+    article.content table td {
+        padding: var(--bio-space-sm) var(--bio-space-md);
+    }
+}
+
+/* -----------------------------------------------------------------------------
+   Print Styles
+   ----------------------------------------------------------------------------- */
 @media print {
-    .md-header,
-    .md-footer,
-    .md-sidebar {
-        display: none;
+    .docs-sidebar,
+    .docs-navbar,
+    .docs-footer-nextpage,
+    .docs-footer-prevpage {
+        display: none !important;
     }
 
-    .md-typeset h1 {
-        border-bottom: 2px solid #333;
+    article.content {
+        max-width: 100%;
+        padding: 0;
     }
+
+    article.content pre {
+        box-shadow: none;
+        border: 1px solid #ccc;
+    }
+
+    article.content .docstring {
+        box-shadow: none;
+        break-inside: avoid;
+    }
+}
+
+/* -----------------------------------------------------------------------------
+   Smooth Scrollbar
+   ----------------------------------------------------------------------------- */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bio-gray-100);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--bio-gray-300);
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--bio-gray-400);
+}
+
+/* Firefox scrollbar */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--bio-gray-300) var(--bio-gray-100);
+}
+
+/* -----------------------------------------------------------------------------
+   Animations
+   ----------------------------------------------------------------------------- */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+article.content {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* -----------------------------------------------------------------------------
+   Custom Feature Cards (for raw HTML in markdown)
+   ----------------------------------------------------------------------------- */
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--bio-space-lg);
+    margin: var(--bio-space-xl) 0;
+}
+
+.feature-card {
+    background: white;
+    border-radius: var(--bio-radius-xl);
+    padding: var(--bio-space-xl);
+    box-shadow: var(--bio-shadow-md);
+    transition: transform var(--bio-transition-slow), box-shadow var(--bio-transition-slow);
+    border: 1px solid var(--bio-gray-100);
+}
+
+.feature-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--bio-shadow-xl);
+}
+
+.feature-card h3 {
+    margin-top: 0;
+    color: var(--bio-gray-900);
+}
+
+.feature-card p {
+    color: var(--bio-gray-600);
+    margin-bottom: 0;
+}
+
+/* Gradient cards */
+.gradient-card {
+    color: white;
+    border: none;
+}
+
+.gradient-card h3 {
+    color: white;
+}
+
+.gradient-card p {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.gradient-primary {
+    background: linear-gradient(135deg, var(--bio-primary) 0%, var(--bio-secondary) 100%);
+}
+
+.gradient-accent {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.gradient-info {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.gradient-success {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+}
+
+/* -----------------------------------------------------------------------------
+   Quick Links Grid
+   ----------------------------------------------------------------------------- */
+.quick-links {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--bio-space-md);
+    margin: var(--bio-space-lg) 0;
+}
+
+.quick-link {
+    display: block;
+    padding: var(--bio-space-md);
+    background: var(--bio-gray-50);
+    border-radius: var(--bio-radius-md);
+    border-left: 4px solid var(--bio-primary);
+    text-decoration: none;
+    transition: all var(--bio-transition);
+}
+
+.quick-link:hover {
+    background: white;
+    box-shadow: var(--bio-shadow-md);
+    transform: translateX(4px);
+}
+
+.quick-link strong {
+    color: var(--bio-gray-800);
+    display: block;
+    margin-bottom: var(--bio-space-xs);
+}
+
+.quick-link span {
+    color: var(--bio-gray-500);
+    font-size: 0.875rem;
 }

@@ -1,45 +1,31 @@
 # BioFlows.jl
 
-```@raw html
-<div style="text-align: center; margin: 2rem 0;">
-    <p style="font-size: 1.4em; color: #555; margin-bottom: 1.5rem;">
-        <strong>High-Performance Computational Fluid Dynamics in Julia</strong>
-    </p>
-    <p style="font-size: 1.1em; color: #666;">
-        Immersed boundary methods for bio-inspired flows with GPU acceleration
-    </p>
-</div>
-```
-
----
-
-## Overview
+*High-Performance Computational Fluid Dynamics in Julia*
 
 BioFlows.jl is a pure Julia package for simulating incompressible viscous flows around complex geometries using the **Boundary Data Immersion Method (BDIM)**. It's designed for studying bio-inspired locomotion, fluid-structure interaction, and bluff body flows.
 
+---
+
+## Highlights
+
 ```@raw html
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin: 2rem 0;">
-
-<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 12px;">
-    <h3 style="margin-top: 0; color: white;">High Performance</h3>
-    <p style="margin-bottom: 0;">GPU acceleration via CUDA with single-precision (Float32) for maximum throughput. Run simulations 10-50x faster on NVIDIA GPUs.</p>
-</div>
-
-<div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 1.5rem; border-radius: 12px;">
-    <h3 style="margin-top: 0; color: white;">Bio-Inspired</h3>
-    <p style="margin-bottom: 0;">Built-in support for swimming fish, flapping wings, and flexible structures with Euler-Bernoulli beam FSI coupling.</p>
-</div>
-
-<div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 1.5rem; border-radius: 12px;">
-    <h3 style="margin-top: 0; color: white;">Adaptive Mesh</h3>
-    <p style="margin-bottom: 0;">Automatic mesh refinement (AMR) near bodies and flow features. Patches follow moving bodies in real-time.</p>
-</div>
-
-<div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 1.5rem; border-radius: 12px;">
-    <h3 style="margin-top: 0; color: white;">Easy to Use</h3>
-    <p style="margin-bottom: 0;">Define geometry with simple signed distance functions. No mesh generation required - just code and run.</p>
-</div>
-
+<div class="feature-grid">
+    <div class="feature-card gradient-card gradient-primary">
+        <h3>High Performance</h3>
+        <p>GPU acceleration via CUDA with single-precision (Float32) for maximum throughput. Run simulations 10-50x faster on NVIDIA GPUs.</p>
+    </div>
+    <div class="feature-card gradient-card gradient-accent">
+        <h3>Bio-Inspired</h3>
+        <p>Built-in support for swimming fish, flapping wings, and flexible structures with Euler-Bernoulli beam FSI coupling.</p>
+    </div>
+    <div class="feature-card gradient-card gradient-info">
+        <h3>Adaptive Mesh</h3>
+        <p>Automatic mesh refinement (AMR) near bodies and flow features. Patches follow moving bodies in real-time.</p>
+    </div>
+    <div class="feature-card gradient-card gradient-success">
+        <h3>Easy to Use</h3>
+        <p>Define geometry with simple signed distance functions. No mesh generation required - just code and run.</p>
+    </div>
 </div>
 ```
 
@@ -136,50 +122,31 @@ julia --project -e 'using Pkg; Pkg.instantiate()'
 ## Documentation
 
 ```@raw html
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1.5rem 0;">
-
-<a href="getting_started/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #667eea;">
-    <strong style="color: #333;">Getting Started</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">Installation and first simulation</p>
-</div>
-</a>
-
-<a href="gpu/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #f5576c;">
-    <strong style="color: #333;">GPU Guide</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">CUDA acceleration setup</p>
-</div>
-</a>
-
-<a href="core_types/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #4facfe;">
-    <strong style="color: #333;">Core Types</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">Simulation, Flow, AutoBody</p>
-</div>
-</a>
-
-<a href="amr/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #43e97b;">
-    <strong style="color: #333;">AMR</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">Adaptive mesh refinement</p>
-</div>
-</a>
-
-<a href="examples/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #f093fb;">
-    <strong style="color: #333;">Examples</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">Cylinders, fish, FSI</p>
-</div>
-</a>
-
-<a href="api/" style="text-decoration: none;">
-<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #ffa726;">
-    <strong style="color: #333;">API Reference</strong>
-    <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9em;">Complete function reference</p>
-</div>
-</a>
-
+<div class="quick-links">
+    <a href="getting_started/" class="quick-link">
+        <strong>Getting Started</strong>
+        <span>Installation and first simulation</span>
+    </a>
+    <a href="gpu/" class="quick-link">
+        <strong>GPU Guide</strong>
+        <span>CUDA acceleration setup</span>
+    </a>
+    <a href="core_types/" class="quick-link">
+        <strong>Core Types</strong>
+        <span>Simulation, Flow, AutoBody</span>
+    </a>
+    <a href="amr/" class="quick-link">
+        <strong>AMR</strong>
+        <span>Adaptive mesh refinement</span>
+    </a>
+    <a href="examples/" class="quick-link">
+        <strong>Examples</strong>
+        <span>Cylinders, fish, FSI</span>
+    </a>
+    <a href="api/" class="quick-link">
+        <strong>API Reference</strong>
+        <span>Complete function reference</span>
+    </a>
 </div>
 ```
 
@@ -193,7 +160,10 @@ julia --project -e 'using Pkg; Pkg.instantiate()'
 using BioFlows
 
 sdf(x, t) = sqrt((x[1]-32)^2 + (x[2]-32)^2) - 8
-sim = Simulation((128, 64), (1, 0), 16.0; ν=0.16, body=AutoBody(sdf))
+sim = Simulation((128, 64), (128.0, 64.0);
+                 inletBC = (1.0, 0.0),
+                 ν = 0.16,
+                 body = AutoBody(sdf))
 sim_step!(sim, 10.0)
 
 # Visualize vorticity
@@ -223,7 +193,10 @@ sdf(x, t) = sqrt(x[1]^2 + x[2]^2) - 8
 map(x, t) = x .- [0, 4*sin(0.5*t)]  # Vertical oscillation
 body = AutoBody(sdf, map)
 
-sim = Simulation((128, 64), (1, 0), 16.0; ν=0.16, body=body)
+sim = Simulation((128, 64), (128.0, 64.0);
+                 inletBC = (1.0, 0.0),
+                 ν = 0.16,
+                 body = body)
 sim_step!(sim, 20.0; remeasure=true)
 ```
 
@@ -251,8 +224,8 @@ BioFlows.jl is released under the MIT License.
 ---
 
 ```@raw html
-<div style="text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #eee;">
-    <p style="color: #888;">
+<div style="text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--bio-gray-200);">
+    <p style="color: var(--bio-gray-500); font-size: 0.9rem;">
         Developed by <strong>Subhajit Kar</strong> and <strong>Dibyendu Ghosh</strong>
     </p>
 </div>

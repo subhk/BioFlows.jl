@@ -2,12 +2,8 @@
 
 BioFlows.jl supports GPU acceleration via CUDA for NVIDIA GPUs. This can provide **10-50x speedup** over CPU execution, especially for larger simulations.
 
-```@raw html
-<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 12px; margin: 1.5rem 0;">
-    <h3 style="margin-top: 0; color: white;">Key Point</h3>
-    <p style="margin-bottom: 0;">Enabling GPU is as simple as adding <code style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">mem = CuArray</code> to your Simulation constructor. Everything else stays the same!</p>
-</div>
-```
+!!! tip "Key Point"
+    Enabling GPU is as simple as adding `mem = CuArray` to your Simulation constructor. Everything else stays the same!
 
 ---
 
