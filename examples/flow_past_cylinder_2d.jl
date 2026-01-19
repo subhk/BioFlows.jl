@@ -55,11 +55,11 @@ function summarize_force_history(history; discard::Int=200)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    println("Running flow past cylinder 2D example...")
+    @info "Running flow past cylinder 2D example" threads=Threads.nthreads() backend=BioFlows.backend
     sim, meta = flow_past_cylinder_2d_sim(; nx=64, nz=64)
     for _ in 1:100
         sim_step!(sim; remeasure=false)
     end
     drag, lift = force_coefficients(sim)
-    println("After 100 steps: Cd = $drag, Cl = $lift")
+    @info "Flow past cylinder complete" Cd=drag Cl=lift
 end

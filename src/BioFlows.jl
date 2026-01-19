@@ -23,7 +23,7 @@ _silent_include(path::AbstractString) = _suppress_warnings ?
 
 # Core utilities and macros
 _silent_include("util.jl")
-export L₂,BC!,@inside,inside,δ,apply!,loc,@log,set_backend,backend
+export L₂,BC!,@inside,inside,δ,apply!,loc,@log,set_backend,backend,set_cpu_threads,cpu_threads
 
 using Reexport
 @reexport using KernelAbstractions: @kernel,@index,get_backend

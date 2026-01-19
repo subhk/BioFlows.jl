@@ -1192,6 +1192,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
     println("=" ^ 60)
     println("BioFlows.jl - Flexible Swimming Fish Examples")
     println("=" ^ 60)
+    @info "Configuration" threads=Threads.nthreads() backend=BioFlows.backend
 
     # Example 1: Carangiform swimming (default, tail-dominated)
     @info "Example 1: Carangiform swimming fish (tail-dominated motion)..."

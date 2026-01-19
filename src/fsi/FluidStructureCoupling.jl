@@ -422,6 +422,20 @@ function FSISimulation(dims::Tuple{Int,Int}, domain::Tuple{Real,Real};
                        T::Type=Float32,
                        kwargs...)
 
+    # Check backend/memory compatibility (same guard as Simulation constructor)
+    # The @loop macro generates code at compile time based on the backend preference.
+    # If backend="SIMD" but GPU arrays are used, scalar indexing will occur.
+    if backend == "SIMD" && mem !== Array
+        error("Backend mismatch: The @loop backend is set to \"SIMD\" (serial CPU), " *
+              "but GPU arrays (mem=$mem) were requested.\n" *
+              "This would cause extremely slow scalar indexing on GPU.\n" *
+              "Solutions:\n" *
+              "  1. Use CPU arrays: mem=Array (default)\n" *
+              "  2. Switch to KernelAbstractions backend for GPU support:\n" *
+              "     using BioFlows; BioFlows.set_backend(\"KernelAbstractions\")\n" *
+              "     Then restart Julia for the change to take effect.")
+    end
+
     # Use single precision by default for GPU efficiency
 
     # Create beam geometry with fish-like thickness profile

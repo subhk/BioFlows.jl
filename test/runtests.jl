@@ -2,6 +2,9 @@ using Test
 using BioFlows
 using JLD2
 
+# Print threading information
+@info "Running BioFlows tests" threads=Threads.nthreads() cpu_threads=BioFlows.cpu_threads backend=BioFlows.backend
+
 @testset "BioFlows example constructors" begin
     include(joinpath(@__DIR__, "..", "examples", "circle_benchmark.jl"))
     circle = circle_sim(; n=3*2^4, m=2^5, ν=0.16f0)
@@ -64,3 +67,6 @@ include("test_composite_poisson.jl")
 
 # Include FVM tests
 include("test_fvm.jl")
+
+# Include GPU tests (skipped automatically if CUDA unavailable)
+include("test_gpu.jl")

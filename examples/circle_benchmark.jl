@@ -48,6 +48,7 @@ function run_circle(; steps::Int=250, remeasure::Bool=false)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
+    @info "Starting BioFlows circle benchmark" threads=Threads.nthreads() backend=BioFlows.backend
     sim, history = run_circle()
     final = history[end]
     @info "BioFlows circle example complete" steps=final.step time=final.time drag=final.drag lift=final.lift

@@ -277,7 +277,7 @@ function orbiting_cylinder_amr_sim(; n::Int=4*2^5, m::Int=4*2^5,
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    println("Running oscillating cylinder simulation...")
+    @info "Running oscillating cylinder simulation" threads=Threads.nthreads() backend=BioFlows.backend
     println("Choose simulation type:")
     println("  1. Standard (no AMR)")
     println("  2. With AMR")

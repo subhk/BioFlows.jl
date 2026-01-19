@@ -6,7 +6,10 @@ Extension module to enable CUDA GPU support for BioFlows.jl.
 When CUDA.jl is loaded, this extension provides:
 - Re-exports `CuArray` for convenient GPU array creation
 - Ensures KernelAbstractions.jl CUDA backend is available
-- Sets CUDA_LOADED flag for detection by gpu_backend()
+
+The main module's `gpu_backend()` function detects CUDA availability by:
+1. Checking if this extension is loaded via `Base.get_extension()`
+2. Calling `CUDA.functional()` through the extension
 
 # Usage
 ```julia
@@ -35,13 +38,8 @@ using BioFlows
 using CUDA
 using CUDA: CuArray
 
-# Flag to indicate CUDA is loaded and functional
-# This is checked by gpu_backend() in the main module
-const CUDA_LOADED = Ref(false)
-
 function __init__()
-    CUDA_LOADED[] = CUDA.functional()
-    if CUDA_LOADED[]
+    if CUDA.functional()
         @info "BioFlows: CUDA GPU backend enabled. Use `mem=CuArray` in Simulation constructor."
     else
         @warn "BioFlows: CUDA extension loaded but CUDA is not functional. GPU acceleration unavailable."

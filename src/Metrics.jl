@@ -444,12 +444,24 @@ struct MeanFlow{T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Mf}
     uu_stats :: Bool  # Track velocity correlations?
     function MeanFlow(flow::Flow{D,T}; t_init=time(flow), uu_stats=false) where {D,T}
         mem = typeof(flow.u).name.wrapper  # Preserve array type (CPU/GPU)
+        # Guard against backend mismatch: SIMD backend cannot run on GPU arrays
+        if backend == "SIMD" && mem !== Array
+            error("Backend mismatch: The @loop backend is set to \"SIMD\" (serial CPU), " *
+                  "but GPU arrays (mem=$mem) were detected in Flow. MeanFlow.update! uses " *
+                  "@loop and will fail. Use `set_backend(\"KernelAbstractions\")` and restart Julia.")
+        end
         P = zeros(T, size(flow.p)) |> mem
         U = zeros(T, size(flow.u)) |> mem
         UU = uu_stats ? zeros(T, size(flow.p)..., D, D) |> mem : nothing
         new{T,typeof(P),typeof(U),typeof(UU)}(P,U,UU,T[t_init],uu_stats)
     end
     function MeanFlow(N::NTuple{D}; mem=Array, T=Float32, t_init=0, uu_stats=false) where {D}
+        # Guard against backend mismatch: SIMD backend cannot run on GPU arrays
+        if backend == "SIMD" && mem !== Array
+            error("Backend mismatch: The @loop backend is set to \"SIMD\" (serial CPU), " *
+                  "but GPU arrays (mem=$mem) were requested. MeanFlow.update! uses @loop " *
+                  "and will fail. Use `set_backend(\"KernelAbstractions\")` and restart Julia.")
+        end
         Ng = N .+ 2  # Include ghost cells
         P = zeros(T, Ng) |> mem
         U = zeros(T, Ng..., D) |> mem

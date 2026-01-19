@@ -10,7 +10,7 @@
 # - Logging: @log macro for pressure solver diagnostics
 # =============================================================================
 
-using KernelAbstractions: get_backend, @index, @kernel
+using KernelAbstractions: get_backend, @index, @kernel, CPU
 using LoggingExtras
 
 # =============================================================================
@@ -164,15 +164,62 @@ end
 # Could also use ScopedValues in Julia 1.11+
 using Preferences
 const backend = @load_preference("backend", "KernelAbstractions")
+const cpu_threads = @load_preference("cpu_threads", true)  # Enable CPU multithreading by default
+
 function set_backend(new_backend::String)
     if !(new_backend in ("SIMD", "KernelAbstractions"))
         throw(ArgumentError("Invalid backend: \"$(new_backend)\""))
     end
-
-    # Set it in our runtime values, as well as saving it to disk
     @set_preferences!("backend" => new_backend)
     @info("New backend set; restart your Julia session for this change to take effect!")
 end
+
+"""
+    set_cpu_threads(enabled::Bool)
+
+Enable or disable CPU multithreading for KernelAbstractions backend.
+When enabled, CPU loops use all available Julia threads.
+
+Start Julia with multiple threads for this to have effect:
+    julia -t auto          # Use all available cores
+    julia -t 4             # Use 4 threads
+    julia --threads=auto   # Alternative syntax
+
+# Example
+```julia
+using BioFlows
+BioFlows.set_cpu_threads(true)   # Enable (default)
+BioFlows.set_cpu_threads(false)  # Disable for debugging
+# Restart Julia for changes to take effect
+```
+"""
+function set_cpu_threads(enabled::Bool)
+    @set_preferences!("cpu_threads" => enabled)
+    @info("CPU threading $(enabled ? "enabled" : "disabled"); restart Julia for this change to take effect!")
+end
+
+# Create CPU backend with threading support
+# KernelAbstractions.CPU() automatically uses Julia threads if available
+const _cpu_backend = if cpu_threads && Threads.nthreads() > 1
+    @info "BioFlows: CPU multithreading enabled with $(Threads.nthreads()) threads"
+    CPU()
+else
+    if cpu_threads && Threads.nthreads() == 1
+        @warn "BioFlows: CPU multithreading requested but Julia started with 1 thread. " *
+              "Start Julia with `julia -t auto` or `julia -t N` for multithreading."
+    end
+    CPU()
+end
+
+"""
+    _get_backend(arr)
+
+Get the appropriate KernelAbstractions backend for the given array.
+- For CPU Arrays: returns the configured CPU backend (with threading if enabled)
+- For GPU Arrays (CuArray): returns the GPU backend via KernelAbstractions.get_backend
+"""
+@inline _get_backend(arr::Array) = _cpu_backend
+@inline _get_backend(arr) = get_backend(arr)  # GPU arrays use their native backend
 
 """
     @loop <expr> over <I ∈ R>
@@ -197,6 +244,23 @@ BioFlows.set_backend("KernelAbstractions")  # or "SIMD"
 `backend="SIMD"` will cause scalar indexing errors. The `Simulation` constructor
 validates this automatically.
 
+## CPU Multithreading
+
+When using `backend="KernelAbstractions"` with CPU arrays, loops automatically use
+all available Julia threads. To enable multithreading:
+
+1. Start Julia with multiple threads:
+   ```bash
+   julia -t auto          # Use all available cores
+   julia -t 4             # Use 4 threads
+   ```
+
+2. CPU threading is enabled by default. To disable:
+   ```julia
+   BioFlows.set_cpu_threads(false)
+   # Restart Julia
+   ```
+
 ## Example
 
     @loop a[I,i] += sum(loc(i,I)) over I ∈ R
@@ -213,10 +277,11 @@ on serial execution (backend="SIMD"), or
         I ∈ @index(Global,Cartesian)+I0
         @fastmath @inbounds a[I,i] += sum(loc(i,I))
     end
-    kern(get_backend(a),64)(a,i,R[1]-oneunit(R[1]),ndrange=size(R))
+    kern(_get_backend(a),64)(a,i,R[1]-oneunit(R[1]),ndrange=size(R))
 
 when using KernelAbstractions (backend="KernelAbstractions").
-Note that `get_backend` is used on the _first_ variable in `expr` (`a` in this example).
+Note that `_get_backend` is used on the _first_ variable in `expr` (`a` in this example),
+which returns a multithreaded CPU backend for Arrays or the native GPU backend for CuArrays.
 """
 macro loop(args...)
     ex,_,itr = args
@@ -235,7 +300,8 @@ macro loop(args...)
                 @fastmath @inbounds $ex
             end
             function $kern($(symWtypes...)) where {$(symT...)}
-                event = $kern_(get_backend($(sym[1])),64)($(sym...),$R[1]-oneunit($R[1]),ndrange=size($R))
+                # Use _get_backend for CPU multithreading support
+                event = $kern_(_get_backend($(sym[1])),64)($(sym...),$R[1]-oneunit($R[1]),ndrange=size($R))
                 event !== nothing && wait(event)
             end
             $kern($(sym...))

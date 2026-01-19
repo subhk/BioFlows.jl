@@ -62,6 +62,7 @@ function run_donut(; steps::Int=200, kwargs...)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
+    @info "Starting BioFlows 3D donut example" threads=Threads.nthreads() backend=BioFlows.backend
     sim, history = run_donut()
     final = history[end]
     @info "BioFlows 3D donut example complete" steps=final.step time=final.time drag=final.drag side=final.side spanwise=final.spanwise
