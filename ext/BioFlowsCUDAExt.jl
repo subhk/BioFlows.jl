@@ -1,20 +1,18 @@
 """
     BioFlowsCUDAExt
 
-Extension module to enable CUDA GPU support for BioFlows.jl.
+Extension module that activates when CUDA.jl is loaded alongside BioFlows.jl.
 
-When CUDA.jl is loaded, this extension provides:
-- Re-exports `CuArray` for convenient GPU array creation
-- Ensures KernelAbstractions.jl CUDA backend is available
+This extension:
+- Prints an info message confirming CUDA GPU support is available
+- Ensures KernelAbstractions.jl can use the CUDA backend for `@loop` macros
 
-The main module's `gpu_backend()` function detects CUDA availability by:
-1. Checking if this extension is loaded via `Base.get_extension()`
-2. Calling `CUDA.functional()` through the extension
+Note: You must explicitly `using CUDA` to access `CuArray` for the `mem` parameter.
 
 # Usage
 ```julia
 using BioFlows
-using CUDA
+using CUDA  # Required to access CuArray
 
 # Create a GPU-accelerated simulation
 sim = Simulation((256, 128), (2.0, 1.0);
@@ -36,7 +34,6 @@ module BioFlowsCUDAExt
 
 using BioFlows
 using CUDA
-using CUDA: CuArray
 
 function __init__()
     if CUDA.functional()
@@ -45,8 +42,5 @@ function __init__()
         @warn "BioFlows: CUDA extension loaded but CUDA is not functional. GPU acceleration unavailable."
     end
 end
-
-# Export CuArray for convenience
-export CuArray
 
 end # module
