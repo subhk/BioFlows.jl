@@ -101,12 +101,11 @@ Return the velocity field averaged to cell centres for each component.
 The last dimension indexes the velocity components.
 """
 function cell_center_velocity(sim::AbstractSimulation; strip_ghosts::Bool=true)
-    T = eltype(sim.flow.u)
     spatial_dims = ndims(sim.flow.p)
     vel = similar(sim.flow.u, (size(sim.flow.p)..., spatial_dims))
-    fill!(vel, zero(T))
+    fill!(vel, zero(eltype(vel)))
     for comp in 1:spatial_dims
-        @loop vel[I, comp] = T(0.5) * (sim.flow.u[I, comp] + sim.flow.u[I + δ(comp, I), comp]) over I ∈ inside(sim.flow.p)
+        @loop vel[I, comp] = 0.5 * (sim.flow.u[I, comp] + sim.flow.u[I + δ(comp, I), comp]) over I ∈ inside(sim.flow.p)
     end
     return strip_ghosts ? _strip_ghosts(vel, spatial_dims) : vel
 end
@@ -175,8 +174,7 @@ function force_components(sim::AbstractSimulation;
     viscous = viscous_force(sim)
     total = pressure .+ viscous
     ρ = sim.flow.ρ  # Use density from simulation
-    T = eltype(sim.flow.u)
-    coeff_scale = with_coefficients ? (T(0.5) * ρ * sim.U^2 * reference_area) : nothing
+    coeff_scale = with_coefficients ? (0.5 * ρ * sim.U^2 * reference_area) : nothing
     coefficients = isnothing(coeff_scale) ? nothing : (
         pressure ./ coeff_scale,
         viscous ./ coeff_scale,
@@ -237,17 +235,15 @@ function compute_diagnostics(sim::AbstractSimulation)
     max_components = Vector{eltype(sim.flow.p)}(undef, spatial_dims)
     for comp in 1:spatial_dims
         slice = view(vel, colon_dims..., comp)
-        # GPU-safe: transfer to CPU for reduction to avoid potential scalar indexing
-        max_components[comp] = _safe_maximum(abs, slice)
+        max_components[comp] = maximum(abs, slice)
     end
     Δt = sim.flow.Δt[end]
     h = minimum(sim.flow.Δx)
     cfl = maximum(max_components) * Δt / h
-    T = eltype(max_components)
     return (
         max_u = max_components[1],
-        max_w = spatial_dims ≥ 2 ? max_components[2] : zero(T),
-        max_v = spatial_dims ≥ 3 ? max_components[3] : zero(T),
+        max_w = spatial_dims ≥ 2 ? max_components[2] : 0.0,
+        max_v = spatial_dims ≥ 3 ? max_components[3] : 0.0,
         CFL = cfl,
         Δt = Δt,
         length_scale = sim.L,
@@ -261,7 +257,7 @@ end
 Compute summary statistics from a force history vector. Optionally discard
 the first `discard` fraction of samples (0.0 to 1.0).
 """
-function summarize_force_history(history::Vector; discard::Real=0f0)
+function summarize_force_history(history::Vector; discard::Real=0.0)
     n = length(history)
     start_idx = max(1, round(Int, discard * n) + 1)
     subset = history[start_idx:end]

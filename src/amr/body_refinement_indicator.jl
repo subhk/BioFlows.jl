@@ -14,7 +14,7 @@ end
 
 """
     compute_body_refinement_indicator(flow::Flow, body::AbstractBody;
-                                      distance_threshold=2f0, t=0f0)
+                                      distance_threshold=2.0, t=0.0)
 
 Compute a refinement indicator based on proximity to the immersed body.
 Returns an array with values 1.0 where refinement is needed (near body),
@@ -30,8 +30,8 @@ and 0.0 elsewhere.
 - Array of same size as `flow.p` with indicator values in [0, 1]
 """
 function compute_body_refinement_indicator(flow::Flow{N,T}, body::AbstractBody;
-                                           distance_threshold::Real=2f0,
-                                           t::Real=0f0) where {N,T}
+                                           distance_threshold::Real=2.0,
+                                           t::Real=0.0) where {N,T}
     indicator = similar(flow.p)
     fill!(indicator, zero(T))
     threshold = T(distance_threshold)
@@ -219,9 +219,9 @@ end
 
 """
     compute_combined_indicator(flow::Flow, body::AbstractBody;
-                               body_threshold=2f0, gradient_threshold=1f0,
-                               vorticity_threshold=1f0, t=0f0,
-                               body_weight=0.5f0, gradient_weight=0.3f0, vorticity_weight=0.2f0)
+                               body_threshold=2.0, gradient_threshold=1.0,
+                               vorticity_threshold=1.0, t=0.0,
+                               body_weight=0.5, gradient_weight=0.3, vorticity_weight=0.2)
 
 Compute a combined refinement indicator using body proximity, velocity gradients,
 and vorticity. Returns values in [0, 1] where higher values indicate stronger
@@ -242,13 +242,13 @@ need for refinement.
 - Combined indicator array with values in [0, 1]
 """
 function compute_combined_indicator(flow::Flow{N,T}, body::AbstractBody;
-                                    body_threshold::Real=2f0,
-                                    gradient_threshold::Real=1f0,
-                                    vorticity_threshold::Real=1f0,
-                                    t::Real=0f0,
-                                    body_weight::Real=0.5f0,
-                                    gradient_weight::Real=0.3f0,
-                                    vorticity_weight::Real=0.2f0) where {N,T}
+                                    body_threshold::Real=2.0,
+                                    gradient_threshold::Real=1.0,
+                                    vorticity_threshold::Real=1.0,
+                                    t::Real=0.0,
+                                    body_weight::Real=0.5,
+                                    gradient_weight::Real=0.3,
+                                    vorticity_weight::Real=0.2) where {N,T}
 
     # Normalize weights
     total_weight = body_weight + gradient_weight + vorticity_weight
@@ -293,28 +293,30 @@ function compute_combined_indicator(flow::Flow{N,T}, body::AbstractBody;
 end
 
 """
-    mark_cells_for_refinement(indicator::AbstractArray, threshold::Real=0.5f0)
+    mark_cells_for_refinement(indicator::AbstractArray, threshold::Real=0.5)
 
 Mark cells for refinement based on the indicator values.
 Returns a vector of cell indices that should be refined.
 
 # Arguments
-- `indicator`: Array of indicator values
+- `indicator`: Array of indicator values (GPU arrays are copied to CPU)
 - `threshold`: Cells with indicator > threshold are marked for refinement
 
 # Returns
-- Vector of CartesianIndex for cells to refine
+- Vector of CartesianIndex for cells to refine (always CPU)
 """
 function mark_cells_for_refinement(indicator::AbstractArray{T,N};
-                                   threshold::Real=0.5f0) where {T,N}
+                                   threshold::Real=0.5) where {T,N}
+    # Copy to CPU if on GPU (result feeds into CPU-side Dict bookkeeping)
+    indicator_cpu = Array(indicator)
     cells = CartesianIndex{N}[]
     thresh = T(threshold)
 
-    for I in inside(indicator)
+    for I in inside(indicator_cpu)
         # Use >= to include cells at exactly the threshold
         # This is important because body-only cells with default weights
         # will have exactly 0.5 indicator value (0.5 weight × 1.0 indicator)
-        if indicator[I] >= thresh
+        if indicator_cpu[I] >= thresh
             push!(cells, I)
         end
     end
@@ -329,26 +331,32 @@ Expand refinement indicator to include buffer cells around marked regions.
 This helps maintain smooth transitions between refinement levels.
 
 # Arguments
-- `indicator`: Array of indicator values (modified in place)
+- `indicator`: Array of indicator values (modified in place, GPU arrays copied to CPU)
 - `buffer_size`: Number of buffer cells to add around refined regions
+
+# Note
+For GPU arrays, the operation is performed on CPU and copied back.
 """
 function apply_buffer_zone!(indicator::AbstractArray{T,N};
                             buffer_size::Int=1) where {T,N}
-    original = copy(indicator)
-    dims = size(indicator)
+    # Work on CPU (this is preprocessing for CPU-side patch creation)
+    indicator_cpu = Array(indicator)
+    original = copy(indicator_cpu)
 
-    for I in CartesianIndices(indicator)
+    for I in CartesianIndices(indicator_cpu)
         if original[I] > 0
             # Mark neighboring cells within buffer
             for offset in CartesianIndices(ntuple(_ -> -buffer_size:buffer_size, N))
                 neighbor = I + offset
-                if checkbounds(Bool, indicator, neighbor)
-                    indicator[neighbor] = max(indicator[neighbor], original[I])
+                if checkbounds(Bool, indicator_cpu, neighbor)
+                    indicator_cpu[neighbor] = max(indicator_cpu[neighbor], original[I])
                 end
             end
         end
     end
 
+    # Copy back to original array (handles GPU transfer if needed)
+    copyto!(indicator, indicator_cpu)
     return indicator
 end
 
@@ -357,13 +365,19 @@ end
 
 Smooth the refinement indicator using averaging.
 Helps create gradual transitions between refinement levels.
+
+# Note
+For GPU arrays, the operation is performed on CPU and copied back.
 """
 function smooth_indicator!(indicator::AbstractArray{T,N};
                            iterations::Int=1) where {T,N}
+    # Work on CPU (this is preprocessing for CPU-side patch creation)
+    indicator_cpu = Array(indicator)
+
     for _ in 1:iterations
-        temp = copy(indicator)
-        for I in CartesianIndices(indicator)
-            if all(i -> 2 <= I[i] <= size(indicator, i) - 1, 1:N)
+        temp = copy(indicator_cpu)
+        for I in CartesianIndices(indicator_cpu)
+            if all(i -> 2 <= I[i] <= size(indicator_cpu, i) - 1, 1:N)
                 # Average with neighbors
                 sum_val = temp[I]
                 count = 1
@@ -371,9 +385,12 @@ function smooth_indicator!(indicator::AbstractArray{T,N};
                     sum_val += temp[I - δ(d, I)] + temp[I + δ(d, I)]
                     count += 2
                 end
-                indicator[I] = sum_val / count
+                indicator_cpu[I] = sum_val / count
             end
         end
     end
+
+    # Copy back to original array (handles GPU transfer if needed)
+    copyto!(indicator, indicator_cpu)
     return indicator
 end

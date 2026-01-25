@@ -63,14 +63,14 @@ Create a flexible body for FSI simulation.
 - `tolerance`: Convergence tolerance (default: 1e-6)
 """
 function FlexibleBodyFSI(beam::EulerBernoulliBeam{T};
-                         x_head::Real=0f0,
-                         z_center::Real=0f0,
+                         x_head::Real=0.0,
+                         z_center::Real=0.0,
                          h_func::Union{Function, Nothing}=nothing,
-                         ρ_fluid::Real=1000f0,
+                         ρ_fluid::Real=1000.0,
                          active_forcing::Union{Function, Nothing}=nothing,
                          sub_iterations::Int=3,
-                         relaxation::Real=0.5f0,
-                         tolerance::Real=1f-6) where T
+                         relaxation::Real=0.5,
+                         tolerance::Real=1e-6) where T
 
     # Use beam geometry thickness if not provided
     h = h_func === nothing ? beam.geometry.thickness : h_func
@@ -197,10 +197,19 @@ the local cross-section:
     q(s) = ∫ p(s, z) · n_z dz ≈ Δp(s) · b(s)
 
 where Δp is the pressure difference across the body and b is the width.
+
+GPU-compatible: Copies pressure to CPU for sampling (beam is CPU-based,
+FSI coupling is infrequent with O(n_nodes) samples).
 """
 function compute_fluid_load!(body::FlexibleBodyFSI{T}, flow, t::Real) where T
     beam = body.beam
     n = beam.geometry.n
+
+    # Copy pressure to CPU for sampling (GPU-compatible)
+    # This is efficient because: (1) beam is CPU-based, (2) FSI coupling is infrequent,
+    # (3) only O(n_nodes) samples needed
+    p_cpu = Array(flow.p)
+    Δx_vals = (flow.Δx[1], flow.Δx[2])
 
     for i in 1:n
         s = beam.s[i]
@@ -210,9 +219,9 @@ function compute_fluid_load!(body::FlexibleBodyFSI{T}, flow, t::Real) where T
         h_local = body.h_func(s)
 
         # Sample pressure above and below the body (half-cell offset)
-        z_offset = T(0.5) * flow.Δx[2]
-        p_above = sample_pressure(flow, x_pos, z_body + h_local + z_offset)
-        p_below = sample_pressure(flow, x_pos, z_body - h_local - z_offset)
+        z_offset = T(0.5) * Δx_vals[2]
+        p_above = sample_pressure_cpu(p_cpu, Δx_vals, x_pos, z_body + h_local + z_offset)
+        p_below = sample_pressure_cpu(p_cpu, Δx_vals, x_pos, z_body - h_local - z_offset)
 
         # Pressure load (force per unit length in z-direction)
         # Positive pressure below pushes up, positive pressure above pushes down
@@ -226,26 +235,31 @@ function compute_fluid_load!(body::FlexibleBodyFSI{T}, flow, t::Real) where T
 end
 
 """
-    sample_pressure(flow, x, z)
+    sample_pressure_cpu(p_cpu, Δx, x, z)
 
 Sample the pressure field at position (x, z) using bilinear interpolation.
+Operates on CPU array for GPU compatibility.
+
+# Arguments
+- `p_cpu`: Pressure array on CPU
+- `Δx`: Grid spacing tuple (Δx, Δz)
+- `x`, `z`: Physical coordinates to sample
 """
-function sample_pressure(flow, x::Real, z::Real)
-    T = eltype(flow.p)
-    nx, nz = size(flow.p)
+function sample_pressure_cpu(p_cpu::AbstractArray{T}, Δx::Tuple, x::Real, z::Real) where T
+    nx, nz = size(p_cpu)
 
     # Convert physical coordinates to grid indices
     # Assuming uniform grid with origin at (0, 0)
-    Δx = flow.Δx[1]
-    Δz = flow.Δx[2]
+    Δx_val = Δx[1]
+    Δz_val = Δx[2]
 
     # Grid indices (1-based, cell-centered)
-    i_float = T(x) / T(Δx) + T(1.5)
-    j_float = T(z) / T(Δz) + T(1.5)
+    i_float = x / Δx_val + 1.5
+    j_float = z / Δz_val + 1.5
 
     # Clamp to valid range
-    i_float = clamp(i_float, one(T), T(nx))
-    j_float = clamp(j_float, one(T), T(nz))
+    i_float = clamp(i_float, 1.0, Float64(nx))
+    j_float = clamp(j_float, 1.0, Float64(nz))
 
     i_low = floor(Int, i_float)
     j_low = floor(Int, j_float)
@@ -259,12 +273,26 @@ function sample_pressure(flow, x::Real, z::Real)
     β = j_float - j_low
 
     # Bilinear interpolation
-    p = (1-α)*(1-β)*flow.p[i_low, j_low] +
-        α*(1-β)*flow.p[i_high, j_low] +
-        (1-α)*β*flow.p[i_low, j_high] +
-        α*β*flow.p[i_high, j_high]
+    p = (1-α)*(1-β)*p_cpu[i_low, j_low] +
+        α*(1-β)*p_cpu[i_high, j_low] +
+        (1-α)*β*p_cpu[i_low, j_high] +
+        α*β*p_cpu[i_high, j_high]
 
     return T(p)
+end
+
+"""
+    sample_pressure(flow, x, z)
+
+Sample the pressure field at position (x, z) using bilinear interpolation.
+GPU-compatible: Copies pressure to CPU for sampling.
+
+Note: For multiple samples, use compute_fluid_load! which copies once.
+"""
+function sample_pressure(flow, x::Real, z::Real)
+    p_cpu = Array(flow.p)
+    Δx_vals = (flow.Δx[1], flow.Δx[2])
+    return sample_pressure_cpu(p_cpu, Δx_vals, x, z)
 end
 
 """
@@ -413,30 +441,15 @@ function FSISimulation(dims::Tuple{Int,Int}, domain::Tuple{Real,Real};
                        active_forcing::Union{Function, Nothing}=nothing,
                        bc_left::BeamBoundaryCondition=CLAMPED,
                        bc_right::BeamBoundaryCondition=FREE,
-                       damping::Real=0.1f0,
-                       tension::Real=0f0,
-                       ν::Real=0.001f0,
-                       ρ::Real=1000f0,
-                       inletBC::Tuple=(1f0, 0f0),
+                       damping::Real=0.1,
+                       tension::Real=0.0,
+                       ν::Real=0.001,
+                       ρ::Real=1000.0,
+                       inletBC::Tuple=(1.0, 0.0),
                        mem=Array,
-                       T::Type=Float32,
                        kwargs...)
 
-    # Check backend/memory compatibility (same guard as Simulation constructor)
-    # The @loop macro generates code at compile time based on the backend preference.
-    # If backend="SIMD" but GPU arrays are used, scalar indexing will occur.
-    if backend == "SIMD" && mem !== Array
-        error("Backend mismatch: The @loop backend is set to \"SIMD\" (serial CPU), " *
-              "but GPU arrays (mem=$mem) were requested.\n" *
-              "This would cause extremely slow scalar indexing on GPU.\n" *
-              "Solutions:\n" *
-              "  1. Use CPU arrays: mem=Array (default)\n" *
-              "  2. Switch to KernelAbstractions backend for GPU support:\n" *
-              "     using BioFlows; BioFlows.set_backend(\"KernelAbstractions\")\n" *
-              "     Then restart Julia for the change to take effect.")
-    end
-
-    # Use single precision by default for GPU efficiency
+    T = Float64
 
     # Create beam geometry with fish-like thickness profile
     h_func = fish_thickness_profile(beam_length, beam_thickness)
@@ -564,8 +577,8 @@ Create a traveling wave active forcing function for swimming.
 - `L`: Body length (for envelope calculation)
 """
 function traveling_wave_forcing(; amplitude::Real, frequency::Real,
-                                  wavelength::Real=1f0, envelope::Symbol=:carangiform,
-                                  L::Real=1f0)
+                                  wavelength::Real=1.0, envelope::Symbol=:carangiform,
+                                  L::Real=1.0)
     ω = 2π * frequency
     k = 2π / (wavelength * L)
 
@@ -573,11 +586,11 @@ function traveling_wave_forcing(; amplitude::Real, frequency::Real,
     env = if envelope == :carangiform
         s -> (s/L)^2
     elseif envelope == :anguilliform
-        s -> 0.3f0 + 0.7f0 * s/L
+        s -> 0.3 + 0.7 * s/L
     elseif envelope == :subcarangiform
-        s -> (s/L)^1.5f0
+        s -> (s/L)^1.5
     else  # uniform
-        s -> 1f0
+        s -> 1.0
     end
 
     return (s, t) -> amplitude * env(s) * sin(k*s - ω*t)
@@ -596,18 +609,18 @@ Create a heave + pitch forcing at the leading edge.
 - `pitch_phase`: Pitch phase offset (default: π/2)
 - `L`: Body length for normalization
 """
-function heave_pitch_forcing(; heave_amp::Real=0f0, pitch_amp::Real=0f0,
-                               frequency::Real=1f0,
-                               heave_phase::Real=0f0, pitch_phase::Real=π/2,
-                               L::Real=1f0)
+function heave_pitch_forcing(; heave_amp::Real=0.0, pitch_amp::Real=0.0,
+                               frequency::Real=1.0,
+                               heave_phase::Real=0.0, pitch_phase::Real=π/2,
+                               L::Real=1.0)
     ω = 2π * frequency
 
     return function(s, t)
         # Heave forcing concentrated at head
-        f_heave = heave_amp * exp(-(s/L)^2 / 0.01f0) * sin(ω*t + heave_phase)
+        f_heave = heave_amp * exp(-(s/L)^2 / 0.01) * sin(ω*t + heave_phase)
 
         # Pitch forcing (moment applied at head, creates distributed force)
-        f_pitch = pitch_amp * (s/L) * exp(-(s/L)^2 / 0.1f0) * sin(ω*t + pitch_phase)
+        f_pitch = pitch_amp * (s/L) * exp(-(s/L)^2 / 0.1) * sin(ω*t + pitch_phase)
 
         return f_heave + f_pitch
     end

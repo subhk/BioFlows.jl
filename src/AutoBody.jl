@@ -9,6 +9,8 @@
 # This allows complex moving/deforming bodies with minimal user code.
 # =============================================================================
 
+using StaticArrays: SVector
+
 const _identity_map = (x, t) -> x
 
 """
@@ -115,6 +117,13 @@ end
     -J\dmap_dt
 end
 
+@inline function _map_time_derivative(mapf, x::SVector{N,T}, t) where {N,T}
+    # GPU-compatible: use ntuple to avoid allocation
+    # Computes ∂map/∂t for each component
+    SVector{N,T}(ntuple(i -> ForwardDiff.derivative(τ -> mapf(x, τ)[i], t), Val(N)))
+end
+
+# Fallback for non-SVector (CPU path)
 @inline function _map_time_derivative(mapf, x, t)
     map_xt = mapf(x, t)
     dmap_dt = similar(map_xt)
@@ -131,8 +140,8 @@ using LinearAlgebra: tr
 Return `H,K` the mean and Gaussian curvature from `A=hessian(sdf)`.
 `K=tr(minor(A))` in 3D and `K=0` in 2D.
 """
-function curvature(A::AbstractMatrix{T}) where T
-    H,K = T(0.5)*tr(A),zero(T)
+function curvature(A::AbstractMatrix)
+    H,K = 0.5*tr(A),0
     if size(A)==(3,3)
         K = A[1,1]*A[2,2]+A[1,1]*A[3,3]+A[2,2]*A[3,3]-A[1,2]^2-A[1,3]^2-A[2,3]^2
     end

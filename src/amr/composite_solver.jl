@@ -340,14 +340,14 @@ end
 Ensure velocity flux is consistent at coarse-fine interfaces.
 Fine fluxes should sum to match coarse flux.
 
-Note: This function uses scalar indexing for interface operations. On GPU, this
-will cause scalar indexing warnings but executes correctly. The interface
-operations are O(boundary) and called once per projection step, so the
-performance impact is minimal compared to the GPU-accelerated solver loops.
+GPU arrays are copied to CPU for processing (boundary operations are O(boundary)).
 """
 function enforce_velocity_consistency!(u_coarse::AbstractArray{T},
                                        refined_velocity::RefinedVelocityField,
                                        patches::Dict) where T
+    # Copy coarse velocity to CPU once
+    u_coarse_cpu = Array(u_coarse)
+
     for (anchor, patch) in patches
         vel_patch = get_patch(refined_velocity, anchor)
         vel_patch === nothing && continue
@@ -355,50 +355,56 @@ function enforce_velocity_consistency!(u_coarse::AbstractArray{T},
         ratio = refinement_ratio(patch)
         ai, aj = anchor
 
+        # Copy fine velocity to CPU for this patch
+        vel_u_cpu = Array(vel_patch.u)
+        modified = false
+
         # Process each interface
         # Left interface (x-direction)
         ic = ai
         if ic >= 2
             for cj_idx in 1:patch.coarse_extent[2]
                 jc = aj + cj_idx - 1
-                coarse_flux = u_coarse[ic, jc, 1]
+                coarse_flux = u_coarse_cpu[ic, jc, 1]
 
                 # Sum fine fluxes
                 fine_sum = zero(T)
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
-                    fine_sum += vel_patch.u[2, fj, 1]
+                    fine_sum += vel_u_cpu[2, fj, 1]
                 end
 
                 # Distribute correction
                 correction = (coarse_flux * ratio - fine_sum) / ratio
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
-                    vel_patch.u[2, fj, 1] += correction
+                    vel_u_cpu[2, fj, 1] += correction
                 end
+                modified = true
             end
         end
 
         # Right interface
         ic = ai + patch.coarse_extent[1]
-        if ic <= size(u_coarse, 1) - 1
+        if ic <= size(u_coarse_cpu, 1) - 1
             for cj_idx in 1:patch.coarse_extent[2]
                 jc = aj + cj_idx - 1
-                coarse_flux = u_coarse[ic, jc, 1]
+                coarse_flux = u_coarse_cpu[ic, jc, 1]
 
                 fine_sum = zero(T)
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fi = patch.fine_dims[1] + 2  # Right face of last interior cell
-                    fine_sum += vel_patch.u[fi, fj, 1]
+                    fine_sum += vel_u_cpu[fi, fj, 1]
                 end
 
                 correction = (coarse_flux * ratio - fine_sum) / ratio
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fi = patch.fine_dims[1] + 2  # Right face of last interior cell
-                    vel_patch.u[fi, fj, 1] += correction
+                    vel_u_cpu[fi, fj, 1] += correction
                 end
+                modified = true
             end
         end
 
@@ -407,43 +413,50 @@ function enforce_velocity_consistency!(u_coarse::AbstractArray{T},
         if jc >= 2
             for ci_idx in 1:patch.coarse_extent[1]
                 ic = ai + ci_idx - 1
-                coarse_flux = u_coarse[ic, jc, 2]
+                coarse_flux = u_coarse_cpu[ic, jc, 2]
 
                 fine_sum = zero(T)
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
-                    fine_sum += vel_patch.u[fi, 2, 2]
+                    fine_sum += vel_u_cpu[fi, 2, 2]
                 end
 
                 correction = (coarse_flux * ratio - fine_sum) / ratio
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
-                    vel_patch.u[fi, 2, 2] += correction
+                    vel_u_cpu[fi, 2, 2] += correction
                 end
+                modified = true
             end
         end
 
         # Top interface
         jc = aj + patch.coarse_extent[2]
-        if jc <= size(u_coarse, 2) - 1
+        if jc <= size(u_coarse_cpu, 2) - 1
             for ci_idx in 1:patch.coarse_extent[1]
                 ic = ai + ci_idx - 1
-                coarse_flux = u_coarse[ic, jc, 2]
+                coarse_flux = u_coarse_cpu[ic, jc, 2]
 
                 fine_sum = zero(T)
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = patch.fine_dims[2] + 2  # Top face of last interior cell
-                    fine_sum += vel_patch.u[fi, fj, 2]
+                    fine_sum += vel_u_cpu[fi, fj, 2]
                 end
 
                 correction = (coarse_flux * ratio - fine_sum) / ratio
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = patch.fine_dims[2] + 2  # Top face of last interior cell
-                    vel_patch.u[fi, fj, 2] += correction
+                    vel_u_cpu[fi, fj, 2] += correction
                 end
+                modified = true
             end
+        end
+
+        # Copy back to GPU if modified
+        if modified
+            copyto!(vel_patch.u, vel_u_cpu)
         end
     end
 end
@@ -454,14 +467,14 @@ end
 Ensure velocity flux is consistent at 3D coarse-fine interfaces.
 Fine fluxes should sum to match coarse flux across all 6 faces.
 
-Note: This function uses scalar indexing for interface operations. On GPU, this
-will cause scalar indexing warnings but executes correctly. The interface
-operations are O(boundary) and called once per projection step, so the
-performance impact is minimal compared to the GPU-accelerated solver loops.
+GPU arrays are copied to CPU for processing (boundary operations are O(boundary)).
 """
 function enforce_velocity_consistency_3d!(u_coarse::AbstractArray{T},
                                            refined_velocity::RefinedVelocityField,
                                            patches_3d::Dict) where T
+    # Copy coarse velocity to CPU once
+    u_coarse_cpu = Array(u_coarse)
+
     for (anchor, patch) in patches_3d
         vel_patch = get_patch(refined_velocity, anchor)
         vel_patch === nothing && continue
@@ -471,51 +484,57 @@ function enforce_velocity_consistency_3d!(u_coarse::AbstractArray{T},
         ai, aj, ak = anchor
         nx, ny, nz = patch.fine_dims
 
+        # Copy fine velocity to CPU for this patch
+        vel_u_cpu = Array(vel_patch.u)
+        modified = false
+
         # X-minus interface
         ic = ai
         if ic >= 2
             for cj_idx in 1:patch.coarse_extent[2], ck_idx in 1:patch.coarse_extent[3]
                 jc = aj + cj_idx - 1
                 kc = ak + ck_idx - 1
-                coarse_flux = u_coarse[ic, jc, kc, 1]
+                coarse_flux = u_coarse_cpu[ic, jc, kc, 1]
 
                 fine_sum = zero(T)
                 for dj in 1:ratio, dk in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    fine_sum += vel_patch.u[2, fj, fk, 1]
+                    fine_sum += vel_u_cpu[2, fj, fk, 1]
                 end
 
                 correction = (coarse_flux * ratio2 - fine_sum) / ratio2
                 for dj in 1:ratio, dk in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    vel_patch.u[2, fj, fk, 1] += correction
+                    vel_u_cpu[2, fj, fk, 1] += correction
                 end
+                modified = true
             end
         end
 
         # X-plus interface
         ic = ai + patch.coarse_extent[1]
-        if ic <= size(u_coarse, 1) - 1
+        if ic <= size(u_coarse_cpu, 1) - 1
             for cj_idx in 1:patch.coarse_extent[2], ck_idx in 1:patch.coarse_extent[3]
                 jc = aj + cj_idx - 1
                 kc = ak + ck_idx - 1
-                coarse_flux = u_coarse[ic, jc, kc, 1]
+                coarse_flux = u_coarse_cpu[ic, jc, kc, 1]
 
                 fine_sum = zero(T)
                 for dj in 1:ratio, dk in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    fine_sum += vel_patch.u[nx+2, fj, fk, 1]  # Right face of last interior cell
+                    fine_sum += vel_u_cpu[nx+2, fj, fk, 1]  # Right face of last interior cell
                 end
 
                 correction = (coarse_flux * ratio2 - fine_sum) / ratio2
                 for dj in 1:ratio, dk in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    vel_patch.u[nx+2, fj, fk, 1] += correction  # Right face of last interior cell
+                    vel_u_cpu[nx+2, fj, fk, 1] += correction  # Right face of last interior cell
                 end
+                modified = true
             end
         end
 
@@ -525,45 +544,47 @@ function enforce_velocity_consistency_3d!(u_coarse::AbstractArray{T},
             for ci_idx in 1:patch.coarse_extent[1], ck_idx in 1:patch.coarse_extent[3]
                 ic = ai + ci_idx - 1
                 kc = ak + ck_idx - 1
-                coarse_flux = u_coarse[ic, jc, kc, 2]
+                coarse_flux = u_coarse_cpu[ic, jc, kc, 2]
 
                 fine_sum = zero(T)
                 for di in 1:ratio, dk in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    fine_sum += vel_patch.u[fi, 2, fk, 2]
+                    fine_sum += vel_u_cpu[fi, 2, fk, 2]
                 end
 
                 correction = (coarse_flux * ratio2 - fine_sum) / ratio2
                 for di in 1:ratio, dk in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    vel_patch.u[fi, 2, fk, 2] += correction
+                    vel_u_cpu[fi, 2, fk, 2] += correction
                 end
+                modified = true
             end
         end
 
         # Y-plus interface
         jc = aj + patch.coarse_extent[2]
-        if jc <= size(u_coarse, 2) - 1
+        if jc <= size(u_coarse_cpu, 2) - 1
             for ci_idx in 1:patch.coarse_extent[1], ck_idx in 1:patch.coarse_extent[3]
                 ic = ai + ci_idx - 1
                 kc = ak + ck_idx - 1
-                coarse_flux = u_coarse[ic, jc, kc, 2]
+                coarse_flux = u_coarse_cpu[ic, jc, kc, 2]
 
                 fine_sum = zero(T)
                 for di in 1:ratio, dk in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    fine_sum += vel_patch.u[fi, ny+2, fk, 2]  # Top face of last interior cell
+                    fine_sum += vel_u_cpu[fi, ny+2, fk, 2]  # Top face of last interior cell
                 end
 
                 correction = (coarse_flux * ratio2 - fine_sum) / ratio2
                 for di in 1:ratio, dk in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
-                    vel_patch.u[fi, ny+2, fk, 2] += correction  # Top face of last interior cell
+                    vel_u_cpu[fi, ny+2, fk, 2] += correction  # Top face of last interior cell
                 end
+                modified = true
             end
         end
 
@@ -573,46 +594,53 @@ function enforce_velocity_consistency_3d!(u_coarse::AbstractArray{T},
             for ci_idx in 1:patch.coarse_extent[1], cj_idx in 1:patch.coarse_extent[2]
                 ic = ai + ci_idx - 1
                 jc = aj + cj_idx - 1
-                coarse_flux = u_coarse[ic, jc, kc, 3]
+                coarse_flux = u_coarse_cpu[ic, jc, kc, 3]
 
                 fine_sum = zero(T)
                 for di in 1:ratio, dj in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
-                    fine_sum += vel_patch.u[fi, fj, 2, 3]
+                    fine_sum += vel_u_cpu[fi, fj, 2, 3]
                 end
 
                 correction = (coarse_flux * ratio2 - fine_sum) / ratio2
                 for di in 1:ratio, dj in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
-                    vel_patch.u[fi, fj, 2, 3] += correction
+                    vel_u_cpu[fi, fj, 2, 3] += correction
                 end
+                modified = true
             end
         end
 
         # Z-plus interface
         kc = ak + patch.coarse_extent[3]
-        if kc <= size(u_coarse, 3) - 1
+        if kc <= size(u_coarse_cpu, 3) - 1
             for ci_idx in 1:patch.coarse_extent[1], cj_idx in 1:patch.coarse_extent[2]
                 ic = ai + ci_idx - 1
                 jc = aj + cj_idx - 1
-                coarse_flux = u_coarse[ic, jc, kc, 3]
+                coarse_flux = u_coarse_cpu[ic, jc, kc, 3]
 
                 fine_sum = zero(T)
                 for di in 1:ratio, dj in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
-                    fine_sum += vel_patch.u[fi, fj, nz+2, 3]  # Front face of last interior cell
+                    fine_sum += vel_u_cpu[fi, fj, nz+2, 3]  # Front face of last interior cell
                 end
 
                 correction = (coarse_flux * ratio2 - fine_sum) / ratio2
                 for di in 1:ratio, dj in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
-                    vel_patch.u[fi, fj, nz+2, 3] += correction  # Front face of last interior cell
+                    vel_u_cpu[fi, fj, nz+2, 3] += correction  # Front face of last interior cell
                 end
+                modified = true
             end
+        end
+
+        # Copy back to GPU if modified
+        if modified
+            copyto!(vel_patch.u, vel_u_cpu)
         end
     end
 end
@@ -622,17 +650,15 @@ end
 
 Compute maximum divergence at base and all refined levels.
 Returns tuple (base_div, patch_divs_2d, patch_divs_3d) for verification.
-Uses GPU-safe reductions that transfer to CPU to avoid scalar indexing
-with CartesianIndices views on CuArray.
+GPU-compatible via @loop and maximum reduction.
 """
 function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) where {D,T}
-    # Base grid divergence
+    # Base grid divergence (GPU-compatible)
     R = inside(flow.p)
     @loop flow.σ[I] = abs(div(I, flow.u)) over I ∈ R
-    # GPU-safe reduction: transfer to CPU
-    base_div = _safe_maximum(identity, @view flow.σ[R])
+    base_div = maximum(@view flow.σ[R])
 
-    # 2D patch divergences
+    # 2D patch divergences (GPU-compatible)
     patch_divs_2d = Dict{Tuple{Int,Int}, T}()
     for (anchor, patch) in cp.patches
         vel_patch = get_patch(cp.refined_velocity, anchor)
@@ -640,11 +666,10 @@ function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) wher
 
         Rp = inside(patch)
         @loop patch.r[I] = abs(div(I, vel_patch.u)) over I ∈ Rp
-        # GPU-safe reduction: transfer to CPU
-        patch_divs_2d[anchor] = _safe_maximum(identity, @view patch.r[Rp])
+        patch_divs_2d[anchor] = maximum(@view patch.r[Rp])
     end
 
-    # 3D patch divergences
+    # 3D patch divergences (GPU-compatible)
     patch_divs_3d = Dict{Tuple{Int,Int,Int}, T}()
     for (anchor, patch) in cp.patches_3d
         vel_patch = get_patch(cp.refined_velocity, anchor)
@@ -652,8 +677,7 @@ function divergence_at_all_levels(flow::Flow{D,T}, cp::CompositePoisson{T}) wher
 
         Rp = inside(patch)
         @loop patch.r[I] = abs(div(I, vel_patch.u)) over I ∈ Rp
-        # GPU-safe reduction: transfer to CPU
-        patch_divs_3d[anchor] = _safe_maximum(identity, @view patch.r[Rp])
+        patch_divs_3d[anchor] = maximum(@view patch.r[Rp])
     end
 
     return base_div, patch_divs_2d, patch_divs_3d

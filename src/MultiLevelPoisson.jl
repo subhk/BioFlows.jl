@@ -143,7 +143,7 @@ function Vcycle!(ml::MultiLevelPoisson;l=1)
 
     # RESTRICTION: transfer residual to coarse grid
     restrict!(coarse.r,fine.r)  # r_coarse = R * r_fine
-    fill!(coarse.x,zero(eltype(coarse.x)))  # Start coarse solve from zero
+    fill!(coarse.x,0.)          # Start coarse solve from zero
 
     # COARSE SOLVE: recursively apply V-cycle or smooth at coarsest
     l+1<length(ml.levels) && Vcycle!(ml,l=l+1)

@@ -10,7 +10,7 @@
 # - Logging: @log macro for pressure solver diagnostics
 # =============================================================================
 
-using KernelAbstractions: get_backend, @index, @kernel, CPU
+using KernelAbstractions: get_backend, @index, @kernel
 using LoggingExtras
 
 # =============================================================================
@@ -93,48 +93,12 @@ end
 splitn(n) = Base.front(n),last(n)
 size_u(u) = splitn(size(u))
 
-# =============================================================================
-# GPU-SAFE REDUCTION HELPERS
-# =============================================================================
-# CartesianIndices views on CuArray can cause scalar indexing with
-# CUDA.allowscalar(false). These helpers transfer small boundary slices
-# to CPU for reduction, which is safe and efficient for boundary operations.
-# =============================================================================
-
-"""
-    _safe_sum(v)
-
-GPU-safe sum that handles CartesianIndices views by transferring to CPU.
-For boundary slices, the transfer overhead is negligible compared to the
-GPU kernel launch overhead for small reductions.
-"""
-_safe_sum(v::AbstractArray) = sum(Array(v))
-_safe_sum(v::Array) = sum(v)  # Already on CPU, no transfer needed
-
-"""
-    _safe_maximum(f, v)
-
-GPU-safe maximum with function `f` applied element-wise.
-Transfers to CPU to avoid scalar indexing issues with CartesianIndices views.
-"""
-_safe_maximum(f, v::AbstractArray) = maximum(f, Array(v))
-_safe_maximum(f, v::Array) = maximum(f, v)  # Already on CPU
-
-"""
-    _safe_sum_abs2(v)
-
-GPU-safe sum of squared absolute values.
-"""
-_safe_sum_abs2(v::AbstractArray) = sum(abs2, Array(v))
-_safe_sum_abs2(v::Array) = sum(abs2, v)
-
 """
     L₂(a)
 
 L₂ norm of array `a` excluding ghosts.
-Uses GPU-safe reduction that transfers the interior view to CPU.
 """
-L₂(a) = _safe_sum_abs2(@view a[inside(a)])
+L₂(a) = sum(abs2,@inbounds(a[I]) for I ∈ inside(a))
 
 """
     @inside <arr[I] = value>
@@ -164,62 +128,15 @@ end
 # Could also use ScopedValues in Julia 1.11+
 using Preferences
 const backend = @load_preference("backend", "KernelAbstractions")
-const cpu_threads = @load_preference("cpu_threads", true)  # Enable CPU multithreading by default
-
 function set_backend(new_backend::String)
     if !(new_backend in ("SIMD", "KernelAbstractions"))
         throw(ArgumentError("Invalid backend: \"$(new_backend)\""))
     end
+
+    # Set it in our runtime values, as well as saving it to disk
     @set_preferences!("backend" => new_backend)
     @info("New backend set; restart your Julia session for this change to take effect!")
 end
-
-"""
-    set_cpu_threads(enabled::Bool)
-
-Enable or disable CPU multithreading for KernelAbstractions backend.
-When enabled, CPU loops use all available Julia threads.
-
-Start Julia with multiple threads for this to have effect:
-    julia -t auto          # Use all available cores
-    julia -t 4             # Use 4 threads
-    julia --threads=auto   # Alternative syntax
-
-# Example
-```julia
-using BioFlows
-BioFlows.set_cpu_threads(true)   # Enable (default)
-BioFlows.set_cpu_threads(false)  # Disable for debugging
-# Restart Julia for changes to take effect
-```
-"""
-function set_cpu_threads(enabled::Bool)
-    @set_preferences!("cpu_threads" => enabled)
-    @info("CPU threading $(enabled ? "enabled" : "disabled"); restart Julia for this change to take effect!")
-end
-
-# Create CPU backend with threading support
-# KernelAbstractions.CPU() automatically uses Julia threads if available
-const _cpu_backend = if cpu_threads && Threads.nthreads() > 1
-    @info "BioFlows: CPU multithreading enabled with $(Threads.nthreads()) threads"
-    CPU()
-else
-    if cpu_threads && Threads.nthreads() == 1
-        @warn "BioFlows: CPU multithreading requested but Julia started with 1 thread. " *
-              "Start Julia with `julia -t auto` or `julia -t N` for multithreading."
-    end
-    CPU()
-end
-
-"""
-    _get_backend(arr)
-
-Get the appropriate KernelAbstractions backend for the given array.
-- For CPU Arrays: returns the configured CPU backend (with threading if enabled)
-- For GPU Arrays (CuArray): returns the GPU backend via KernelAbstractions.get_backend
-"""
-@inline _get_backend(arr::Array) = _cpu_backend
-@inline _get_backend(arr) = get_backend(arr)  # GPU arrays use their native backend
 
 """
     @loop <expr> over <I ∈ R>
@@ -227,41 +144,7 @@ Get the appropriate KernelAbstractions backend for the given array.
 Macro to automate fast loops using @simd when running in serial,
 or KernelAbstractions when running multi-threaded CPU or GPU.
 
-## Backend Selection
-
-The backend is determined at **compile time** by the `backend` preference:
-- `"KernelAbstractions"` (default): Uses KernelAbstractions.jl for GPU/parallel execution
-- `"SIMD"`: Uses @simd loops for serial CPU execution
-
-To change the backend:
-```julia
-using BioFlows
-BioFlows.set_backend("KernelAbstractions")  # or "SIMD"
-# Restart Julia for changes to take effect
-```
-
-**Important:** The backend must match your array type. Using `mem=CuArray` with
-`backend="SIMD"` will cause scalar indexing errors. The `Simulation` constructor
-validates this automatically.
-
-## CPU Multithreading
-
-When using `backend="KernelAbstractions"` with CPU arrays, loops automatically use
-all available Julia threads. To enable multithreading:
-
-1. Start Julia with multiple threads:
-   ```bash
-   julia -t auto          # Use all available cores
-   julia -t 4             # Use 4 threads
-   ```
-
-2. CPU threading is enabled by default. To disable:
-   ```julia
-   BioFlows.set_cpu_threads(false)
-   # Restart Julia
-   ```
-
-## Example
+For example
 
     @loop a[I,i] += sum(loc(i,I)) over I ∈ R
 
@@ -271,17 +154,16 @@ becomes
         @fastmath @inbounds a[I,i] += sum(loc(i,I))
     end
 
-on serial execution (backend="SIMD"), or
+on serial execution, or
 
     @kernel function kern(a,i,@Const(I0))
         I ∈ @index(Global,Cartesian)+I0
         @fastmath @inbounds a[I,i] += sum(loc(i,I))
     end
-    kern(BioFlows._get_backend(a),64)(a,i,R[1]-oneunit(R[1]),ndrange=size(R))
+    kern(get_backend(a),64)(a,i,R[1]-oneunit(R[1]),ndrange=size(R))
 
-when using KernelAbstractions (backend="KernelAbstractions").
-Note that `_get_backend` is called on the _first_ variable in `expr` (`a` in this example),
-which returns a multithreaded CPU backend for Arrays or the native GPU backend for CuArrays.
+when multi-threading on CPU or using CuArrays.
+Note that `get_backend` is used on the _first_ variable in `expr` (`a` in this example).
 """
 macro loop(args...)
     ex,_,itr = args
@@ -300,10 +182,7 @@ macro loop(args...)
                 @fastmath @inbounds $ex
             end
             function $kern($(symWtypes...)) where {$(symT...)}
-                # Use _get_backend for CPU multithreading support
-                # Note: $_get_backend is interpolated to capture the function before esc
-                event = $kern_($_get_backend($(sym[1])),64)($(sym...),$R[1]-oneunit($R[1]),ndrange=size($R))
-                event !== nothing && wait(event)
+                $kern_(get_backend($(sym[1])),64)($(sym...),$R[1]-oneunit($R[1]),ndrange=size($R))
             end
             $kern($(sym...))
         end |> esc
@@ -338,7 +217,7 @@ using StaticArrays
 Location in space of the cell at CartesianIndex `I` at face `i`.
 Using `i=0` returns the cell center s.t. `loc = I`.
 """
-@inline loc(i,I::CartesianIndex{N},T=Float32) where N = SVector{N,T}(T.(I.I) .- T(1.5) .- T(0.5) .* T.(δ(i,I).I))
+@inline loc(i,I::CartesianIndex{N},T=Float32) where N = SVector{N,T}(I.I .- 1.5 .- 0.5 .* δ(i,I).I)
 @inline loc(Ii::CartesianIndex,T=Float32) = loc(last(Ii),Base.front(Ii),T)
 Base.last(I::CartesianIndex) = last(I.I)
 Base.front(I::CartesianIndex) = CI(Base.front(I.I))
@@ -408,18 +287,13 @@ end
     exitBC!(u,u⁰,Δt)
 
 Apply a 1D convection scheme to fill the ghost cell on the outlet of the domain.
-Uses GPU-safe reductions that transfer boundary slices to CPU to avoid
-scalar indexing issues with CartesianIndices views on CuArray.
 """
 function exitBC!(u,u⁰,Δt)
     N,_ = size_u(u)
     exitR = slice(N.-1,N[1],1,2)              # exit slice excluding ghosts
-    # GPU-safe sum: transfer boundary slice to CPU for reduction
-    inletV = @view(u[slice(N.-1,2,1,2),1])
-    U = _safe_sum(inletV)/length(exitR)       # inflow mass flux
+    U = sum(@view(u[slice(N.-1,2,1,2),1]))/length(exitR) # inflow mass flux
     @loop u[I,1] = u⁰[I,1]-U*Δt*(u⁰[I,1]-u⁰[I-δ(1,I),1]) over I ∈ exitR
-    exitV = @view(u[exitR,1])
-    ∮u = _safe_sum(exitV)/length(exitR)-U     # mass flux imbalance
+    ∮u = sum(@view(u[exitR,1]))/length(exitR)-U   # mass flux imbalance
     @loop u[I,1] -= ∮u over I ∈ exitR         # correct flux
 end
 """
@@ -434,17 +308,12 @@ end
 """
     interp(x::SVector, arr::AbstractArray)
 
-Linear interpolation from array `arr` at Cartesian-coordinate `x`.
-Note: This routine works for any number of dimensions.
-
-Warning: This function uses scalar indexing and is intended for CPU arrays.
-On GPU arrays (CuArray), this will cause scalar indexing which is extremely
-slow or may error with `CUDA.allowscalar(false)`. For GPU usage, transfer
-the array to CPU first: `interp(x, Array(arr))`.
+    Linear interpolation from array `arr` at Cartesian-coordinate `x`.
+    Note: This routine works for any number of dimensions.
 """
 function interp(x::SVector{D,T}, arr::AbstractArray{T,D}) where {D,T}
     # Index below the interpolation coordinate and the difference
-    x = x .+ T(1.5); i = floor.(Int,x); y = x.-i
+    x = x .+ 1.5f0; i = floor.(Int,x); y = x.-i
 
     # CartesianIndices around x
     I = CartesianIndex(i...); R = I:I+oneunit(I)
@@ -460,7 +329,7 @@ end
 using EllipsisNotation
 function interp(x::SVector{D,T}, varr::AbstractArray{T}) where {D,T}
     # Shift to align with each staggered grid component and interpolate
-    @inline shift(i) = SVector{D,T}(ifelse(i==j,T(0.5),zero(T)) for j in 1:D)
+    @inline shift(i) = SVector{D,T}(ifelse(i==j,0.5,0.) for j in 1:D)
     return SVector{D,T}(interp(x+shift(i),@view(varr[..,i])) for i in 1:D)
 end
 

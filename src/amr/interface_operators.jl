@@ -22,32 +22,23 @@ function prolongate_pressure_to_boundary!(patch::PatchPoisson{T},
     set_patch_boundary!(patch, p_coarse, anchor)
 end
 
-"""
-    _restrict_cell_2d(x_fine, ci, cj, ratio)
-
-Helper function for restriction: compute sum of fine cells in a coarse cell.
-Pure function with no side effects, suitable for use in @loop.
-"""
-@inline function _restrict_cell_2d(x_fine::AbstractArray{T}, ci::Int, cj::Int, ratio::Int) where T
+# Helper for computing restricted pressure value (GPU-compatible)
+@inline function _restrict_pressure_2d(x_fine::AbstractArray{T}, ci::Int, cj::Int,
+                                        ratio::Int, inv_ratio2::T) where T
     sum_val = zero(T)
-    @inbounds for di in 1:ratio, dj in 1:ratio
+    for di in 1:ratio, dj in 1:ratio
         fi = (ci - 1) * ratio + di + 1  # +1 for ghost
         fj = (cj - 1) * ratio + dj + 1
         sum_val += x_fine[fi, fj]
     end
-    return sum_val
+    return sum_val * inv_ratio2
 end
 
 """
     restrict_pressure_to_coarse!(p_coarse, patch, anchor)
 
 Restrict patch pressure to coarse grid using volume-weighted averaging.
-Updates coarse cells covered by the patch.
-
-Note: This function uses scalar indexing for the restriction operation.
-On GPU, this will cause scalar indexing but executes correctly. The restriction
-operation is O(patch_size) and called once per solve iteration, so the
-performance impact is acceptable compared to the GPU-accelerated solver loops.
+Updates coarse cells covered by the patch. GPU-compatible via @loop.
 
 # Arguments
 - `p_coarse`: Coarse pressure array to update
@@ -60,11 +51,10 @@ function restrict_pressure_to_coarse!(p_coarse::AbstractArray{T},
     ratio = refinement_ratio(patch)
     ai, aj = anchor
     inv_ratio2 = one(T) / (ratio * ratio)
+    x_fine = patch.x
 
-    # Use @loop with coarse indices for GPU-compatible restriction
     R = CartesianIndices((1:patch.coarse_extent[1], 1:patch.coarse_extent[2]))
-    @loop p_coarse[CartesianIndex(ai + I[1] - 1, aj + I[2] - 1)] =
-        _restrict_cell_2d(patch.x, I[1], I[2], ratio) * inv_ratio2 over I ∈ R
+    @loop p_coarse[ai + I[1] - 1, aj + I[2] - 1] = _restrict_pressure_2d(x_fine, I[1], I[2], ratio, inv_ratio2) over I ∈ R
 end
 
 """
@@ -93,6 +83,8 @@ Both coarse and fine grids use the "unit spacing" convention where L coefficient
 are NOT scaled by ratio². This means fluxes computed as L * Δp are directly
 comparable between coarse and fine grids.
 
+GPU arrays are copied to CPU for processing (boundary operations are O(boundary)).
+
 # Arguments
 - `patch`: PatchPoisson
 - `p_coarse`: Coarse pressure array
@@ -113,7 +105,13 @@ function compute_interface_flux(patch::PatchPoisson{T},
     nx, nz = patch.fine_dims
     nc_i, nc_j = size(p_coarse, 1), size(p_coarse, 2)
 
-    # Compute coarse flux and fine fluxes
+    # Copy GPU arrays to CPU for boundary processing
+    p_coarse_cpu = Array(p_coarse)
+    L_coarse_cpu = Array(L_coarse)
+    patch_x_cpu = Array(patch.x)
+    patch_L_cpu = Array(patch.L)
+
+    # Compute coarse flux and fine fluxes using CPU arrays
     # Both use unit spacing convention, so fluxes are directly comparable
     fine_fluxes = T[]
     coarse_flux = zero(T)
@@ -130,14 +128,14 @@ function compute_interface_flux(patch::PatchPoisson{T},
             jc = aj + cj_idx - 1
             if jc >= 1 && jc <= nc_j
                 # Coarse flux: L[ic,jc,1] * (p[ic,jc] - p[ic-1,jc])
-                c_flux = L_coarse[ic, jc, 1] * (p_coarse[ic, jc] - p_coarse[ic-1, jc])
+                c_flux = L_coarse_cpu[ic, jc, 1] * (p_coarse_cpu[ic, jc] - p_coarse_cpu[ic-1, jc])
                 coarse_flux += c_flux
 
                 # Fine fluxes (same unit spacing convention as coarse)
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fj >= 1 && fj <= nz + 2
-                        f_flux = patch.L[2, fj, 1] * (patch.x[2, fj] - patch.x[1, fj])
+                        f_flux = patch_L_cpu[2, fj, 1] * (patch_x_cpu[2, fj] - patch_x_cpu[1, fj])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -157,14 +155,14 @@ function compute_interface_flux(patch::PatchPoisson{T},
             if jc >= 1 && jc <= nc_j
                 # Coarse flux OUT of patch: L[ic,jc,1] * (p[ic,jc] - p[ic-1,jc])
                 # This is flux at face between (ic-1) = last cell in patch and (ic) = first cell outside
-                c_flux = L_coarse[ic, jc, 1] * (p_coarse[ic, jc] - p_coarse[ic-1, jc])
+                c_flux = L_coarse_cpu[ic, jc, 1] * (p_coarse_cpu[ic, jc] - p_coarse_cpu[ic-1, jc])
                 coarse_flux += c_flux
 
                 for dj in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fj >= 1 && fj <= nz + 2
                         # Fine flux at right face
-                        f_flux = patch.L[nx+2, fj, 1] * (patch.x[nx+2, fj] - patch.x[nx+1, fj])
+                        f_flux = patch_L_cpu[nx+2, fj, 1] * (patch_x_cpu[nx+2, fj] - patch_x_cpu[nx+1, fj])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -182,14 +180,14 @@ function compute_interface_flux(patch::PatchPoisson{T},
             ic = ai + ci_idx - 1
             if ic >= 1 && ic <= nc_i
                 # Coarse flux: L[ic,jc,2] * (p[ic,jc] - p[ic,jc-1])
-                c_flux = L_coarse[ic, jc, 2] * (p_coarse[ic, jc] - p_coarse[ic, jc-1])
+                c_flux = L_coarse_cpu[ic, jc, 2] * (p_coarse_cpu[ic, jc] - p_coarse_cpu[ic, jc-1])
                 coarse_flux += c_flux
 
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     if fi >= 1 && fi <= nx + 2
                         # Fine flux
-                        f_flux = patch.L[fi, 2, 2] * (patch.x[fi, 2] - patch.x[fi, 1])
+                        f_flux = patch_L_cpu[fi, 2, 2] * (patch_x_cpu[fi, 2] - patch_x_cpu[fi, 1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -209,14 +207,14 @@ function compute_interface_flux(patch::PatchPoisson{T},
             if ic >= 1 && ic <= nc_i
                 # Coarse flux OUT of patch: L[ic,jc,2] * (p[ic,jc] - p[ic,jc-1])
                 # This is flux at face between (jc-1) = last cell in patch and (jc) = first cell outside
-                c_flux = L_coarse[ic, jc, 2] * (p_coarse[ic, jc] - p_coarse[ic, jc-1])
+                c_flux = L_coarse_cpu[ic, jc, 2] * (p_coarse_cpu[ic, jc] - p_coarse_cpu[ic, jc-1])
                 coarse_flux += c_flux
 
                 for di in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     if fi >= 1 && fi <= nx + 2
                         # Fine flux at top face
-                        f_flux = patch.L[fi, nz+2, 2] * (patch.x[fi, nz+2] - patch.x[fi, nz+1])
+                        f_flux = patch_L_cpu[fi, nz+2, 2] * (patch_x_cpu[fi, nz+2] - patch_x_cpu[fi, nz+1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -256,6 +254,8 @@ Distributes flux mismatch equally among fine faces, accounting for sign conventi
 The flux mismatch is: coarse_flux - sum(fine_fluxes)
 To correct, we adjust the interior pressure values adjacent to the interface.
 
+GPU arrays are copied to CPU for processing, then copied back.
+
 # Arguments
 - `patch`: PatchPoisson to correct
 - `fluxes`: Dictionary of InterfaceFluxData from compute_all_interface_fluxes
@@ -266,12 +266,18 @@ function apply_flux_correction!(patch::PatchPoisson{T},
     nx, nz = patch.fine_dims
     min_coeff = T(1e-10)  # Minimum coefficient to avoid division by zero
 
+    # Copy GPU arrays to CPU for boundary processing
+    patch_x_cpu = Array(patch.x)
+    patch_L_cpu = Array(patch.L)
+    modified = false
+
     for (side, flux_data) in fluxes
         mismatch = flux_data.mismatch
         n_fine = length(flux_data.fine_fluxes)
         if n_fine == 0 || abs(mismatch) < eps(T)
             continue
         end
+        modified = true
 
         # Correction per fine face (positive mismatch means coarse > fine sum)
         # We need to increase fine flux magnitude to match coarse
@@ -292,10 +298,10 @@ function apply_flux_correction!(patch::PatchPoisson{T},
                     end
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fj <= nz + 1  # Bounds check
-                        L_val = max(patch.L[fine_i, fj, 1], min_coeff)
+                        L_val = max(patch_L_cpu[fine_i, fj, 1], min_coeff)
                         # Positive mismatch: coarse flux > sum fine flux
                         # Need to increase fine flux = increase p_interior
-                        patch.x[fine_i, fj] += correction_per_face / L_val
+                        patch_x_cpu[fine_i, fj] += correction_per_face / L_val
                     end
                 end
             end
@@ -315,8 +321,8 @@ function apply_flux_correction!(patch::PatchPoisson{T},
                     if fj <= nz + 1
                         # For right face, flux is L[nx+2] * (p[nx+2] - p[nx+1])
                         # But we control p[nx+1], so to increase flux, decrease p[nx+1]
-                        L_val = max(patch.L[fine_i+1, fj, 1], min_coeff)
-                        patch.x[fine_i, fj] -= correction_per_face / L_val
+                        L_val = max(patch_L_cpu[fine_i+1, fj, 1], min_coeff)
+                        patch_x_cpu[fine_i, fj] -= correction_per_face / L_val
                     end
                 end
             end
@@ -332,8 +338,8 @@ function apply_flux_correction!(patch::PatchPoisson{T},
                     end
                     fi = (ci_idx - 1) * ratio + di + 1
                     if fi <= nx + 1
-                        L_val = max(patch.L[fi, fine_j, 2], min_coeff)
-                        patch.x[fi, fine_j] += correction_per_face / L_val
+                        L_val = max(patch_L_cpu[fi, fine_j, 2], min_coeff)
+                        patch_x_cpu[fi, fine_j] += correction_per_face / L_val
                     end
                 end
             end
@@ -349,12 +355,17 @@ function apply_flux_correction!(patch::PatchPoisson{T},
                     end
                     fi = (ci_idx - 1) * ratio + di + 1
                     if fi <= nx + 1
-                        L_val = max(patch.L[fi, fine_j+1, 2], min_coeff)
-                        patch.x[fi, fine_j] -= correction_per_face / L_val
+                        L_val = max(patch_L_cpu[fi, fine_j+1, 2], min_coeff)
+                        patch_x_cpu[fi, fine_j] -= correction_per_face / L_val
                     end
                 end
             end
         end
+    end
+
+    # Copy back to GPU if modified
+    if modified
+        copyto!(patch.x, patch_x_cpu)
     end
 end
 
@@ -436,8 +447,8 @@ function compute_fine_divergence!(patch::PatchPoisson{T},
         for I in inside(patch)
             fi, fj = I.I
             # Map to coarse location
-            xf = (fi - T(1.5)) / ratio
-            zf = (fj - T(1.5)) / ratio
+            xf = (fi - 1.5) / ratio
+            zf = (fj - 1.5) / ratio
             ic = floor(Int, xf) + ai
             jc = floor(Int, zf) + aj
             ic = clamp(ic, 2, size(u_coarse, 1) - 1)
@@ -489,6 +500,8 @@ end
 Ensure velocity is consistent at coarse-fine interfaces.
 Fine fluxes should sum to coarse flux.
 
+GPU arrays are copied to CPU for boundary processing, then copied back.
+
 !!! warning "Incomplete Implementation"
     This function currently only handles the LEFT interface.
     Right, bottom, and top interfaces are NOT yet implemented.
@@ -501,6 +514,9 @@ Fine fluxes should sum to coarse flux.
 function enforce_interface_velocity_consistency!(u_coarse::AbstractArray{T},
                                                   u_fine_field,
                                                   patches::Dict) where T
+    # Copy coarse velocity to CPU once
+    u_coarse_cpu = Array(u_coarse)
+
     for (anchor, patch) in patches
         ratio = refinement_ratio(patch)
         ai, aj = anchor
@@ -510,22 +526,34 @@ function enforce_interface_velocity_consistency!(u_coarse::AbstractArray{T},
         vel_patch = get_patch(u_fine_field, anchor)
         vel_patch === nothing && continue
 
+        # Copy fine velocity to CPU for this patch
+        vel_u_cpu = Array(vel_patch.u)
+        modified = false
+
         # Left interface
         ic = ai
         for cj_idx in 1:patch.coarse_extent[2]
             jc = aj + cj_idx - 1
-            coarse_flux = u_coarse[ic, jc, 1]
+            coarse_flux = u_coarse_cpu[ic, jc, 1]
             fine_sum = zero(T)
             for dj in 1:ratio
                 fj = (cj_idx - 1) * ratio + dj + 1
-                fine_sum += vel_patch.u[2, fj, 1]
+                fine_sum += vel_u_cpu[2, fj, 1]
             end
             # Correct fine to match coarse
             correction = (coarse_flux * ratio - fine_sum) / ratio
-            for dj in 1:ratio
-                fj = (cj_idx - 1) * ratio + dj + 1
-                vel_patch.u[2, fj, 1] += correction
+            if abs(correction) > eps(T)
+                modified = true
+                for dj in 1:ratio
+                    fj = (cj_idx - 1) * ratio + dj + 1
+                    vel_u_cpu[2, fj, 1] += correction
+                end
             end
+        end
+
+        # Copy back to GPU if modified
+        if modified
+            copyto!(vel_patch.u, vel_u_cpu)
         end
 
         # TODO: Implement right, bottom, and top interfaces
@@ -553,33 +581,24 @@ function prolongate_pressure_to_boundary_3d!(patch::PatchPoisson3D{T},
     set_patch_boundary_3d!(patch, p_coarse, anchor)
 end
 
-"""
-    _restrict_cell_3d(x_fine, ci, cj, ck, ratio)
-
-Helper function for 3D restriction: compute sum of fine cells in a coarse cell.
-Pure function with no side effects, suitable for use in @loop.
-"""
-@inline function _restrict_cell_3d(x_fine::AbstractArray{T}, ci::Int, cj::Int, ck::Int, ratio::Int) where T
+# Helper for computing restricted 3D pressure value (GPU-compatible)
+@inline function _restrict_pressure_3d(x_fine::AbstractArray{T}, ci::Int, cj::Int, ck::Int,
+                                        ratio::Int, inv_ratio3::T) where T
     sum_val = zero(T)
-    @inbounds for di in 1:ratio, dj in 1:ratio, dk in 1:ratio
+    for di in 1:ratio, dj in 1:ratio, dk in 1:ratio
         fi = (ci - 1) * ratio + di + 1  # +1 for ghost
         fj = (cj - 1) * ratio + dj + 1
         fk = (ck - 1) * ratio + dk + 1
         sum_val += x_fine[fi, fj, fk]
     end
-    return sum_val
+    return sum_val * inv_ratio3
 end
 
 """
     restrict_pressure_to_coarse_3d!(p_coarse, patch, anchor)
 
 Restrict 3D patch pressure to coarse grid using volume-weighted averaging.
-Updates coarse cells covered by the patch.
-
-Note: This function uses scalar indexing for the restriction operation.
-On GPU, this will cause scalar indexing but executes correctly. The restriction
-operation is O(patch_size) and called once per solve iteration, so the
-performance impact is acceptable compared to the GPU-accelerated solver loops.
+Updates coarse cells covered by the patch. GPU-compatible via @loop.
 
 # Arguments
 - `p_coarse`: Coarse pressure array to update
@@ -592,11 +611,10 @@ function restrict_pressure_to_coarse_3d!(p_coarse::AbstractArray{T},
     ratio = refinement_ratio(patch)
     ai, aj, ak = anchor
     inv_ratio3 = one(T) / (ratio * ratio * ratio)
+    x_fine = patch.x
 
-    # Use @loop with coarse indices for GPU-compatible restriction
     R = CartesianIndices((1:patch.coarse_extent[1], 1:patch.coarse_extent[2], 1:patch.coarse_extent[3]))
-    @loop p_coarse[CartesianIndex(ai + I[1] - 1, aj + I[2] - 1, ak + I[3] - 1)] =
-        _restrict_cell_3d(patch.x, I[1], I[2], I[3], ratio) * inv_ratio3 over I ∈ R
+    @loop p_coarse[ai + I[1] - 1, aj + I[2] - 1, ak + I[3] - 1] = _restrict_pressure_3d(x_fine, I[1], I[2], I[3], ratio, inv_ratio3) over I ∈ R
 end
 
 """
@@ -625,6 +643,8 @@ Both coarse and fine grids use the "unit spacing" convention where L coefficient
 are NOT scaled by ratio². This means fluxes computed as L * Δp are directly
 comparable between coarse and fine grids.
 
+GPU arrays are copied to CPU for processing (boundary operations are O(boundary)).
+
 # Arguments
 - `patch`: PatchPoisson3D
 - `p_coarse`: Coarse pressure array
@@ -645,6 +665,12 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
     nx, ny, nz = patch.fine_dims
     nc_i, nc_j, nc_k = size(p_coarse, 1), size(p_coarse, 2), size(p_coarse, 3)
 
+    # Copy GPU arrays to CPU for boundary processing
+    p_coarse_cpu = Array(p_coarse)
+    L_coarse_cpu = Array(L_coarse)
+    patch_x_cpu = Array(patch.x)
+    patch_L_cpu = Array(patch.L)
+
     # Both use unit spacing convention, so fluxes are directly comparable
     fine_fluxes = T[]
     coarse_flux = zero(T)
@@ -659,7 +685,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
             jc = aj + cj_idx - 1
             kc = ak + ck_idx - 1
             if jc >= 1 && jc <= nc_j && kc >= 1 && kc <= nc_k
-                c_flux = L_coarse[ic, jc, kc, 1] * (p_coarse[ic, jc, kc] - p_coarse[ic-1, jc, kc])
+                c_flux = L_coarse_cpu[ic, jc, kc, 1] * (p_coarse_cpu[ic, jc, kc] - p_coarse_cpu[ic-1, jc, kc])
                 coarse_flux += c_flux
 
                 # Fine fluxes (same unit spacing convention as coarse)
@@ -667,7 +693,7 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fj >= 1 && fj <= ny + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = patch.L[2, fj, fk, 1] * (patch.x[2, fj, fk] - patch.x[1, fj, fk])
+                        f_flux = patch_L_cpu[2, fj, fk, 1] * (patch_x_cpu[2, fj, fk] - patch_x_cpu[1, fj, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -684,14 +710,14 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
             jc = aj + cj_idx - 1
             kc = ak + ck_idx - 1
             if jc >= 1 && jc <= nc_j && kc >= 1 && kc <= nc_k
-                c_flux = L_coarse[ic, jc, kc, 1] * (p_coarse[ic, jc, kc] - p_coarse[ic-1, jc, kc])
+                c_flux = L_coarse_cpu[ic, jc, kc, 1] * (p_coarse_cpu[ic, jc, kc] - p_coarse_cpu[ic-1, jc, kc])
                 coarse_flux += c_flux
 
                 for dj in 1:ratio, dk in 1:ratio
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fj >= 1 && fj <= ny + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = patch.L[nx+2, fj, fk, 1] * (patch.x[nx+2, fj, fk] - patch.x[nx+1, fj, fk])
+                        f_flux = patch_L_cpu[nx+2, fj, fk, 1] * (patch_x_cpu[nx+2, fj, fk] - patch_x_cpu[nx+1, fj, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -708,14 +734,14 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
             ic = ai + ci_idx - 1
             kc = ak + ck_idx - 1
             if ic >= 1 && ic <= nc_i && kc >= 1 && kc <= nc_k
-                c_flux = L_coarse[ic, jc, kc, 2] * (p_coarse[ic, jc, kc] - p_coarse[ic, jc-1, kc])
+                c_flux = L_coarse_cpu[ic, jc, kc, 2] * (p_coarse_cpu[ic, jc, kc] - p_coarse_cpu[ic, jc-1, kc])
                 coarse_flux += c_flux
 
                 for di in 1:ratio, dk in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fi >= 1 && fi <= nx + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = patch.L[fi, 2, fk, 2] * (patch.x[fi, 2, fk] - patch.x[fi, 1, fk])
+                        f_flux = patch_L_cpu[fi, 2, fk, 2] * (patch_x_cpu[fi, 2, fk] - patch_x_cpu[fi, 1, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -732,14 +758,14 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
             ic = ai + ci_idx - 1
             kc = ak + ck_idx - 1
             if ic >= 1 && ic <= nc_i && kc >= 1 && kc <= nc_k
-                c_flux = L_coarse[ic, jc, kc, 2] * (p_coarse[ic, jc, kc] - p_coarse[ic, jc-1, kc])
+                c_flux = L_coarse_cpu[ic, jc, kc, 2] * (p_coarse_cpu[ic, jc, kc] - p_coarse_cpu[ic, jc-1, kc])
                 coarse_flux += c_flux
 
                 for di in 1:ratio, dk in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fi >= 1 && fi <= nx + 2 && fk >= 1 && fk <= nz + 2
-                        f_flux = patch.L[fi, ny+2, fk, 2] * (patch.x[fi, ny+2, fk] - patch.x[fi, ny+1, fk])
+                        f_flux = patch_L_cpu[fi, ny+2, fk, 2] * (patch_x_cpu[fi, ny+2, fk] - patch_x_cpu[fi, ny+1, fk])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -756,14 +782,14 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
             ic = ai + ci_idx - 1
             jc = aj + cj_idx - 1
             if ic >= 1 && ic <= nc_i && jc >= 1 && jc <= nc_j
-                c_flux = L_coarse[ic, jc, kc, 3] * (p_coarse[ic, jc, kc] - p_coarse[ic, jc, kc-1])
+                c_flux = L_coarse_cpu[ic, jc, kc, 3] * (p_coarse_cpu[ic, jc, kc] - p_coarse_cpu[ic, jc, kc-1])
                 coarse_flux += c_flux
 
                 for di in 1:ratio, dj in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fi >= 1 && fi <= nx + 2 && fj >= 1 && fj <= ny + 2
-                        f_flux = patch.L[fi, fj, 2, 3] * (patch.x[fi, fj, 2] - patch.x[fi, fj, 1])
+                        f_flux = patch_L_cpu[fi, fj, 2, 3] * (patch_x_cpu[fi, fj, 2] - patch_x_cpu[fi, fj, 1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -780,14 +806,14 @@ function compute_interface_flux_3d(patch::PatchPoisson3D{T},
             ic = ai + ci_idx - 1
             jc = aj + cj_idx - 1
             if ic >= 1 && ic <= nc_i && jc >= 1 && jc <= nc_j
-                c_flux = L_coarse[ic, jc, kc, 3] * (p_coarse[ic, jc, kc] - p_coarse[ic, jc, kc-1])
+                c_flux = L_coarse_cpu[ic, jc, kc, 3] * (p_coarse_cpu[ic, jc, kc] - p_coarse_cpu[ic, jc, kc-1])
                 coarse_flux += c_flux
 
                 for di in 1:ratio, dj in 1:ratio
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fi >= 1 && fi <= nx + 2 && fj >= 1 && fj <= ny + 2
-                        f_flux = patch.L[fi, fj, nz+2, 3] * (patch.x[fi, fj, nz+2] - patch.x[fi, fj, nz+1])
+                        f_flux = patch_L_cpu[fi, fj, nz+2, 3] * (patch_x_cpu[fi, fj, nz+2] - patch_x_cpu[fi, fj, nz+1])
                         push!(fine_fluxes, f_flux)
                     end
                 end
@@ -824,6 +850,8 @@ end
 Apply flux correction to 3D patch to ensure conservation at interfaces.
 Distributes flux mismatch equally among fine faces.
 
+GPU arrays are copied to CPU for processing, then copied back.
+
 # Arguments
 - `patch`: PatchPoisson3D to correct
 - `fluxes`: Dictionary of InterfaceFluxData3D from compute_all_interface_fluxes_3d
@@ -834,12 +862,18 @@ function apply_flux_correction_3d!(patch::PatchPoisson3D{T},
     nx, ny, nz = patch.fine_dims
     min_coeff = T(1e-10)
 
+    # Copy GPU arrays to CPU for boundary processing
+    patch_x_cpu = Array(patch.x)
+    patch_L_cpu = Array(patch.L)
+    modified = false
+
     for (side, flux_data) in fluxes
         mismatch = flux_data.mismatch
         n_fine = length(flux_data.fine_fluxes)
         if n_fine == 0 || abs(mismatch) < eps(T)
             continue
         end
+        modified = true
 
         correction_per_face = mismatch / n_fine
 
@@ -855,8 +889,8 @@ function apply_flux_correction_3d!(patch::PatchPoisson3D{T},
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fj <= ny + 1 && fk <= nz + 1
-                        L_val = max(patch.L[fine_i, fj, fk, 1], min_coeff)
-                        patch.x[fine_i, fj, fk] += correction_per_face / L_val
+                        L_val = max(patch_L_cpu[fine_i, fj, fk, 1], min_coeff)
+                        patch_x_cpu[fine_i, fj, fk] += correction_per_face / L_val
                     end
                 end
             end
@@ -873,8 +907,8 @@ function apply_flux_correction_3d!(patch::PatchPoisson3D{T},
                     fj = (cj_idx - 1) * ratio + dj + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fj <= ny + 1 && fk <= nz + 1
-                        L_val = max(patch.L[fine_i+1, fj, fk, 1], min_coeff)
-                        patch.x[fine_i, fj, fk] -= correction_per_face / L_val
+                        L_val = max(patch_L_cpu[fine_i+1, fj, fk, 1], min_coeff)
+                        patch_x_cpu[fine_i, fj, fk] -= correction_per_face / L_val
                     end
                 end
             end
@@ -891,8 +925,8 @@ function apply_flux_correction_3d!(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fi <= nx + 1 && fk <= nz + 1
-                        L_val = max(patch.L[fi, fine_j, fk, 2], min_coeff)
-                        patch.x[fi, fine_j, fk] += correction_per_face / L_val
+                        L_val = max(patch_L_cpu[fi, fine_j, fk, 2], min_coeff)
+                        patch_x_cpu[fi, fine_j, fk] += correction_per_face / L_val
                     end
                 end
             end
@@ -909,8 +943,8 @@ function apply_flux_correction_3d!(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fk = (ck_idx - 1) * ratio + dk + 1
                     if fi <= nx + 1 && fk <= nz + 1
-                        L_val = max(patch.L[fi, fine_j+1, fk, 2], min_coeff)
-                        patch.x[fi, fine_j, fk] -= correction_per_face / L_val
+                        L_val = max(patch_L_cpu[fi, fine_j+1, fk, 2], min_coeff)
+                        patch_x_cpu[fi, fine_j, fk] -= correction_per_face / L_val
                     end
                 end
             end
@@ -927,8 +961,8 @@ function apply_flux_correction_3d!(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fi <= nx + 1 && fj <= ny + 1
-                        L_val = max(patch.L[fi, fj, fine_k, 3], min_coeff)
-                        patch.x[fi, fj, fine_k] += correction_per_face / L_val
+                        L_val = max(patch_L_cpu[fi, fj, fine_k, 3], min_coeff)
+                        patch_x_cpu[fi, fj, fine_k] += correction_per_face / L_val
                     end
                 end
             end
@@ -945,12 +979,17 @@ function apply_flux_correction_3d!(patch::PatchPoisson3D{T},
                     fi = (ci_idx - 1) * ratio + di + 1
                     fj = (cj_idx - 1) * ratio + dj + 1
                     if fi <= nx + 1 && fj <= ny + 1
-                        L_val = max(patch.L[fi, fj, fine_k+1, 3], min_coeff)
-                        patch.x[fi, fj, fine_k] -= correction_per_face / L_val
+                        L_val = max(patch_L_cpu[fi, fj, fine_k+1, 3], min_coeff)
+                        patch_x_cpu[fi, fj, fine_k] -= correction_per_face / L_val
                     end
                 end
             end
         end
+    end
+
+    # Copy back to GPU if modified
+    if modified
+        copyto!(patch.x, patch_x_cpu)
     end
 end
 
@@ -1032,9 +1071,9 @@ function compute_fine_divergence_3d!(patch::PatchPoisson3D{T},
         for I in inside(patch)
             fi, fj, fk = I.I
             # Map to coarse location
-            xf = (fi - T(1.5)) / ratio
-            yf = (fj - T(1.5)) / ratio
-            zf = (fk - T(1.5)) / ratio
+            xf = (fi - 1.5) / ratio
+            yf = (fj - 1.5) / ratio
+            zf = (fk - 1.5) / ratio
             ic = floor(Int, xf) + ai
             jc = floor(Int, yf) + aj
             kc = floor(Int, zf) + ak

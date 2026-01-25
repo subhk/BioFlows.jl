@@ -21,9 +21,35 @@ _silent_include(path::AbstractString) = _suppress_warnings ?
     end :
     include(path)
 
+const _has_pencilarrays = let
+    try
+        @eval begin
+            _suppress_warnings ? Logging.with_logger(_silent_logger) do
+                using PencilArrays
+            end : using PencilArrays
+        end
+        true
+    catch err
+        _suppress_warnings || @warn "PencilArrays not available; distributed helpers will use no-op stubs." exception=(err, catch_backtrace())
+        @eval module PencilArrays
+            module Pencils
+                struct MPITopology end
+                MPITopology(args...; kwargs...) = MPITopology()
+                struct Pencil end
+                Pencil(args...; kwargs...) = Pencil()
+            end
+            function exchange_halo!(field, args...; kwargs...)
+                field
+            end
+            exchange_halo!(args...; kwargs...) = nothing
+        end
+        false
+    end
+end
+
 # Core utilities and macros
 _silent_include("util.jl")
-export L₂,BC!,@inside,inside,δ,apply!,loc,@log,set_backend,backend,set_cpu_threads,cpu_threads
+export L₂,BC!,@inside,inside,δ,apply!,loc,@log,set_backend,backend
 
 using Reexport
 @reexport using KernelAbstractions: @kernel,@index,get_backend
@@ -169,7 +195,7 @@ mutable struct Simulation <: AbstractSimulation
     pois :: AbstractPoisson
 
     function Simulation(dims::NTuple{N}, L::NTuple{N};
-                        inletBC=nothing, L_char=nothing, Δt=0.25f0, ν=0f0, ρ=1000f0, g=nothing, U=nothing, ϵ=1, perdir=(),
+                        inletBC=nothing, L_char=nothing, Δt=0.25, ν=0., ρ=1000., g=nothing, U=nothing, ϵ=1, perdir=(),
                         uλ=nothing, outletBC=false, body::AbstractBody=NoBody(),
                         T=Float32, mem=Array, fixed_Δt=nothing, store_fluxes=false) where N
         # Default inletBC: unit velocity in x-direction
@@ -191,20 +217,6 @@ mutable struct Simulation <: AbstractSimulation
             error("Anisotropic grids (Δx ≠ Δy) are not supported. " *
                   "The pressure solver requires uniform grid spacing in all directions. " *
                   "Got Δx = $Δx. Adjust grid resolution or domain size to ensure Δx = Δy = Δz.")
-        end
-
-        # Check backend/memory compatibility
-        # The @loop macro generates code at compile time based on the backend preference.
-        # If backend="SIMD" but GPU arrays are used, scalar indexing will occur.
-        if backend == "SIMD" && mem !== Array
-            error("Backend mismatch: The @loop backend is set to \"SIMD\" (serial CPU), " *
-                  "but GPU arrays (mem=$mem) were requested.\n" *
-                  "This would cause extremely slow scalar indexing on GPU.\n" *
-                  "Solutions:\n" *
-                  "  1. Use CPU arrays: mem=Array (default)\n" *
-                  "  2. Switch to KernelAbstractions backend for GPU support:\n" *
-                  "     using BioFlows; BioFlows.set_backend(\"KernelAbstractions\")\n" *
-                  "     Then restart Julia for the change to take effect.")
         end
 
         new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
@@ -265,7 +277,7 @@ sim_info(sim::AbstractSimulation) = println("tU/L=",round(sim_time(sim),digits=4
     perturb!(sim; noise=0.1)
 Perturb the velocity field of a simulation with `noise` level with respect to velocity scale `U`.
 """
-perturb!(sim::AbstractSimulation; noise=0.1f0) = sim.flow.u .+= randn(size(sim.flow.u))*sim.U*noise |> typeof(sim.flow.u).name.wrapper
+perturb!(sim::AbstractSimulation; noise=0.1) = sim.flow.u .+= randn(size(sim.flow.u))*sim.U*noise |> typeof(sim.flow.u).name.wrapper
 
 export AbstractSimulation,Simulation,sim_step!,sim_time,measure!,sim_info,perturb!
 
@@ -295,19 +307,19 @@ Configuration for adaptive mesh refinement.
 - `regrid_on_measure`: Always regrid after body remeasurement (most accurate but expensive)
 - `min_regrid_interval`: Minimum steps between regrids (prevents excessive regridding)
 """
-struct AMRConfig{T<:Real}
+struct AMRConfig
     max_level::Int
-    body_distance_threshold::T
-    velocity_gradient_threshold::T
-    vorticity_threshold::T
+    body_distance_threshold::Float64
+    velocity_gradient_threshold::Float64
+    vorticity_threshold::Float64
     regrid_interval::Int
     buffer_size::Int
-    body_weight::T
-    gradient_weight::T
-    vorticity_weight::T
+    body_weight::Float64
+    gradient_weight::Float64
+    vorticity_weight::Float64
     # Flexible body support
     flexible_body::Bool
-    indicator_change_threshold::T
+    indicator_change_threshold::Float64
     regrid_on_measure::Bool
     min_regrid_interval::Int
 end
@@ -336,25 +348,24 @@ config = AMRConfig(
 ```
 """
 function AMRConfig(; max_level::Int=2,
-                    body_distance_threshold::Real=3.0f0,
-                    velocity_gradient_threshold::Real=1.0f0,
-                    vorticity_threshold::Real=1.0f0,
+                    body_distance_threshold::Real=3.0,
+                    velocity_gradient_threshold::Real=1.0,
+                    vorticity_threshold::Real=1.0,
                     regrid_interval::Int=10,
                     buffer_size::Int=1,
-                    body_weight::Real=0.5f0,
-                    gradient_weight::Real=0.3f0,
-                    vorticity_weight::Real=0.2f0,
+                    body_weight::Real=0.5,
+                    gradient_weight::Real=0.3,
+                    vorticity_weight::Real=0.2,
                     # Flexible body options
                     flexible_body::Bool=false,
-                    indicator_change_threshold::Real=0.1f0,
+                    indicator_change_threshold::Real=0.1,
                     regrid_on_measure::Bool=false,
-                    min_regrid_interval::Int=1,
-                    T::Type=Float32)
-    AMRConfig{T}(max_level, T(body_distance_threshold),
-              T(velocity_gradient_threshold), T(vorticity_threshold),
+                    min_regrid_interval::Int=1)
+    AMRConfig(max_level, Float64(body_distance_threshold),
+              Float64(velocity_gradient_threshold), Float64(vorticity_threshold),
               regrid_interval, buffer_size,
-              T(body_weight), T(gradient_weight), T(vorticity_weight),
-              flexible_body, T(indicator_change_threshold),
+              Float64(body_weight), Float64(gradient_weight), Float64(vorticity_weight),
+              flexible_body, Float64(indicator_change_threshold),
               regrid_on_measure, min_regrid_interval)
 end
 
@@ -618,7 +629,7 @@ function amr_regrid!(amr::AMRSimulation)
     end
 
     # Mark cells for refinement
-    cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5f0)
+    cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5)
 
     # Update refined grid tracking
     update_refined_cells!(amr.refined_grid, cells_to_refine, config.max_level)
@@ -699,7 +710,7 @@ function get_refinement_indicator(amr::AMRSimulation)
     )
 end
 
-perturb!(amr::AMRSimulation; noise=0.1f0) = perturb!(amr.sim; noise)
+perturb!(amr::AMRSimulation; noise=0.1) = perturb!(amr.sim; noise)
 
 function measure!(amr::AMRSimulation, t=sum(amr.sim.flow.Δt))
     measure!(amr.sim, t)
@@ -776,15 +787,15 @@ end
 ```
 """
 function FlexibleBodyAMRConfig(; max_level::Int=2,
-                                 body_distance_threshold::Real=4f0,
-                                 velocity_gradient_threshold::Real=1f0,
-                                 vorticity_threshold::Real=1f0,
+                                 body_distance_threshold::Real=4.0,
+                                 velocity_gradient_threshold::Real=1.0,
+                                 vorticity_threshold::Real=1.0,
                                  regrid_interval::Int=5,
                                  buffer_size::Int=2,
-                                 body_weight::Real=0.6f0,
-                                 gradient_weight::Real=0.2f0,
-                                 vorticity_weight::Real=0.2f0,
-                                 indicator_change_threshold::Real=0.05f0,
+                                 body_weight::Real=0.6,
+                                 gradient_weight::Real=0.2,
+                                 vorticity_weight::Real=0.2,
+                                 indicator_change_threshold::Real=0.05,
                                  regrid_on_measure::Bool=false,
                                  min_regrid_interval::Int=2)
     AMRConfig(;
@@ -843,15 +854,15 @@ end
 ```
 """
 function RigidBodyAMRConfig(; max_level::Int=2,
-                              body_distance_threshold::Real=3f0,
-                              velocity_gradient_threshold::Real=1f0,
-                              vorticity_threshold::Real=1f0,
+                              body_distance_threshold::Real=3.0,
+                              velocity_gradient_threshold::Real=1.0,
+                              vorticity_threshold::Real=1.0,
                               regrid_interval::Int=8,
                               buffer_size::Int=2,
-                              body_weight::Real=0.5f0,
-                              gradient_weight::Real=0.3f0,
-                              vorticity_weight::Real=0.2f0,
-                              indicator_change_threshold::Real=0.08f0,
+                              body_weight::Real=0.5,
+                              gradient_weight::Real=0.3,
+                              vorticity_weight::Real=0.2,
+                              indicator_change_threshold::Real=0.08,
                               regrid_on_measure::Bool=false,
                               min_regrid_interval::Int=3)
     AMRConfig(;
@@ -926,7 +937,7 @@ Returns the fraction of cells that have changed refinement status.
 """
 function estimate_body_displacement(amr::AMRSimulation)
     if !amr.config.flexible_body || isnothing(amr.last_body_indicator)
-        return 0f0
+        return 0.0
     end
 
     flow = amr.sim.flow
@@ -1080,9 +1091,6 @@ Returns a NamedTuple with fields:
 - `backend_name`: "CUDA" or "CPU"
 - `array_type`: CuArray for GPU or Array for CPU
 
-Uses the package extension mechanism to safely detect CUDA availability.
-Works correctly regardless of which module CUDA was loaded from.
-
 # Example
 ```julia
 using BioFlows
@@ -1092,16 +1100,11 @@ info = gpu_backend()
 ```
 """
 function gpu_backend()
-    # Check if CUDA extension is loaded via package extension mechanism
-    ext = Base.get_extension(@__MODULE__, :BioFlowsCUDAExt)
-    if ext !== nothing
-        # Extension is loaded - CUDA module is available in the extension's namespace
-        # Access CUDA through the extension module which has `using CUDA`
-        if isdefined(ext, :CUDA) && ext.CUDA.functional()
-            return (available=true, backend_name="CUDA", array_type=ext.CUDA.CuArray)
-        end
+    if isdefined(Main, :CUDA) && isdefined(Main.CUDA, :functional) && Main.CUDA.functional()
+        return (available=true, backend_name="CUDA", array_type=Main.CUDA.CuArray)
+    else
+        return (available=false, backend_name="CPU", array_type=Array)
     end
-    return (available=false, backend_name="CPU", array_type=Array)
 end
 
 """
@@ -1110,38 +1113,21 @@ end
 Convenience macro to create a CuArray if CUDA is available,
 otherwise falls back to a CPU array.
 
-Note: This macro creates the array on CPU first, then transfers to GPU.
-For performance-critical initialization of large arrays, prefer using
-CUDA's native constructors directly:
-- `CUDA.zeros(T, dims...)` - zeros directly on GPU
-- `CUDA.ones(T, dims...)` - ones directly on GPU
-- `CUDA.fill(val, dims...)` - filled array directly on GPU
-
-The type parameter T ensures the array uses the specified precision
-(Float32 recommended for GPU performance).
-
 # Example
 ```julia
 using BioFlows
 using CUDA
-
-# Using the macro (creates on CPU, transfers to GPU)
-a = @gpu_array Float32 zeros(100, 100)
-
-# More efficient for large arrays - direct GPU allocation
-b = CUDA.zeros(Float32, 100, 100)
+a = @gpu_array Float32 zeros(100, 100)  # Creates CuArray if CUDA is available
 ```
 """
 macro gpu_array(T, ex)
     quote
+        arr = $(esc(ex))
         info = gpu_backend()
-        # Create array with correct element type on CPU
-        arr = $(esc(T)).($(esc(ex)))
         if info.available
-            # Transfer to GPU
-            arr |> info.array_type
+            convert(info.array_type{$(esc(T))}, arr)
         else
-            arr
+            convert(Array{$(esc(T))}, arr)
         end
     end
 end

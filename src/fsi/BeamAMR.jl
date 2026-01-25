@@ -37,7 +37,7 @@ mutable struct FlexibleBodySDF{T<:AbstractFloat, B<:EulerBernoulliBeam}
 
     function FlexibleBodySDF(beam::EulerBernoulliBeam{T}, x_head::Real, z_center::Real;
                              thickness_func::Function=s->beam.geometry.thickness(s),
-                             width::Real=0.01f0) where T
+                             width::Real=0.01) where T
         s_coords = collect(beam.s)
         w_current = zeros(T, beam.n_nodes)
         new{T, typeof(beam)}(beam, T(x_head), T(z_center), thickness_func, T(width),
@@ -114,10 +114,12 @@ end
 
 """
     compute_beam_refinement_indicator(flow::Flow, beam_sdf::FlexibleBodySDF;
-                                       distance_threshold=3f0)
+                                       distance_threshold=3.0)
 
 Compute refinement indicator based on proximity to the deformed beam.
 Returns array with 1.0 where refinement is needed (near beam), 0.0 elsewhere.
+
+GPU-compatible: Computes on CPU (beam data is CPU-based), then copies to GPU if needed.
 
 # Arguments
 - `flow`: The BioFlows Flow struct
@@ -128,35 +130,41 @@ Returns array with 1.0 where refinement is needed (near beam), 0.0 elsewhere.
 - Array of same size as `flow.p` with indicator values in [0, 1]
 """
 function compute_beam_refinement_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBodySDF;
-                                           distance_threshold::Real=3f0) where {N,T}
-    indicator = similar(flow.p)
-    fill!(indicator, zero(T))
+                                           distance_threshold::Real=3.0) where {N,T}
+    # Compute on CPU (beam data is CPU-based, regridding is infrequent)
+    indicator_cpu = zeros(T, size(flow.p))
     threshold = T(distance_threshold)
 
     # Update beam SDF with current state
     update!(beam_sdf)
 
-    # Compute indicator (GPU-compatible via @loop)
+    # Compute indicator on CPU
     R = inside(flow.p)
-    @loop indicator[I] = _beam_indicator_value(beam_sdf, I, T, threshold) over I ∈ R
+    for I in R
+        x = loc(0, I, T)
+        d = beam_sdf(x, zero(T))
+        indicator_cpu[I] = abs(d) < threshold ? one(T) : zero(T)
+    end
 
-    return indicator
-end
-
-# Helper for beam indicator (called from @loop)
-@inline function _beam_indicator_value(beam_sdf::FlexibleBodySDF, I::CartesianIndex, ::Type{T}, threshold) where T
-    x = loc(0, I, T)
-    d = beam_sdf(x, zero(T))
-    abs(d) < threshold ? one(T) : zero(T)
+    # Copy to GPU if flow arrays are on GPU
+    if typeof(flow.p) <: Array
+        return indicator_cpu
+    else
+        indicator = similar(flow.p)
+        copyto!(indicator, indicator_cpu)
+        return indicator
+    end
 end
 
 """
     compute_beam_motion_indicator(flow::Flow, beam_sdf::FlexibleBodySDF,
                                   last_displacement::Vector;
-                                  motion_threshold=0.5f0)
+                                  motion_threshold=0.5)
 
 Compute refinement indicator based on beam motion since last check.
 Marks regions where the beam has moved significantly.
+
+GPU-compatible: Computes on CPU (beam data is CPU-based), then copies to GPU if needed.
 
 # Arguments
 - `flow`: The BioFlows Flow struct
@@ -169,10 +177,10 @@ Marks regions where the beam has moved significantly.
 """
 function compute_beam_motion_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBodySDF,
                                        last_displacement::Vector;
-                                       motion_threshold::Real=0.5f0,
-                                       distance_threshold::Real=5f0) where {N,T}
-    indicator = similar(flow.p)
-    fill!(indicator, zero(T))
+                                       motion_threshold::Real=0.5,
+                                       distance_threshold::Real=5.0) where {N,T}
+    # Compute on CPU (beam data is CPU-based)
+    indicator_cpu = zeros(T, size(flow.p))
     threshold = T(distance_threshold)
     motion_thresh = T(motion_threshold)
 
@@ -183,24 +191,34 @@ function compute_beam_motion_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBodySD
     Δw_max = maximum(abs.(beam_sdf.w_current .- last_displacement))
 
     if Δw_max < motion_thresh
-        return indicator  # No significant motion
+        # No significant motion - return zeros (on appropriate device)
+        if typeof(flow.p) <: Array
+            return indicator_cpu
+        else
+            indicator = similar(flow.p)
+            fill!(indicator, zero(T))
+            return indicator
+        end
     end
 
-    # Mark region around both old and new positions (GPU-compatible via @loop)
+    # Mark region around both old and new positions (computed on CPU)
     R = inside(flow.p)
-    @loop indicator[I] = _beam_motion_indicator_value(beam_sdf, I, T, threshold, last_displacement) over I ∈ R
+    for I in R
+        x = loc(0, I, T)
+        # Distance to current and previous beam positions
+        d_new = abs(_beam_sdf_with_displacement(beam_sdf, x, beam_sdf.w_current))
+        d_old = abs(_beam_sdf_with_displacement(beam_sdf, x, last_displacement))
+        indicator_cpu[I] = (d_new < threshold || d_old < threshold) ? one(T) : zero(T)
+    end
 
-    return indicator
-end
-
-# Helper for beam motion indicator (called from @loop)
-@inline function _beam_motion_indicator_value(beam_sdf::FlexibleBodySDF, I::CartesianIndex, ::Type{T},
-                                               threshold, last_displacement) where T
-    x = loc(0, I, T)
-    # Distance to current and previous beam positions
-    d_new = abs(_beam_sdf_with_displacement(beam_sdf, x, beam_sdf.w_current))
-    d_old = abs(_beam_sdf_with_displacement(beam_sdf, x, last_displacement))
-    (d_new < threshold || d_old < threshold) ? one(T) : zero(T)
+    # Copy to GPU if flow arrays are on GPU
+    if typeof(flow.p) <: Array
+        return indicator_cpu
+    else
+        indicator = similar(flow.p)
+        copyto!(indicator, indicator_cpu)
+        return indicator
+    end
 end
 
 """
@@ -222,7 +240,7 @@ end
 
 """
     should_regrid(tracker::BeamAMRTracker, step::Int;
-                  min_interval=5, motion_threshold=0.5f0)
+                  min_interval=5, motion_threshold=0.5)
 
 Determine if AMR regridding is needed based on beam motion.
 
@@ -231,7 +249,7 @@ Determine if AMR regridding is needed based on beam motion.
 """
 function should_regrid(tracker::BeamAMRTracker{T}, step::Int;
                        min_interval::Int=5,
-                       motion_threshold::Real=0.5f0) where T
+                       motion_threshold::Real=0.5) where T
     # Enforce minimum interval
     if step - tracker.last_regrid_step < min_interval
         return false
@@ -266,12 +284,12 @@ end
 
 """
     compute_beam_combined_indicator(flow::Flow, beam_sdf::FlexibleBodySDF;
-                                     beam_threshold=3f0,
-                                     gradient_threshold=1f0,
-                                     vorticity_threshold=1f0,
-                                     beam_weight=0.6f0,
-                                     gradient_weight=0.25f0,
-                                     vorticity_weight=0.15f0)
+                                     beam_threshold=3.0,
+                                     gradient_threshold=1.0,
+                                     vorticity_threshold=1.0,
+                                     beam_weight=0.6,
+                                     gradient_weight=0.25,
+                                     vorticity_weight=0.15)
 
 Compute combined refinement indicator for flexible body simulation.
 Combines beam proximity with flow gradient and vorticity indicators.
@@ -279,12 +297,12 @@ Combines beam proximity with flow gradient and vorticity indicators.
 Higher `beam_weight` ensures refinement follows the deforming body.
 """
 function compute_beam_combined_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBodySDF;
-                                         beam_threshold::Real=3f0,
-                                         gradient_threshold::Real=1f0,
-                                         vorticity_threshold::Real=1f0,
-                                         beam_weight::Real=0.6f0,
-                                         gradient_weight::Real=0.25f0,
-                                         vorticity_weight::Real=0.15f0) where {N,T}
+                                         beam_threshold::Real=3.0,
+                                         gradient_threshold::Real=1.0,
+                                         vorticity_threshold::Real=1.0,
+                                         beam_weight::Real=0.6,
+                                         gradient_weight::Real=0.25,
+                                         vorticity_weight::Real=0.15) where {N,T}
     # Normalize weights
     total_weight = beam_weight + gradient_weight + vorticity_weight
     bw = T(beam_weight / total_weight)
@@ -332,43 +350,22 @@ end
 # =============================================================================
 
 """
-    BeamAMRConfig{T}
+    BeamAMRConfig
 
 Configuration for AMR with Euler-Bernoulli beam flexible bodies.
-Type parameter T controls precision (Float32 or Float64).
 """
-struct BeamAMRConfig{T<:Real}
-    max_level::Int
-    beam_distance_threshold::T
-    gradient_threshold::T
-    vorticity_threshold::T
-    beam_weight::T
-    gradient_weight::T
-    vorticity_weight::T
-    buffer_size::Int
-    min_regrid_interval::Int
-    motion_threshold::T
-    regrid_interval::Int
-end
-
-# Convenience constructor with Float32 defaults
-function BeamAMRConfig(; max_level::Int=2,
-                        beam_distance_threshold::Real=3.0f0,
-                        gradient_threshold::Real=1.0f0,
-                        vorticity_threshold::Real=1.0f0,
-                        beam_weight::Real=0.6f0,
-                        gradient_weight::Real=0.25f0,
-                        vorticity_weight::Real=0.15f0,
-                        buffer_size::Int=2,
-                        min_regrid_interval::Int=5,
-                        motion_threshold::Real=0.5f0,
-                        regrid_interval::Int=10,
-                        T::Type=Float32)
-    BeamAMRConfig{T}(max_level, T(beam_distance_threshold),
-                     T(gradient_threshold), T(vorticity_threshold),
-                     T(beam_weight), T(gradient_weight), T(vorticity_weight),
-                     buffer_size, min_regrid_interval, T(motion_threshold),
-                     regrid_interval)
+Base.@kwdef struct BeamAMRConfig
+    max_level::Int = 2
+    beam_distance_threshold::Float64 = 3.0
+    gradient_threshold::Float64 = 1.0
+    vorticity_threshold::Float64 = 1.0
+    beam_weight::Float64 = 0.6
+    gradient_weight::Float64 = 0.25
+    vorticity_weight::Float64 = 0.15
+    buffer_size::Int = 2
+    min_regrid_interval::Int = 5
+    motion_threshold::Float64 = 0.5
+    regrid_interval::Int = 10  # Force regrid every N steps regardless of motion
 end
 
 """
@@ -409,7 +406,7 @@ function regrid_for_beam!(amr_sim, beam_sdf::FlexibleBodySDF,
     apply_buffer_zone!(indicator; buffer_size=config.buffer_size)
 
     # Mark cells for refinement
-    cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5f0)
+    cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5)
 
     # Update refined grid
     update_refined_cells!(amr_sim.refined_grid, cells_to_refine, config.max_level)
@@ -432,7 +429,7 @@ end
 
 """
     create_beam_body(beam::EulerBernoulliBeam, x_head, z_center;
-                     thickness_func=nothing, width=0.01f0)
+                     thickness_func=nothing, width=0.01)
 
 Create an AutoBody from an EulerBernoulliBeam for use with standard simulation.
 The body's SDF automatically updates as the beam deforms.
@@ -442,7 +439,7 @@ The body's SDF automatically updates as the beam deforms.
 """
 function create_beam_body(beam::EulerBernoulliBeam{T}, x_head::Real, z_center::Real;
                           thickness_func::Union{Nothing,Function}=nothing,
-                          width::Real=0.01f0) where T
+                          width::Real=0.01) where T
     # Default thickness function from geometry
     h_func = thickness_func === nothing ? s -> beam.geometry.thickness(s) : thickness_func
 
@@ -458,14 +455,14 @@ function create_beam_body(beam::EulerBernoulliBeam{T}, x_head::Real, z_center::R
 end
 
 """
-    get_beam_bounding_box(beam_sdf::FlexibleBodySDF; margin=0f0)
+    get_beam_bounding_box(beam_sdf::FlexibleBodySDF; margin=0.0)
 
 Get the bounding box of the current beam configuration.
 
 # Returns
 - `(x_min, x_max, z_min, z_max)` tuple
 """
-function get_beam_bounding_box(beam_sdf::FlexibleBodySDF{T}; margin::Real=0f0) where T
+function get_beam_bounding_box(beam_sdf::FlexibleBodySDF{T}; margin::Real=0.0) where T
     update!(beam_sdf)
 
     L = beam_sdf.beam.geometry.L
@@ -486,13 +483,13 @@ end
 
 """
     count_refined_cells_near_beam(refined_grid, beam_sdf::FlexibleBodySDF;
-                                   distance=3f0)
+                                   distance=3.0)
 
 Count how many refined cells are within a given distance of the beam.
 Useful for monitoring AMR performance.
 """
 function count_refined_cells_near_beam(refined_grid, beam_sdf::FlexibleBodySDF{T};
-                                       distance::Real=3f0) where T
+                                       distance::Real=3.0) where T
     update!(beam_sdf)
     count = 0
 
@@ -586,7 +583,7 @@ mutable struct BeamAMRSimulation{T<:AbstractFloat}
             gradient_weight=config.gradient_weight,
             vorticity_weight=config.vorticity_weight,
             flexible_body=true,
-            indicator_change_threshold=0.05f0,
+            indicator_change_threshold=0.05,
             min_regrid_interval=config.min_regrid_interval
         )
 
@@ -692,7 +689,7 @@ function perform_beam_regrid!(sim::BeamAMRSimulation{T}) where T
     apply_buffer_zone!(indicator; buffer_size=config.buffer_size)
 
     # Mark cells for refinement
-    cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5f0)
+    cells_to_refine = mark_cells_for_refinement(indicator; threshold=0.5)
 
     # Update refined grid
     update_refined_cells!(sim.amr_sim.refined_grid, cells_to_refine, config.max_level)
@@ -743,7 +740,7 @@ function beam_info(sim::BeamAMRSimulation)
     println("    Last regrid: step $(sim.tracker.last_regrid_step)")
 
     # Bounding box
-    bbox = get_beam_bounding_box(sim.beam_sdf; margin=0.01f0)
+    bbox = get_beam_bounding_box(sim.beam_sdf; margin=0.01)
     println("\n  Beam bounding box:")
     println("    x: [$(round(bbox[1], digits=3)), $(round(bbox[2], digits=3))]")
     println("    z: [$(round(bbox[3], digits=3)), $(round(bbox[4], digits=3))]")
@@ -788,20 +785,19 @@ Create a ready-to-run swimming fish simulation with AMR.
 - `BeamAMRSimulation` ready for time stepping
 """
 function swimming_fish_simulation(;
-        L_fish::Real=0.2f0,
-        Re::Real=1000f0,
-        St::Real=0.3f0,
+        L_fish::Real=0.2,
+        Re::Real=1000.0,
+        St::Real=0.3,
         n_nodes::Int=51,
         grid_size::NTuple{2,Int}=(256, 128),
-        domain::NTuple{2,Real}=(2f0, 1f0),
+        domain::NTuple{2,Real}=(2.0, 1.0),
         amr_config::BeamAMRConfig=BeamAMRConfig(),
-        E::Real=5f5,
-        ρ_fish::Real=1050f0,
-        h_max::Real=0.02f0,
-        T::Type=Float32,
+        E::Real=5e5,
+        ρ_fish::Real=1050.0,
+        h_max::Real=0.02,
         kwargs...)
 
-    # Use single precision by default for GPU efficiency
+    T = Float64
 
     # Material properties
     material = BeamMaterial(ρ=ρ_fish, E=E)
@@ -813,7 +809,7 @@ function swimming_fish_simulation(;
     # Create beam
     beam = EulerBernoulliBeam(geometry, material;
                               bc_left=CLAMPED, bc_right=FREE,
-                              damping=0.5f0)
+                              damping=0.5)
 
     # Compute viscosity from Reynolds number
     U = one(T)  # Reference velocity
@@ -832,11 +828,11 @@ function swimming_fish_simulation(;
     # Set traveling wave forcing based on Strouhal number
     # St = f * A / U, frequency f = St * U / A
     # Typical amplitude A ~ 0.1 * L for fish
-    A_tail = 0.1f0 * L_fish
+    A_tail = 0.1 * L_fish
     freq = St * U / A_tail
 
     f_wave = traveling_wave_forcing(
-        amplitude=100f0,  # Will be adjusted by Strouhal
+        amplitude=100.0,  # Will be adjusted by Strouhal
         frequency=freq,
         wavelength=L_fish,
         envelope=:carangiform,

@@ -49,9 +49,9 @@ function RefinedVelocityPatch(anchor::NTuple{D,Int}, coarse_extent::NTuple{D,Int
 end
 
 # Convenience constructors
-RefinedVelocityPatch(anchor::NTuple{2,Int}, extent::NTuple{2,Int}, level::Int, T::Type=Float32; mem=Array) =
+RefinedVelocityPatch(anchor::NTuple{2,Int}, extent::NTuple{2,Int}, level::Int, T::Type=Float64; mem=Array) =
     RefinedVelocityPatch(anchor, extent, level, Val{2}(), T; mem=mem)
-RefinedVelocityPatch(anchor::NTuple{3,Int}, extent::NTuple{3,Int}, level::Int, T::Type=Float32; mem=Array) =
+RefinedVelocityPatch(anchor::NTuple{3,Int}, extent::NTuple{3,Int}, level::Int, T::Type=Float64; mem=Array) =
     RefinedVelocityPatch(anchor, extent, level, Val{3}(), T; mem=mem)
 
 """
@@ -222,11 +222,11 @@ Create an empty refined velocity field.
 RefinedVelocityField(::Val{N}, ::Type{T}; mem=Array) where {N,T} =
     RefinedVelocityField{T,N}(Dict{NTuple{N,Int}, RefinedVelocityPatch{T,N}}(), mem)
 
-RefinedVelocityField(N::Int, T::Type=Float32; mem=Array) = RefinedVelocityField(Val{N}(), T; mem=mem)
+RefinedVelocityField(N::Int, T::Type=Float64; mem=Array) = RefinedVelocityField(Val{N}(), T; mem=mem)
 
 # Convenience for 2D/3D
-RefinedVelocityField2D(T::Type=Float32; mem=Array) = RefinedVelocityField(Val{2}(), T; mem=mem)
-RefinedVelocityField3D(T::Type=Float32; mem=Array) = RefinedVelocityField(Val{3}(), T; mem=mem)
+RefinedVelocityField2D(T::Type=Float64; mem=Array) = RefinedVelocityField(Val{2}(), T; mem=mem)
+RefinedVelocityField3D(T::Type=Float64; mem=Array) = RefinedVelocityField(Val{3}(), T; mem=mem)
 
 """
     add_patch!(field, anchor, coarse_extent, level)
@@ -304,6 +304,8 @@ Interpolate coarse velocity to fine patch using bilinear/trilinear interpolation
 Accounts for staggered velocity component offsets.
 Fills the entire patch interior from the coarse grid.
 
+GPU-compatible: Uses @loop macro for parallel execution.
+
 # Arguments
 - `patch`: RefinedVelocityPatch to fill
 - `u_coarse`: Coarse velocity array (with ghost cells)
@@ -314,13 +316,11 @@ function interpolate_from_coarse!(patch::RefinedVelocityPatch{T,2},
                                    anchor::NTuple{2,Int}) where T
     ratio = refinement_ratio(patch)
     ai, aj = anchor
+    R = fine_index_range(patch)
 
-    for I_fine in fine_index_range(patch)
-        fi, fj = I_fine.I
-        for d in 1:2
-            patch.u[fi, fj, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, fi, fj, d)
-        end
-    end
+    # Interpolate each velocity component using @loop (GPU-compatible)
+    @loop patch.u[I,1] = _interp_velocity_2d(u_coarse, ai, aj, ratio, I[1], I[2], 1) over I ∈ R
+    @loop patch.u[I,2] = _interp_velocity_2d(u_coarse, ai, aj, ratio, I[1], I[2], 2) over I ∈ R
 end
 
 function interpolate_from_coarse!(patch::RefinedVelocityPatch{T,3},
@@ -328,14 +328,12 @@ function interpolate_from_coarse!(patch::RefinedVelocityPatch{T,3},
                                    anchor::NTuple{3,Int}) where T
     ratio = refinement_ratio(patch)
     ai, aj, ak = anchor
+    R = fine_index_range(patch)
 
-    for I_fine in fine_index_range(patch)
-        fi, fj, fk = I_fine.I
-        for d in 1:3
-            patch.u[fi, fj, fk, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
-                                                         ratio, fi, fj, fk, d)
-        end
-    end
+    # Interpolate each velocity component using @loop (GPU-compatible)
+    @loop patch.u[I,1] = _interp_velocity_3d(u_coarse, ai, aj, ak, ratio, I[1], I[2], I[3], 1) over I ∈ R
+    @loop patch.u[I,2] = _interp_velocity_3d(u_coarse, ai, aj, ak, ratio, I[1], I[2], I[3], 2) over I ∈ R
+    @loop patch.u[I,3] = _interp_velocity_3d(u_coarse, ai, aj, ak, ratio, I[1], I[2], I[3], 3) over I ∈ R
 end
 
 """
@@ -343,6 +341,8 @@ end
 
 Restrict fine velocity to coarse grid using volume-weighted averaging.
 Updates the coarse velocity in cells covered by the patch.
+
+GPU-compatible: Uses @loop with sum() for parallel reduction.
 
 # Arguments
 - `u_coarse`: Coarse velocity array to update
@@ -355,29 +355,18 @@ function restrict_to_coarse!(u_coarse::AbstractArray{T},
     ratio = refinement_ratio(patch)
     ai, aj = anchor
     inv_ratio = one(T) / ratio
+    ext_i, ext_j = patch.coarse_extent
 
-    for ci in 1:patch.coarse_extent[1], cj in 1:patch.coarse_extent[2]
-        ic = ai + ci - 1
-        jc = aj + cj - 1
+    # Iterate over coarse cells covered by the patch using @loop
+    R_coarse = CartesianIndices((1:ext_i, 1:ext_j))
 
-        # x-component: average across transverse fine faces (z-direction)
-        fi = (ci - 1) * ratio + 2
-        sum_val = zero(T)
-        for dj in 1:ratio
-            fj = (cj - 1) * ratio + dj + 1
-            sum_val += patch.u[fi, fj, 1]
-        end
-        u_coarse[ic, jc, 1] = sum_val * inv_ratio
+    # x-component: average across transverse fine faces (z-direction)
+    @loop u_coarse[ai + I[1] - 1, aj + I[2] - 1, 1] =
+        sum(@view patch.u[(I[1]-1)*ratio + 2, (I[2]-1)*ratio + 2 : I[2]*ratio + 1, 1]) * inv_ratio over I ∈ R_coarse
 
-        # z-component: average across transverse fine faces (x-direction)
-        fj = (cj - 1) * ratio + 2
-        sum_val = zero(T)
-        for di in 1:ratio
-            fi = (ci - 1) * ratio + di + 1
-            sum_val += patch.u[fi, fj, 2]
-        end
-        u_coarse[ic, jc, 2] = sum_val * inv_ratio
-    end
+    # z-component: average across transverse fine faces (x-direction)
+    @loop u_coarse[ai + I[1] - 1, aj + I[2] - 1, 2] =
+        sum(@view patch.u[(I[1]-1)*ratio + 2 : I[1]*ratio + 1, (I[2]-1)*ratio + 2, 2]) * inv_ratio over I ∈ R_coarse
 end
 
 function restrict_to_coarse!(u_coarse::AbstractArray{T},
@@ -386,45 +375,28 @@ function restrict_to_coarse!(u_coarse::AbstractArray{T},
     ratio = refinement_ratio(patch)
     ai, aj, ak = anchor
     inv_ratio2 = one(T) / (ratio * ratio)
+    ext_i, ext_j, ext_k = patch.coarse_extent
 
-    for ci in 1:patch.coarse_extent[1],
-        cj in 1:patch.coarse_extent[2],
-        ck in 1:patch.coarse_extent[3]
+    # Iterate over coarse cells covered by the patch using @loop
+    R_coarse = CartesianIndices((1:ext_i, 1:ext_j, 1:ext_k))
 
-        ic = ai + ci - 1
-        jc = aj + cj - 1
-        kc = ak + ck - 1
+    # x-component: average across transverse faces (y-z plane)
+    @loop u_coarse[ai + I[1] - 1, aj + I[2] - 1, ak + I[3] - 1, 1] =
+        sum(@view patch.u[(I[1]-1)*ratio + 2,
+                          (I[2]-1)*ratio + 2 : I[2]*ratio + 1,
+                          (I[3]-1)*ratio + 2 : I[3]*ratio + 1, 1]) * inv_ratio2 over I ∈ R_coarse
 
-        # x-component: average across transverse faces (y-z plane)
-        fi = (ci - 1) * ratio + 2
-        sum_val = zero(T)
-        for dj in 1:ratio, dk in 1:ratio
-            fj = (cj - 1) * ratio + dj + 1
-            fk = (ck - 1) * ratio + dk + 1
-            sum_val += patch.u[fi, fj, fk, 1]
-        end
-        u_coarse[ic, jc, kc, 1] = sum_val * inv_ratio2
+    # y-component: average across transverse faces (x-z plane)
+    @loop u_coarse[ai + I[1] - 1, aj + I[2] - 1, ak + I[3] - 1, 2] =
+        sum(@view patch.u[(I[1]-1)*ratio + 2 : I[1]*ratio + 1,
+                          (I[2]-1)*ratio + 2,
+                          (I[3]-1)*ratio + 2 : I[3]*ratio + 1, 2]) * inv_ratio2 over I ∈ R_coarse
 
-        # y-component: average across transverse faces (x-z plane)
-        fj = (cj - 1) * ratio + 2
-        sum_val = zero(T)
-        for di in 1:ratio, dk in 1:ratio
-            fi = (ci - 1) * ratio + di + 1
-            fk = (ck - 1) * ratio + dk + 1
-            sum_val += patch.u[fi, fj, fk, 2]
-        end
-        u_coarse[ic, jc, kc, 2] = sum_val * inv_ratio2
-
-        # z-component: average across transverse faces (x-y plane)
-        fk = (ck - 1) * ratio + 2
-        sum_val = zero(T)
-        for di in 1:ratio, dj in 1:ratio
-            fi = (ci - 1) * ratio + di + 1
-            fj = (cj - 1) * ratio + dj + 1
-            sum_val += patch.u[fi, fj, fk, 3]
-        end
-        u_coarse[ic, jc, kc, 3] = sum_val * inv_ratio2
-    end
+    # z-component: average across transverse faces (x-y plane)
+    @loop u_coarse[ai + I[1] - 1, aj + I[2] - 1, ak + I[3] - 1, 3] =
+        sum(@view patch.u[(I[1]-1)*ratio + 2 : I[1]*ratio + 1,
+                          (I[2]-1)*ratio + 2 : I[2]*ratio + 1,
+                          (I[3]-1)*ratio + 2, 3]) * inv_ratio2 over I ∈ R_coarse
 end
 
 """
@@ -433,6 +405,8 @@ end
 Fill patch ghost cells by interpolation from coarse grid.
 Used for boundary conditions at patch edges.
 Includes bounds checking to handle patches near domain boundaries.
+
+GPU-compatible: Uses @loop macro for parallel execution on boundary faces.
 """
 function fill_ghost_cells!(patch::RefinedVelocityPatch{T,2},
                             u_coarse::AbstractArray{T},
@@ -441,16 +415,18 @@ function fill_ghost_cells!(patch::RefinedVelocityPatch{T,2},
     ai, aj = anchor
     nx, nz = patch.fine_dims
 
-    # Left/right ghost faces
-    for fj in 1:nz+2, d in 1:2
-        patch.u[1, fj, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, 1, fj, d)
-        patch.u[nx+2, fj, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, nx+2, fj, d)
+    # Left/right ghost faces - use 1D range along z
+    R_lr = CartesianIndices((1:nz+2,))
+    for d in 1:2
+        @loop patch.u[1, I[1], d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, 1, I[1], d) over I ∈ R_lr
+        @loop patch.u[nx+2, I[1], d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, nx+2, I[1], d) over I ∈ R_lr
     end
 
-    # Bottom/top ghost faces
-    for fi in 1:nx+2, d in 1:2
-        patch.u[fi, 1, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, fi, 1, d)
-        patch.u[fi, nz+2, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, fi, nz+2, d)
+    # Bottom/top ghost faces - use 1D range along x
+    R_bt = CartesianIndices((1:nx+2,))
+    for d in 1:2
+        @loop patch.u[I[1], 1, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, I[1], 1, d) over I ∈ R_bt
+        @loop patch.u[I[1], nz+2, d] = _interp_velocity_2d(u_coarse, ai, aj, ratio, I[1], nz+2, d) over I ∈ R_bt
     end
 end
 
@@ -458,8 +434,9 @@ end
     fill_ghost_cells!(patch, u_coarse, anchor) - 3D version
 
 Fill 3D patch ghost cells by interpolation from coarse grid.
-Uses bilinear interpolation on each face.
-Falls back to Neumann BC (zero gradient) at domain boundaries.
+Uses trilinear interpolation on each face.
+
+GPU-compatible: Uses @loop macro for parallel execution on boundary faces.
 """
 function fill_ghost_cells!(patch::RefinedVelocityPatch{T,3},
                             u_coarse::AbstractArray{T},
@@ -468,27 +445,24 @@ function fill_ghost_cells!(patch::RefinedVelocityPatch{T,3},
     ai, aj, ak = anchor
     nx, ny, nz = patch.fine_dims
 
-    # Left/right ghost faces
-    for fj in 1:ny+2, fk in 1:nz+2, d in 1:3
-        patch.u[1, fj, fk, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
-                                                    ratio, 1, fj, fk, d)
-        patch.u[nx+2, fj, fk, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
-                                                       ratio, nx+2, fj, fk, d)
+    # Left/right ghost faces (x = 1 and x = nx+2) - 2D range over y,z
+    R_x = CartesianIndices((1:ny+2, 1:nz+2))
+    for d in 1:3
+        @loop patch.u[1, I[1], I[2], d] = _interp_velocity_3d(u_coarse, ai, aj, ak, ratio, 1, I[1], I[2], d) over I ∈ R_x
+        @loop patch.u[nx+2, I[1], I[2], d] = _interp_velocity_3d(u_coarse, ai, aj, ak, ratio, nx+2, I[1], I[2], d) over I ∈ R_x
     end
 
-    # Front/back ghost faces
-    for fi in 1:nx+2, fk in 1:nz+2, d in 1:3
-        patch.u[fi, 1, fk, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
-                                                    ratio, fi, 1, fk, d)
-        patch.u[fi, ny+2, fk, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
-                                                       ratio, fi, ny+2, fk, d)
+    # Front/back ghost faces (y = 1 and y = ny+2) - 2D range over x,z
+    R_y = CartesianIndices((1:nx+2, 1:nz+2))
+    for d in 1:3
+        @loop patch.u[I[1], 1, I[2], d] = _interp_velocity_3d(u_coarse, ai, aj, ak, ratio, I[1], 1, I[2], d) over I ∈ R_y
+        @loop patch.u[I[1], ny+2, I[2], d] = _interp_velocity_3d(u_coarse, ai, aj, ak, ratio, I[1], ny+2, I[2], d) over I ∈ R_y
     end
 
-    # Bottom/top ghost faces
-    for fi in 1:nx+2, fj in 1:ny+2, d in 1:3
-        patch.u[fi, fj, 1, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
-                                                    ratio, fi, fj, 1, d)
-        patch.u[fi, fj, nz+2, d] = _interp_velocity_3d(u_coarse, ai, aj, ak,
-                                                       ratio, fi, fj, nz+2, d)
+    # Bottom/top ghost faces (z = 1 and z = nz+2) - 2D range over x,y
+    R_z = CartesianIndices((1:nx+2, 1:ny+2))
+    for d in 1:3
+        @loop patch.u[I[1], I[2], 1, d] = _interp_velocity_3d(u_coarse, ai, aj, ak, ratio, I[1], I[2], 1, d) over I ∈ R_z
+        @loop patch.u[I[1], I[2], nz+2, d] = _interp_velocity_3d(u_coarse, ai, aj, ak, ratio, I[1], I[2], nz+2, d) over I ∈ R_z
     end
 end

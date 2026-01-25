@@ -187,33 +187,32 @@ function pcg!(p::Poisson{T};it=6) where T
     x,r,ϵ,z = p.x,p.r,p.ϵ,p.z
     # Initialize: preconditioned residual and search direction
     @inside z[I] = ϵ[I] = r[I]*p.iD[I]
-    ρ = r⋅z  # ρ = r·D⁻¹r (preconditioned norm)
-    abs(ρ)<10eps(T) && return  # Already converged
+    rho = r⋅z  # ρ = r·D⁻¹r (preconditioned norm)
+    abs(rho)<10eps(T) && return  # Already converged
     for i in 1:it
         perBC!(ϵ,p.perdir)
         @inside z[I] = mult(I,p.L,p.D,ϵ)  # z = Aϵ
-        σ = z⋅ϵ  # σ = ϵᵀAϵ
-        abs(σ) < 10eps(T) && return
-        α = ρ/σ  # Step size (Rayleigh quotient)
-        (!isfinite(α) || abs(α)<T(1e-2) || abs(α)>T(1e2)) && return  # Convergence check
-        @loop (x[I] += α*ϵ[I];  # Update solution
-               r[I] -= α*z[I]) over I ∈ inside(x)  # Update residual
+        denom = z⋅ϵ
+        abs(denom) < 10eps(T) && return
+        alpha = rho/denom  # Step size (Rayleigh quotient)
+        (!isfinite(alpha) || abs(alpha)<1e-2 || abs(alpha)>1e2) && return  # Convergence check
+        @loop (x[I] += alpha*ϵ[I];  # Update solution
+               r[I] -= alpha*z[I]) over I ∈ inside(x)  # Update residual
         i==it && return
         @inside z[I] = r[I]*p.iD[I]  # New preconditioned residual
-        ρ₂ = r⋅z
-        abs(ρ₂)<10eps(T) && return  # Converged
-        β = ρ₂/ρ  # Conjugate direction coefficient
-        @inside ϵ[I] = β*ϵ[I]+z[I]  # Update search direction
-        ρ = ρ₂
+        rho2 = r⋅z
+        abs(rho2)<10eps(T) && return  # Converged
+        beta = rho2/rho  # Conjugate direction coefficient
+        @inside ϵ[I] = beta*ϵ[I]+z[I]  # Update search direction
+        rho = rho2
     end
 end
 smooth!(p) = pcg!(p)  # Default smoother
 
 # Squared L₂ norm of residual: ||r||₂² = r·r (not ||r||₂ = √(r·r))
-# Uses dot product directly since ghost cells are zero (GPU-safe via CUBLAS)
+# Uses dot product directly since ghost cells are zero
 L₂(p::Poisson) = p.r ⋅ p.r
-# GPU-safe: transfer to CPU for reduction to avoid potential scalar indexing
-L∞(p::Poisson) = _safe_maximum(abs, p.r)
+L∞(p::Poisson) = maximum(abs,p.r)
 
 """
     solver!(p::Poisson; tol=1e-4, itmx=1000)

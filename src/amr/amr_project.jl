@@ -105,6 +105,8 @@ Set divergence source term on all patches using physical grid spacing.
 RHS = ρ * h_fine * div(u) where h_fine = h_coarse / ratio.
 Uses refined patch velocity when available; otherwise falls back to coarse.
 
+GPU-compatible: Uses @loop macro for both primary and fallback paths.
+
 # Arguments
 - `cp`: CompositePoisson solver
 - `u_coarse`: Coarse velocity field
@@ -126,19 +128,26 @@ function set_all_patch_divergence!(cp::CompositePoisson{T}, u_coarse::AbstractAr
             # RHS = ρ * h_fine * div_unit(u_fine)
             @loop patch.z[I] = scale * div(I, vel_patch.u) over I ∈ R
         else
-            # Fallback: interpolate from coarse (scalar indexing - less common path)
-            for I in inside(patch)
-                fi, fj = I.I
-                xf = (fi - T(1.5)) / ratio
-                zf = (fj - T(1.5)) / ratio
-                ic = floor(Int, xf) + ai
-                jc = floor(Int, zf) + aj
-                ic = clamp(ic, 2, size(u_coarse, 1) - 1)
-                jc = clamp(jc, 2, size(u_coarse, 2) - 1)
-                patch.z[I] = ρ * h_coarse * div(CartesianIndex(ic, jc), u_coarse)
-            end
+            # Fallback: compute divergence from coarse grid (GPU-compatible via @loop)
+            # Map fine index to coarse and compute divergence there
+            scale_coarse = ρ * h_coarse
+            nc_i, nc_j = size(u_coarse, 1), size(u_coarse, 2)
+            @loop patch.z[I] = _compute_coarse_div(I, u_coarse, ai, aj, ratio, scale_coarse, nc_i, nc_j) over I ∈ R
         end
     end
+end
+
+# Helper function for computing divergence from coarse grid at fine index (GPU-compatible)
+@inline function _compute_coarse_div(I::CartesianIndex{2}, u_coarse::AbstractArray{T},
+                                      ai::Int, aj::Int, ratio::Int, scale::T,
+                                      nc_i::Int, nc_j::Int) where T
+    fi, fj = I.I
+    inv_ratio = one(T) / ratio
+    xf = (T(fi) - T(1.5)) * inv_ratio
+    zf = (T(fj) - T(1.5)) * inv_ratio
+    ic = clamp(floor(Int, xf) + ai, 2, nc_i - 1)
+    jc = clamp(floor(Int, zf) + aj, 2, nc_j - 1)
+    return scale * div(CartesianIndex(ic, jc), u_coarse)
 end
 
 """
@@ -278,7 +287,7 @@ function amr_mom_step!(flow::Flow{D,T}, cp::CompositePoisson{T};
     scale_u!(flow, T(0.5))  # Average predictor and corrector
     BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
 
-    amr_project!(flow, cp, T(0.5))
+    amr_project!(flow, cp, 0.5)
     BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
 
     # Update time step - use amr_cfl to account for refined patches
@@ -303,12 +312,11 @@ Useful for verification. GPU-compatible via maximum reduction.
 """
 function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
                               verbose::Bool=false) where {D,T}
-    # Base grid divergence with unit spacing
+    # Base grid divergence with unit spacing (GPU-compatible)
     # Compute divergence into σ temporarily
     R = inside(flow.p)
     @loop flow.σ[I] = abs(div(I, flow.u)) over I ∈ R
-    # GPU-safe reduction: transfer to CPU to avoid scalar indexing
-    base_div = _safe_maximum(identity, @view flow.σ[R])
+    base_div = maximum(@view flow.σ[R])
 
     if verbose
         println("Base grid max |∇·u|: ", base_div)
@@ -321,11 +329,10 @@ function check_amr_divergence(flow::Flow{D,T}, cp::CompositePoisson{T};
         vel_patch = get_patch(cp.refined_velocity, anchor)
         vel_patch === nothing && continue
 
-        # Compute divergence into patch.r temporarily
+        # Compute divergence into patch.r temporarily (GPU-compatible)
         Rp = inside(patch)
         @loop patch.r[I] = abs(div(I, vel_patch.u)) over I ∈ Rp
-        # GPU-safe reduction: transfer to CPU
-        patch_div = _safe_maximum(identity, @view patch.r[Rp])
+        patch_div = maximum(@view patch.r[Rp])
 
         if verbose
             println("Patch at ", anchor, " max |∇·u|: ", patch_div)
@@ -364,32 +371,39 @@ end
 
 Synchronize solution between base grid and patches.
 Ensures consistency after regridding.
+
+GPU-compatible: Uses @loop macro for pressure interpolation.
 """
 function synchronize_base_and_patches!(flow::Flow{D,T}, cp::CompositePoisson{T}) where {D,T}
     # Interpolate base pressure to patches
     for (anchor, patch) in cp.patches
         set_patch_boundary!(patch, cp.base.x, anchor)
 
-        # Initialize patch interior from coarse
+        # Initialize patch interior from coarse using @loop (GPU-compatible)
         ratio = refinement_ratio(patch)
         ai, aj = anchor
+        R = inside(patch)
+        p_coarse = cp.base.x
+        nc_i, nc_j = size(p_coarse, 1), size(p_coarse, 2)
 
-        for I in inside(patch)
-            fi, fj = I.I
-            xf = (fi - T(1.5)) / ratio
-            zf = (fj - T(1.5)) / ratio
-            ic = floor(Int, xf) + ai
-            jc = floor(Int, zf) + aj
-            ic = clamp(ic, 1, size(cp.base.x, 1))
-            jc = clamp(jc, 1, size(cp.base.x, 2))
-
-            # Simple copy (could use interpolation)
-            patch.x[I] = cp.base.x[ic, jc]
-        end
+        @loop patch.x[I] = _interp_pressure_from_coarse(I, p_coarse, ai, aj, ratio, nc_i, nc_j) over I ∈ R
     end
 
     # Interpolate base velocity to refined patches
     interpolate_velocity_to_patches!(cp.refined_velocity, flow.u)
+end
+
+# Helper function for pressure interpolation from coarse to fine (GPU-compatible)
+@inline function _interp_pressure_from_coarse(I::CartesianIndex{2}, p_coarse::AbstractArray{T},
+                                               ai::Int, aj::Int, ratio::Int,
+                                               nc_i::Int, nc_j::Int) where T
+    fi, fj = I.I
+    inv_ratio = one(T) / ratio
+    xf = (T(fi) - T(1.5)) * inv_ratio
+    zf = (T(fj) - T(1.5)) * inv_ratio
+    ic = clamp(floor(Int, xf) + ai, 1, nc_i)
+    jc = clamp(floor(Int, zf) + aj, 1, nc_j)
+    return p_coarse[ic, jc]
 end
 
 """

@@ -337,8 +337,8 @@ function should_regrid(rg::RefinedGrid, indicators::Dict, threshold::Real; max_l
     # Check for cells that should be coarsened
     refined_cells = is_2d(rg.base_grid) ? rg.refined_cells_2d : rg.refined_cells_3d
     for (cell, level) in refined_cells
-        value = get(indicators, cell, 0f0)
-        if value < threshold * 0.5f0 && level > 0
+        value = get(indicators, cell, 0.0)
+        if value < threshold * 0.5 && level > 0
             return true
         end
     end

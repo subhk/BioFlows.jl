@@ -29,7 +29,140 @@
 
 Bridge between BioFlows' Flow-based architecture and the AMR infrastructure.
 Provides conversion functions between Flow fields and StaggeredGrid/SolutionState types.
+
+GPU-compatible: Uses @loop macro and array views for parallel execution.
 """
+
+# =============================================================================
+# GPU-COMPATIBLE INTERPOLATION HELPERS
+# =============================================================================
+# These inline functions perform bilinear/trilinear interpolation and are
+# designed to be called from @loop kernels.
+
+"""
+    _bilinear_interp_u_2d(arr, i, j, ratio, fi, fj, T)
+
+Bilinear interpolation for u-velocity (staggered in x) at fine index (fi, fj).
+"""
+@inline function _bilinear_interp_u_2d(arr::AbstractArray{T}, i::Int, j::Int,
+                                        ratio::Int, fi::Int, fj::Int) where T
+    inv_ratio = one(T) / ratio
+    # x-face staggered: face positions at 0, dx, 2dx, ...
+    xf = (T(fi) - one(T)) * inv_ratio
+    # z-direction is cell-centered
+    zf = (T(fj) - T(0.5)) * inv_ratio - T(0.5)
+
+    nx_c, nz_c = size(arr, 1), size(arr, 2)
+    ic = clamp(i + floor(Int, xf), 1, nx_c)
+    jc = clamp(j + floor(Int, zf), 1, nz_c)
+    wx = clamp(xf - floor(xf), zero(T), one(T))
+    wz = clamp(zf - floor(zf), zero(T), one(T))
+
+    ic1 = clamp(ic + 1, 1, nx_c)
+    jc1 = clamp(jc + 1, 1, nz_c)
+
+    return (one(T) - wx) * (one(T) - wz) * arr[ic, jc] +
+           wx * (one(T) - wz) * arr[ic1, jc] +
+           (one(T) - wx) * wz * arr[ic, jc1] +
+           wx * wz * arr[ic1, jc1]
+end
+
+"""
+    _bilinear_interp_v_2d(arr, i, j, ratio, fi, fj, T)
+
+Bilinear interpolation for v-velocity (staggered in z) at fine index (fi, fj).
+"""
+@inline function _bilinear_interp_v_2d(arr::AbstractArray{T}, i::Int, j::Int,
+                                        ratio::Int, fi::Int, fj::Int) where T
+    inv_ratio = one(T) / ratio
+    # x-direction is cell-centered
+    xf = (T(fi) - T(0.5)) * inv_ratio - T(0.5)
+    # z-face staggered: face positions at 0, dz, 2dz, ...
+    zf = (T(fj) - one(T)) * inv_ratio
+
+    nx_c, nz_c = size(arr, 1), size(arr, 2)
+    ic = clamp(i + floor(Int, xf), 1, nx_c)
+    jc = clamp(j + floor(Int, zf), 1, nz_c)
+    wx = clamp(xf - floor(xf), zero(T), one(T))
+    wz = clamp(zf - floor(zf), zero(T), one(T))
+
+    ic1 = clamp(ic + 1, 1, nx_c)
+    jc1 = clamp(jc + 1, 1, nz_c)
+
+    return (one(T) - wx) * (one(T) - wz) * arr[ic, jc] +
+           wx * (one(T) - wz) * arr[ic1, jc] +
+           (one(T) - wx) * wz * arr[ic, jc1] +
+           wx * wz * arr[ic1, jc1]
+end
+
+"""
+    _bilinear_interp_p_2d(arr, i, j, ratio, fi, fj, T)
+
+Bilinear interpolation for pressure (cell-centered) at fine index (fi, fj).
+"""
+@inline function _bilinear_interp_p_2d(arr::AbstractArray{T}, i::Int, j::Int,
+                                        ratio::Int, fi::Int, fj::Int) where T
+    inv_ratio = one(T) / ratio
+    # Both directions cell-centered
+    xf = (T(fi) - T(0.5)) * inv_ratio - T(0.5)
+    zf = (T(fj) - T(0.5)) * inv_ratio - T(0.5)
+
+    nx_c, nz_c = size(arr, 1), size(arr, 2)
+    ic = clamp(i + floor(Int, xf), 1, nx_c)
+    jc = clamp(j + floor(Int, zf), 1, nz_c)
+    wx = clamp(xf - floor(xf), zero(T), one(T))
+    wz = clamp(zf - floor(zf), zero(T), one(T))
+
+    ic1 = clamp(ic + 1, 1, nx_c)
+    jc1 = clamp(jc + 1, 1, nz_c)
+
+    return (one(T) - wx) * (one(T) - wz) * arr[ic, jc] +
+           wx * (one(T) - wz) * arr[ic1, jc] +
+           (one(T) - wx) * wz * arr[ic, jc1] +
+           wx * wz * arr[ic1, jc1]
+end
+
+"""
+    _trilinear_interp(arr, i, j, k, ratio, fi, fj, fk, stagger, T)
+
+Trilinear interpolation at fine index (fi, fj, fk) with stagger offset.
+`stagger` is a tuple (sx, sy, sz) where 1 means face-staggered, 0 means cell-centered.
+"""
+@inline function _trilinear_interp(arr::AbstractArray{T}, i::Int, j::Int, k::Int,
+                                    ratio::Int, fi::Int, fj::Int, fk::Int,
+                                    stagger::NTuple{3,Int}) where T
+    inv_ratio = one(T) / ratio
+    sx, sy, sz = stagger
+
+    # Compute fine position: face-staggered uses (f-1)/ratio, cell-centered uses (f-0.5)/ratio - 0.5
+    xf = sx == 1 ? (T(fi) - one(T)) * inv_ratio : (T(fi) - T(0.5)) * inv_ratio - T(0.5)
+    yf = sy == 1 ? (T(fj) - one(T)) * inv_ratio : (T(fj) - T(0.5)) * inv_ratio - T(0.5)
+    zf = sz == 1 ? (T(fk) - one(T)) * inv_ratio : (T(fk) - T(0.5)) * inv_ratio - T(0.5)
+
+    nx_c, ny_c, nz_c = size(arr, 1), size(arr, 2), size(arr, 3)
+    ic = clamp(i + floor(Int, xf), 1, nx_c - 1)
+    jc = clamp(j + floor(Int, yf), 1, ny_c - 1)
+    kc = clamp(k + floor(Int, zf), 1, nz_c - 1)
+
+    wx = clamp(xf - floor(xf), zero(T), one(T))
+    wy = clamp(yf - floor(yf), zero(T), one(T))
+    wz = clamp(zf - floor(zf), zero(T), one(T))
+
+    # Trilinear interpolation
+    c00 = (one(T) - wx) * arr[ic, jc, kc] + wx * arr[ic+1, jc, kc]
+    c10 = (one(T) - wx) * arr[ic, jc+1, kc] + wx * arr[ic+1, jc+1, kc]
+    c01 = (one(T) - wx) * arr[ic, jc, kc+1] + wx * arr[ic+1, jc, kc+1]
+    c11 = (one(T) - wx) * arr[ic, jc+1, kc+1] + wx * arr[ic+1, jc+1, kc+1]
+
+    c0 = (one(T) - wy) * c00 + wy * c10
+    c1 = (one(T) - wy) * c01 + wy * c11
+
+    return (one(T) - wz) * c0 + wz * c1
+end
+
+# =============================================================================
+# ADAPTER TYPES
+# =============================================================================
 
 """
     FlowToGridAdapter{N,T}
@@ -103,6 +236,8 @@ flow_to_staggered_grid(flow::Flow{N,T}, L::Number) where {N,T} =
 
 Extract velocity and pressure from Flow into a SolutionState.
 This copies interior values (excluding ghost cells) from the staggered Flow.u array.
+
+GPU-compatible: Uses array views and broadcast assignment.
 """
 function flow_to_solution_state(flow::Flow{N,T}) where {N,T}
     dims = size(flow.p)
@@ -111,28 +246,18 @@ function flow_to_solution_state(flow::Flow{N,T}) where {N,T}
         nx = dims[1] - 2
         nz = dims[2] - 2
 
-        # Extract velocity components from staggered array
+        # Extract velocity components from staggered array using views (GPU-compatible)
         # flow.u has shape (nx+2, nz+2, 2) with ghost cells
-        # u-velocity at x-faces: indices 2:nx+1 in x, 2:nz+1 in z, component 1
-        # v-velocity at z-faces: indices 2:nx+1 in x, 2:nz+1 in z, component 2
+        # u-velocity at x-faces: need indices 2:nx+2 in x, 2:nz+1 in z, component 1
+        # v-velocity at z-faces: need indices 2:nx+1 in x, 2:nz+2 in z, component 2
         u = similar(flow.p, nx + 1, nz)
         v = similar(flow.p, nx, nz + 1)
-
-        # Copy u-velocity (x-component at x-faces)
-        for j in 1:nz, i in 1:(nx+1)
-            u[i, j] = flow.u[i+1, j+1, 1]
-        end
-
-        # Copy v-velocity (z-component at z-faces)
-        for j in 1:(nz+1), i in 1:nx
-            v[i, j] = flow.u[i+1, j+1, 2]
-        end
-
-        # Copy pressure (cell centers)
         p = similar(flow.p, nx, nz)
-        for j in 1:nz, i in 1:nx
-            p[i, j] = flow.p[i+1, j+1]
-        end
+
+        # Copy using broadcast assignment with views (GPU-compatible)
+        u .= @view flow.u[2:nx+2, 2:nz+1, 1]
+        v .= @view flow.u[2:nx+1, 2:nz+2, 2]
+        p .= @view flow.p[2:nx+1, 2:nz+1]
 
         return SolutionState{T, typeof(u)}(u, v, nothing, p)
 
@@ -144,23 +269,13 @@ function flow_to_solution_state(flow::Flow{N,T}) where {N,T}
         u = similar(flow.p, nx + 1, ny, nz)
         v = similar(flow.p, nx, ny + 1, nz)
         w = similar(flow.p, nx, ny, nz + 1)
-
-        # Copy velocity components
-        for k in 1:nz, j in 1:ny, i in 1:(nx+1)
-            u[i, j, k] = flow.u[i+1, j+1, k+1, 1]
-        end
-        for k in 1:nz, j in 1:(ny+1), i in 1:nx
-            v[i, j, k] = flow.u[i+1, j+1, k+1, 2]
-        end
-        for k in 1:(nz+1), j in 1:ny, i in 1:nx
-            w[i, j, k] = flow.u[i+1, j+1, k+1, 3]
-        end
-
-        # Copy pressure
         p = similar(flow.p, nx, ny, nz)
-        for k in 1:nz, j in 1:ny, i in 1:nx
-            p[i, j, k] = flow.p[i+1, j+1, k+1]
-        end
+
+        # Copy using broadcast assignment with views (GPU-compatible)
+        u .= @view flow.u[2:nx+2, 2:ny+1, 2:nz+1, 1]
+        v .= @view flow.u[2:nx+1, 2:ny+2, 2:nz+1, 2]
+        w .= @view flow.u[2:nx+1, 2:ny+1, 2:nz+2, 3]
+        p .= @view flow.p[2:nx+1, 2:ny+1, 2:nz+1]
 
         return SolutionState{T, typeof(u)}(u, v, w, p)
     end
@@ -173,6 +288,8 @@ flow_to_solution_state(adapter::FlowToGridAdapter) = flow_to_solution_state(adap
 
 Copy solution state back into the Flow struct.
 Updates interior values only (ghost cells unchanged).
+
+GPU-compatible: Uses array views and broadcast assignment.
 """
 function update_flow_from_state!(flow::Flow{N,T}, state::SolutionState) where {N,T}
     dims = size(flow.p)
@@ -181,41 +298,21 @@ function update_flow_from_state!(flow::Flow{N,T}, state::SolutionState) where {N
         nx = dims[1] - 2
         nz = dims[2] - 2
 
-        # Copy u-velocity
-        for j in 1:nz, i in 1:(nx+1)
-            flow.u[i+1, j+1, 1] = state.u[i, j]
-        end
-
-        # Copy v-velocity
-        for j in 1:(nz+1), i in 1:nx
-            flow.u[i+1, j+1, 2] = state.v[i, j]
-        end
-
-        # Copy pressure
-        for j in 1:nz, i in 1:nx
-            flow.p[i+1, j+1] = state.p[i, j]
-        end
+        # Copy using broadcast assignment with views (GPU-compatible)
+        @view(flow.u[2:nx+2, 2:nz+1, 1]) .= state.u
+        @view(flow.u[2:nx+1, 2:nz+2, 2]) .= state.v
+        @view(flow.p[2:nx+1, 2:nz+1]) .= state.p
 
     else  # N == 3
         nx = dims[1] - 2
         ny = dims[2] - 2
         nz = dims[3] - 2
 
-        for k in 1:nz, j in 1:ny, i in 1:(nx+1)
-            flow.u[i+1, j+1, k+1, 1] = state.u[i, j, k]
-        end
-
-        for k in 1:nz, j in 1:(ny+1), i in 1:nx
-            flow.u[i+1, j+1, k+1, 2] = state.v[i, j, k]
-        end
-
-        for k in 1:(nz+1), j in 1:ny, i in 1:nx
-            flow.u[i+1, j+1, k+1, 3] = state.w[i, j, k]
-        end
-
-        for k in 1:nz, j in 1:ny, i in 1:nx
-            flow.p[i+1, j+1, k+1] = state.p[i, j, k]
-        end
+        # Copy using broadcast assignment with views (GPU-compatible)
+        @view(flow.u[2:nx+2, 2:ny+1, 2:nz+1, 1]) .= state.u
+        @view(flow.u[2:nx+1, 2:ny+2, 2:nz+1, 2]) .= state.v
+        @view(flow.u[2:nx+1, 2:ny+1, 2:nz+2, 3]) .= state.w
+        @view(flow.p[2:nx+1, 2:ny+1, 2:nz+1]) .= state.p
     end
 
     return flow
@@ -309,13 +406,13 @@ Uses staggered-aware interpolation:
 - u-velocity: offset by 0.5 in x-direction (at x-faces)
 - v-velocity: offset by 0.5 in z-direction (at z-faces)
 - pressure: no offset (at cell centers)
+
+GPU-compatible: Uses @loop macro for parallel execution on fine grid.
 """
 function interpolate_cell_2d!(state::SolutionState{T}, i::Int, j::Int,
                                local_grid::StaggeredGrid{T}, refined_grid::RefinedGrid{T}) where {T}
     level = get(refined_grid.refined_cells_2d, (i, j), 0)
-    if level == 0
-        return
-    end
+    level == 0 && return
 
     ratio = 2^level  # refinement ratio
 
@@ -325,78 +422,21 @@ function interpolate_cell_2d!(state::SolutionState{T}, i::Int, j::Int,
     end
     refined_state = refined_grid.refined_states_2d[(i, j)]
 
-    # Coarse grid dimensions
-    nx_c, nz_c = size(state.p)
-
     # Fine grid dimensions
     nx_f = local_grid.nx
     nz_f = local_grid.nz
 
-    # Interpolate u-velocity (at x-faces, staggered in x)
-    for fj in 1:nz_f, fi in 1:(nx_f+1)
-        # Fine grid position relative to coarse cell (i,j)
-        # Account for x-face staggering (faces at 0, dx, 2dx, ...)
-        xf = (T(fi) - T(1)) / ratio  # 0 to 1 across the cell (face positions)
-        # z-direction is cell-centered: subtract 0.5 to align with coarse cell centers
-        zf = (T(fj) - T(0.5)) / ratio - T(0.5)
+    # Interpolate u-velocity (at x-faces, staggered in x) using @loop
+    R_u = CartesianIndices((1:(nx_f+1), 1:nz_f))
+    @loop refined_state.u[I] = _bilinear_interp_u_2d(state.u, i, j, ratio, I[1], I[2]) over I ∈ R_u
 
-        # Bilinear interpolation from coarse u-velocity
-        # Coarse u at x-faces: indices 1:nx_c+1 in x, 1:nz_c in z
-        ic = clamp(i + floor(Int, xf), 1, nx_c)
-        jc = clamp(j + floor(Int, zf), 1, nz_c)
-        wx = xf - floor(xf)
-        wz = zf - floor(zf)
+    # Interpolate v-velocity (at z-faces, staggered in z) using @loop
+    R_v = CartesianIndices((1:nx_f, 1:(nz_f+1)))
+    @loop refined_state.v[I] = _bilinear_interp_v_2d(state.v, i, j, ratio, I[1], I[2]) over I ∈ R_v
 
-        # Clamp indices for boundary safety
-        ic1 = clamp(ic + 1, 1, size(state.u, 1))
-        jc1 = clamp(jc + 1, 1, size(state.u, 2))
-
-        refined_state.u[fi, fj] = (one(T) - wx) * (one(T) - wz) * state.u[ic, jc] +
-                                   wx * (one(T) - wz) * state.u[ic1, jc] +
-                                   (one(T) - wx) * wz * state.u[ic, jc1] +
-                                   wx * wz * state.u[ic1, jc1]
-    end
-
-    # Interpolate v-velocity (at z-faces, staggered in z)
-    for fj in 1:(nz_f+1), fi in 1:nx_f
-        # x-direction is cell-centered: subtract 0.5 to align with coarse cell centers
-        xf = (T(fi) - T(0.5)) / ratio - T(0.5)
-        zf = (T(fj) - T(1)) / ratio  # z-face staggering (face positions)
-
-        ic = clamp(i + floor(Int, xf), 1, nx_c)
-        jc = clamp(j + floor(Int, zf), 1, nz_c)
-        wx = xf - floor(xf)
-        wz = zf - floor(zf)
-
-        ic1 = clamp(ic + 1, 1, size(state.v, 1))
-        jc1 = clamp(jc + 1, 1, size(state.v, 2))
-
-        refined_state.v[fi, fj] = (one(T) - wx) * (one(T) - wz) * state.v[ic, jc] +
-                                   wx * (one(T) - wz) * state.v[ic1, jc] +
-                                   (one(T) - wx) * wz * state.v[ic, jc1] +
-                                   wx * wz * state.v[ic1, jc1]
-    end
-
-    # Interpolate pressure (at cell centers)
-    # Both x and z are cell-centered: subtract 0.5 to align with coarse cell centers
-    for fj in 1:nz_f, fi in 1:nx_f
-        xf = (T(fi) - T(0.5)) / ratio - T(0.5)
-        zf = (T(fj) - T(0.5)) / ratio - T(0.5)
-
-        ic = clamp(i + floor(Int, xf), 1, nx_c)
-        jc = clamp(j + floor(Int, zf), 1, nz_c)
-
-        wx = xf - floor(xf)
-        wz = zf - floor(zf)
-
-        ic1 = clamp(ic + 1, 1, nx_c)
-        jc1 = clamp(jc + 1, 1, nz_c)
-
-        refined_state.p[fi, fj] = (one(T) - wx) * (one(T) - wz) * state.p[ic, jc] +
-                                   wx * (one(T) - wz) * state.p[ic1, jc] +
-                                   (one(T) - wx) * wz * state.p[ic, jc1] +
-                                   wx * wz * state.p[ic1, jc1]
-    end
+    # Interpolate pressure (at cell centers) using @loop
+    R_p = CartesianIndices((1:nx_f, 1:nz_f))
+    @loop refined_state.p[I] = _bilinear_interp_p_2d(state.p, i, j, ratio, I[1], I[2]) over I ∈ R_p
 end
 
 """
@@ -410,16 +450,15 @@ Uses staggered-aware interpolation:
 - v-velocity: offset by 0.5 in y-direction (at y-faces)
 - w-velocity: offset by 0.5 in z-direction (at z-faces)
 - pressure: no offset (at cell centers)
+
+GPU-compatible: Uses @loop macro for parallel execution on fine grid.
 """
 function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
-                            local_grid::StaggeredGrid{T}, 
+                            local_grid::StaggeredGrid{T},
                             refined_grid::RefinedGrid{T}) where {T}
-    
-    level = get(refined_grid.refined_cells_3d, (i, j, k), 0)
 
-    if level == 0
-        return
-    end
+    level = get(refined_grid.refined_cells_3d, (i, j, k), 0)
+    level == 0 && return
 
     ratio = 2^level
 
@@ -429,102 +468,26 @@ function interpolate_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
     end
     refined_state = refined_grid.refined_states_3d[(i, j, k)]
 
-    # Coarse grid dimensions
-    nx_c, ny_c, nz_c = size(state.p)
-
     # Fine grid dimensions
     nx_f = local_grid.nx
     ny_f = local_grid.ny
     nz_f = local_grid.nz
 
-    # Helper for trilinear interpolation
-    @inline function trilinear(arr, ic, jc, kc, wx, wy, wz)
-        ic1 = clamp(ic + 1, 1, size(arr, 1))
-        jc1 = clamp(jc + 1, 1, size(arr, 2))
-        kc1 = clamp(kc + 1, 1, size(arr, 3))
+    # Interpolate u-velocity (at x-faces): x is face-staggered (1), y and z are cell-centered (0)
+    R_u = CartesianIndices((1:(nx_f+1), 1:ny_f, 1:nz_f))
+    @loop refined_state.u[I] = _trilinear_interp(state.u, i, j, k, ratio, I[1], I[2], I[3], (1, 0, 0)) over I ∈ R_u
 
-        c00 = (one(T) - wx) * arr[ic, jc, kc] + wx * arr[ic1, jc, kc]
-        c10 = (one(T) - wx) * arr[ic, jc1, kc] + wx * arr[ic1, jc1, kc]
-        c01 = (one(T) - wx) * arr[ic, jc, kc1] + wx * arr[ic1, jc, kc1]
-        c11 = (one(T) - wx) * arr[ic, jc1, kc1] + wx * arr[ic1, jc1, kc1]
+    # Interpolate v-velocity (at y-faces): y is face-staggered (1), x and z are cell-centered (0)
+    R_v = CartesianIndices((1:nx_f, 1:(ny_f+1), 1:nz_f))
+    @loop refined_state.v[I] = _trilinear_interp(state.v, i, j, k, ratio, I[1], I[2], I[3], (0, 1, 0)) over I ∈ R_v
 
-        c0 = (one(T) - wy) * c00 + wy * c10
-        c1 = (one(T) - wy) * c01 + wy * c11
+    # Interpolate w-velocity (at z-faces): z is face-staggered (1), x and y are cell-centered (0)
+    R_w = CartesianIndices((1:nx_f, 1:ny_f, 1:(nz_f+1)))
+    @loop refined_state.w[I] = _trilinear_interp(state.w, i, j, k, ratio, I[1], I[2], I[3], (0, 0, 1)) over I ∈ R_w
 
-        return (one(T) - wz) * c0 + wz * c1
-    end
-
-    # Interpolate u-velocity (at x-faces)
-    # x-direction is face-centered, y and z are cell-centered (subtract 0.5)
-    for fk in 1:nz_f, fj in 1:ny_f, fi in 1:(nx_f+1)
-        xf = (T(fi) - T(1)) / ratio  # face positions
-        yf = (T(fj) - T(0.5)) / ratio - T(0.5)  # cell-centered
-        zf = (T(fk) - T(0.5)) / ratio - T(0.5)  # cell-centered
-
-        ic = clamp(i + floor(Int, xf), 1, size(state.u, 1) - 1)
-        jc = clamp(j + floor(Int, yf), 1, ny_c)
-        kc = clamp(k + floor(Int, zf), 1, nz_c)
-
-        wx = clamp(xf - floor(xf), zero(T), one(T))
-        wy = clamp(yf - floor(yf), zero(T), one(T))
-        wz = clamp(zf - floor(zf), zero(T), one(T))
-
-        refined_state.u[fi, fj, fk] = trilinear(state.u, ic, jc, kc, wx, wy, wz)
-    end
-
-    # Interpolate v-velocity (at y-faces)
-    # y-direction is face-centered, x and z are cell-centered (subtract 0.5)
-    for fk in 1:nz_f, fj in 1:(ny_f+1), fi in 1:nx_f
-        xf = (T(fi) - T(0.5)) / ratio - T(0.5)  # cell-centered
-        yf = (T(fj) - T(1)) / ratio  # face positions
-        zf = (T(fk) - T(0.5)) / ratio - T(0.5)  # cell-centered
-
-        ic = clamp(i + floor(Int, xf), 1, nx_c)
-        jc = clamp(j + floor(Int, yf), 1, size(state.v, 2) - 1)
-        kc = clamp(k + floor(Int, zf), 1, nz_c)
-
-        wx = clamp(xf - floor(xf), zero(T), one(T))
-        wy = clamp(yf - floor(yf), zero(T), one(T))
-        wz = clamp(zf - floor(zf), zero(T), one(T))
-
-        refined_state.v[fi, fj, fk] = trilinear(state.v, ic, jc, kc, wx, wy, wz)
-    end
-
-    # Interpolate w-velocity (at z-faces)
-    # z-direction is face-centered, x and y are cell-centered (subtract 0.5)
-    for fk in 1:(nz_f+1), fj in 1:ny_f, fi in 1:nx_f
-        xf = (T(fi) - T(0.5)) / ratio - T(0.5)  # cell-centered
-        yf = (T(fj) - T(0.5)) / ratio - T(0.5)  # cell-centered
-        zf = (T(fk) - T(1)) / ratio  # face positions
-
-        ic = clamp(i + floor(Int, xf), 1, nx_c)
-        jc = clamp(j + floor(Int, yf), 1, ny_c)
-        kc = clamp(k + floor(Int, zf), 1, size(state.w, 3) - 1)
-
-        wx = clamp(xf - floor(xf), zero(T), one(T))
-        wy = clamp(yf - floor(yf), zero(T), one(T))
-        wz = clamp(zf - floor(zf), zero(T), one(T))
-
-        refined_state.w[fi, fj, fk] = trilinear(state.w, ic, jc, kc, wx, wy, wz)
-    end
-
-    # Interpolate pressure (at cell centers)
-    # All directions are cell-centered (subtract 0.5)
-    for fk in 1:nz_f, fj in 1:ny_f, fi in 1:nx_f
-        xf = (T(fi) - T(0.5)) / ratio - T(0.5)  # cell-centered
-        yf = (T(fj) - T(0.5)) / ratio - T(0.5)  # cell-centered
-        zf = (T(fk) - T(0.5)) / ratio - T(0.5)  # cell-centered
-
-        ic = clamp(i + floor(Int, xf), 1, nx_c)
-        jc = clamp(j + floor(Int, yf), 1, ny_c)
-        kc = clamp(k + floor(Int, zf), 1, nz_c)
-        
-        wx = clamp(xf - floor(xf), zero(T), one(T))
-        wy = clamp(yf - floor(yf), zero(T), one(T))
-        wz = clamp(zf - floor(zf), zero(T), one(T))
-
-        refined_state.p[fi, fj, fk] = trilinear(state.p, ic, jc, kc, wx, wy, wz)
-    end
+    # Interpolate pressure (at cell centers): all cell-centered (0, 0, 0)
+    R_p = CartesianIndices((1:nx_f, 1:ny_f, 1:nz_f))
+    @loop refined_state.p[I] = _trilinear_interp(state.p, i, j, k, ratio, I[1], I[2], I[3], (0, 0, 0)) over I ∈ R_p
 end
 
 """
@@ -563,19 +526,17 @@ end
 
 Conservative projection of a single 2D refined cell to coarse grid.
 Uses volume-weighted averaging for pressure and face-averaged fluxes for velocities.
+
+GPU-compatible: Uses sum() with array views for parallel reduction.
 """
 function project_cell_2d!(state::SolutionState{T}, i::Int, j::Int,
                            refined_grid::RefinedGrid{T}) where {T}
     # Get refined state for this cell
     refined_state = get(refined_grid.refined_states_2d, (i, j), nothing)
-    if refined_state === nothing
-        return
-    end
+    refined_state === nothing && return
 
     level = get(refined_grid.refined_cells_2d, (i, j), 0)
-    if level == 0
-        return
-    end
+    level == 0 && return
 
     ratio = 2^level
     inv_ratio = one(T) / ratio
@@ -585,51 +546,30 @@ function project_cell_2d!(state::SolutionState{T}, i::Int, j::Int,
     nx_f = size(refined_state.p, 1)
     nz_f = size(refined_state.p, 2)
 
-    # Project u-velocity: average fine u-values at the coarse x-face
-    # For each coarse x-face, average the fine x-faces along z-direction
+    # Project u-velocity: average fine u-values at the coarse x-face using sum (GPU-compatible)
     # Left face of coarse cell (i,j) -> fine face at fi=1
     if 1 <= i <= size(state.u, 1)
-        sum_u = zero(T)
-        for fj in 1:nz_f
-            sum_u += refined_state.u[1, fj]
-        end
-        state.u[i, j] = sum_u * inv_ratio
+        state.u[i, j] = sum(@view refined_state.u[1, 1:nz_f]) * inv_ratio
     end
 
     # Right face of coarse cell (i,j) -> fine face at fi=nx_f+1
     if 1 <= i+1 <= size(state.u, 1)
-        sum_u = zero(T)
-        for fj in 1:nz_f
-            sum_u += refined_state.u[nx_f+1, fj]
-        end
-        state.u[i+1, j] = sum_u * inv_ratio
+        state.u[i+1, j] = sum(@view refined_state.u[nx_f+1, 1:nz_f]) * inv_ratio
     end
 
-    # Project v-velocity: average fine v-values at the coarse z-face
+    # Project v-velocity: average fine v-values at the coarse z-face using sum (GPU-compatible)
     # Bottom face of coarse cell (i,j) -> fine face at fj=1
     if 1 <= j <= size(state.v, 2)
-        sum_v = zero(T)
-        for fi in 1:nx_f
-            sum_v += refined_state.v[fi, 1]
-        end
-        state.v[i, j] = sum_v * inv_ratio
+        state.v[i, j] = sum(@view refined_state.v[1:nx_f, 1]) * inv_ratio
     end
 
     # Top face of coarse cell (i,j) -> fine face at fj=nz_f+1
     if 1 <= j+1 <= size(state.v, 2)
-        sum_v = zero(T)
-        for fi in 1:nx_f
-            sum_v += refined_state.v[fi, nz_f+1]
-        end
-        state.v[i, j+1] = sum_v * inv_ratio
+        state.v[i, j+1] = sum(@view refined_state.v[1:nx_f, nz_f+1]) * inv_ratio
     end
 
-    # Project pressure: volume-weighted average of all fine cells
-    sum_p = zero(T)
-    for fj in 1:nz_f, fi in 1:nx_f
-        sum_p += refined_state.p[fi, fj]
-    end
-    state.p[i, j] = sum_p * inv_ratio2
+    # Project pressure: volume-weighted average of all fine cells using sum (GPU-compatible)
+    state.p[i, j] = sum(@view refined_state.p[1:nx_f, 1:nz_f]) * inv_ratio2
 end
 
 """
@@ -637,19 +577,17 @@ end
 
 Conservative projection of a single 3D refined cell to coarse grid.
 Uses volume-weighted averaging for pressure and face-averaged fluxes for velocities.
+
+GPU-compatible: Uses sum() with array views for parallel reduction.
 """
 function project_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
                            refined_grid::RefinedGrid{T}) where {T}
     # Get refined state for this cell
     refined_state = get(refined_grid.refined_states_3d, (i, j, k), nothing)
-    if refined_state === nothing
-        return
-    end
+    refined_state === nothing && return
 
     level = get(refined_grid.refined_cells_3d, (i, j, k), 0)
-    if level == 0
-        return
-    end
+    level == 0 && return
 
     ratio = 2^level
     inv_ratio2 = one(T) / (ratio * ratio)   # For face averaging
@@ -660,67 +598,39 @@ function project_cell_3d!(state::SolutionState{T}, i::Int, j::Int, k::Int,
     ny_f = size(refined_state.p, 2)
     nz_f = size(refined_state.p, 3)
 
-    # Project u-velocity: average fine u-values at coarse x-faces
+    # Project u-velocity: average fine u-values at coarse x-faces using sum (GPU-compatible)
     # Left face (i,j,k) -> fine face at fi=1
     if 1 <= i <= size(state.u, 1)
-        sum_u = zero(T)
-        for fk in 1:nz_f, fj in 1:ny_f
-            sum_u += refined_state.u[1, fj, fk]
-        end
-        state.u[i, j, k] = sum_u * inv_ratio2
+        state.u[i, j, k] = sum(@view refined_state.u[1, 1:ny_f, 1:nz_f]) * inv_ratio2
     end
 
     # Right face (i+1,j,k) -> fine face at fi=nx_f+1
     if 1 <= i+1 <= size(state.u, 1)
-        sum_u = zero(T)
-        for fk in 1:nz_f, fj in 1:ny_f
-            sum_u += refined_state.u[nx_f+1, fj, fk]
-        end
-        state.u[i+1, j, k] = sum_u * inv_ratio2
+        state.u[i+1, j, k] = sum(@view refined_state.u[nx_f+1, 1:ny_f, 1:nz_f]) * inv_ratio2
     end
 
-    # Project v-velocity: average fine v-values at coarse y-faces
+    # Project v-velocity: average fine v-values at coarse y-faces using sum (GPU-compatible)
     # Front face (i,j,k) -> fine face at fj=1
     if 1 <= j <= size(state.v, 2)
-        sum_v = zero(T)
-        for fk in 1:nz_f, fi in 1:nx_f
-            sum_v += refined_state.v[fi, 1, fk]
-        end
-        state.v[i, j, k] = sum_v * inv_ratio2
+        state.v[i, j, k] = sum(@view refined_state.v[1:nx_f, 1, 1:nz_f]) * inv_ratio2
     end
 
     # Back face (i,j+1,k) -> fine face at fj=ny_f+1
     if 1 <= j+1 <= size(state.v, 2)
-        sum_v = zero(T)
-        for fk in 1:nz_f, fi in 1:nx_f
-            sum_v += refined_state.v[fi, ny_f+1, fk]
-        end
-        state.v[i, j+1, k] = sum_v * inv_ratio2
+        state.v[i, j+1, k] = sum(@view refined_state.v[1:nx_f, ny_f+1, 1:nz_f]) * inv_ratio2
     end
 
-    # Project w-velocity: average fine w-values at coarse z-faces
+    # Project w-velocity: average fine w-values at coarse z-faces using sum (GPU-compatible)
     # Bottom face (i,j,k) -> fine face at fk=1
     if 1 <= k <= size(state.w, 3)
-        sum_w = zero(T)
-        for fj in 1:ny_f, fi in 1:nx_f
-            sum_w += refined_state.w[fi, fj, 1]
-        end
-        state.w[i, j, k] = sum_w * inv_ratio2
+        state.w[i, j, k] = sum(@view refined_state.w[1:nx_f, 1:ny_f, 1]) * inv_ratio2
     end
 
     # Top face (i,j,k+1) -> fine face at fk=nz_f+1
     if 1 <= k+1 <= size(state.w, 3)
-        sum_w = zero(T)
-        for fj in 1:ny_f, fi in 1:nx_f
-            sum_w += refined_state.w[fi, fj, nz_f+1]
-        end
-        state.w[i, j, k+1] = sum_w * inv_ratio2
+        state.w[i, j, k+1] = sum(@view refined_state.w[1:nx_f, 1:ny_f, nz_f+1]) * inv_ratio2
     end
 
-    # Project pressure: volume-weighted average of all fine cells
-    sum_p = zero(T)
-    for fk in 1:nz_f, fj in 1:ny_f, fi in 1:nx_f
-        sum_p += refined_state.p[fi, fj, fk]
-    end
-    state.p[i, j, k] = sum_p * inv_ratio3
+    # Project pressure: volume-weighted average of all fine cells using sum (GPU-compatible)
+    state.p[i, j, k] = sum(@view refined_state.p[1:nx_f, 1:ny_f, 1:nz_f]) * inv_ratio3
 end

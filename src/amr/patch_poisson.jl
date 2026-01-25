@@ -75,7 +75,7 @@ Create a PatchPoisson solver for a 2D refined patch.
 - `coarse_extent`: Number of coarse cells in (x, z)
 - `level`: Refinement level (1, 2, or 3)
 - `μ₀_coarse`: Coarse grid μ₀ coefficient array
-- `T`: Element type (default: Float32)
+- `T`: Element type (Float32 or Float64)
 
 Uses the same "unit spacing" convention as the base Poisson solver.
 The L coefficients are NOT scaled by ratio² - this is consistent with
@@ -85,7 +85,7 @@ function PatchPoisson(anchor::NTuple{2,Int},
                       coarse_extent::NTuple{2,Int},
                       level::Int,
                       μ₀_coarse::AbstractArray{Tc},
-                      ::Type{T}=Float32;
+                      ::Type{T}=Float64;
                       mem=Array) where {Tc,T}
     ratio = 2^level
     fine_dims = coarse_extent .* ratio
@@ -96,32 +96,21 @@ function PatchPoisson(anchor::NTuple{2,Int},
     # Grid spacing relative to coarse (coarse = 1)
     Δx = one(T) / ratio
 
-    # Create arrays on CPU first for initialization
-    # This avoids scalar indexing on GPU during initialization
-    x_cpu = zeros(T, Ng)
-    z_cpu = zeros(T, Ng)
-    r_cpu = zeros(T, Ng)
-    ϵ_cpu = zeros(T, Ng)
-    D_cpu = zeros(T, Ng)
-    iD_cpu = zeros(T, Ng)
-    L_cpu = ones(T, Ng..., 2)
+    # Create arrays (use mem for GPU support)
+    x = zeros(T, Ng) |> mem
+    z = zeros(T, Ng) |> mem
+    r = zeros(T, Ng) |> mem
+    ϵ = zeros(T, Ng) |> mem
+    D = zeros(T, Ng) |> mem
+    iD = zeros(T, Ng) |> mem
+    L = ones(T, Ng..., 2) |> mem
 
-    # Run CPU-based initialization (uses scalar indexing)
-    # Convert μ₀_coarse to CPU for initialization if needed
-    μ₀_cpu = μ₀_coarse isa Array ? μ₀_coarse : Array(μ₀_coarse)
-    initialize_patch_coefficients!(L_cpu, μ₀_cpu, anchor, coarse_extent, ratio)
+    # Initialize L from coarse μ₀ (interpolated)
+    # Uses unit spacing convention - NO ratio² scaling
+    initialize_patch_coefficients!(L, μ₀_coarse, anchor, coarse_extent, ratio)
 
-    # Compute diagonal on CPU
-    patch_set_diag!(D_cpu, iD_cpu, L_cpu, Ng)
-
-    # Now pipe to GPU (or keep on CPU if mem=Array)
-    x = x_cpu |> mem
-    z = z_cpu |> mem
-    r = r_cpu |> mem
-    ϵ = ϵ_cpu |> mem
-    D = D_cpu |> mem
-    iD = iD_cpu |> mem
-    L = L_cpu |> mem
+    # Compute diagonal
+    patch_set_diag!(D, iD, L, Ng)
 
     PatchPoisson{T, typeof(x), typeof(L)}(
         L, D, iD, x, ϵ, r, z, Int16[],
@@ -129,11 +118,37 @@ function PatchPoisson(anchor::NTuple{2,Int},
     )
 end
 
+# Helper for bilinear interpolation of coefficients (GPU-compatible)
+@inline function _interp_coeff_2d(μ₀_coarse::AbstractArray, I::CartesianIndex{2},
+                                   ai::Int, aj::Int, ratio::Int, d::Int, ::Type{T},
+                                   nc_i::Int, nc_j::Int) where T
+    fi, fj = I.I
+    inv_ratio = one(T) / ratio
+    xf = (T(fi) - T(1.5)) * inv_ratio
+    zf = (T(fj) - T(1.5)) * inv_ratio
+
+    ic = clamp(floor(Int, xf) + ai, 1, nc_i - 1)
+    jc = clamp(floor(Int, zf) + aj, 1, nc_j - 1)
+    wx = clamp(xf - floor(xf), zero(T), one(T))
+    wz = clamp(zf - floor(zf), zero(T), one(T))
+
+    if ic >= 1 && ic < nc_i && jc >= 1 && jc < nc_j
+        v00 = T(μ₀_coarse[ic, jc, d])
+        v10 = T(μ₀_coarse[ic+1, jc, d])
+        v01 = T(μ₀_coarse[ic, jc+1, d])
+        v11 = T(μ₀_coarse[ic+1, jc+1, d])
+        return (1-wx)*(1-wz)*v00 + wx*(1-wz)*v10 + (1-wx)*wz*v01 + wx*wz*v11
+    else
+        return one(T)
+    end
+end
+
 """
     initialize_patch_coefficients!(L, μ₀_coarse, anchor, extent, ratio)
 
 Initialize patch coefficient array L by interpolating from coarse μ₀.
 The coefficient at fine faces is interpolated from surrounding coarse values.
+GPU-compatible via @loop.
 """
 function initialize_patch_coefficients!(L::AbstractArray{T},
                                          μ₀_coarse::AbstractArray,
@@ -142,32 +157,20 @@ function initialize_patch_coefficients!(L::AbstractArray{T},
                                          ratio::Int) where T
     ai, aj = anchor
     nx, nz = size(L, 1) - 2, size(L, 2) - 2
+    nc_i, nc_j = size(μ₀_coarse, 1), size(μ₀_coarse, 2)
 
-    for fi in 1:nx+2, fj in 1:nz+2
-        # Position in coarse cell units
-        xf = (fi - T(1.5)) / ratio
-        zf = (fj - T(1.5)) / ratio
+    R = CartesianIndices((1:nx+2, 1:nz+2))
+    @loop L[I, 1] = _interp_coeff_2d(μ₀_coarse, I, ai, aj, ratio, 1, T, nc_i, nc_j) over I ∈ R
+    @loop L[I, 2] = _interp_coeff_2d(μ₀_coarse, I, ai, aj, ratio, 2, T, nc_i, nc_j) over I ∈ R
+end
 
-        # Coarse cell and interpolation weights
-        ic = clamp(floor(Int, xf) + ai, 1, size(μ₀_coarse, 1) - 1)
-        jc = clamp(floor(Int, zf) + aj, 1, size(μ₀_coarse, 2) - 1)
-        wx = clamp(xf - floor(xf), zero(T), one(T))
-        wz = clamp(zf - floor(zf), zero(T), one(T))
-
-        # Bilinear interpolation for each direction
-        for d in 1:2
-            if ic >= 1 && ic < size(μ₀_coarse, 1) && jc >= 1 && jc < size(μ₀_coarse, 2)
-                v00 = T(μ₀_coarse[ic, jc, d])
-                v10 = T(μ₀_coarse[ic+1, jc, d])
-                v01 = T(μ₀_coarse[ic, jc+1, d])
-                v11 = T(μ₀_coarse[ic+1, jc+1, d])
-                L[fi, fj, d] = (1-wx)*(1-wz)*v00 + wx*(1-wz)*v10 +
-                               (1-wx)*wz*v01 + wx*wz*v11
-            else
-                L[fi, fj, d] = one(T)
-            end
-        end
-    end
+# Helper for computing diagonal entry (GPU-compatible)
+@inline function _patch_diag_entry_2d(L::AbstractArray{T}, I::CartesianIndex{2}) where T
+    i, j = I.I
+    s = zero(T)
+    s -= L[i, j, 1] + L[i+1, j, 1]  # x-direction
+    s -= L[i, j, 2] + L[i, j+1, 2]  # z-direction
+    return s
 end
 
 """
@@ -175,16 +178,14 @@ end
 
 Compute diagonal and inverse diagonal for patch Poisson matrix.
 Same formula as base Poisson: D[I] = -Σᵢ(L[I,i] + L[I+δ(i),i])
+GPU-compatible via @loop.
 """
 function patch_set_diag!(D::AbstractArray{T}, iD::AbstractArray{T},
                           L::AbstractArray{T}, Ng::NTuple{2,Int}) where T
-    for j in 2:Ng[2]-1, i in 2:Ng[1]-1
-        s = zero(T)
-        s -= L[i, j, 1] + L[i+1, j, 1]  # x-direction
-        s -= L[i, j, 2] + L[i, j+1, 2]  # z-direction
-        D[i, j] = s
-        iD[i, j] = abs2(s) < 2eps(T) ? zero(T) : inv(s)
-    end
+    R = CartesianIndices((2:Ng[1]-1, 2:Ng[2]-1))
+    @loop (s = _patch_diag_entry_2d(L, I);
+           D[I] = s;
+           iD[I] = abs2(s) < 2eps(T) ? zero(T) : inv(s)) over I ∈ R
 end
 
 """
@@ -275,25 +276,21 @@ end
 """
     patch_L₂(patch::PatchPoisson)
 
-Compute L₂ norm of residual.
-Uses GPU-safe reduction that transfers to CPU to avoid scalar indexing
-with CartesianIndices views on CuArray.
+Compute L₂ norm of residual (GPU-compatible via sum).
 """
 function patch_L₂(patch::PatchPoisson{T}) where T
     R = inside(patch)
-    return _safe_sum_abs2(@view patch.r[R])
+    return sum(abs2, @view patch.r[R])
 end
 
 """
     patch_L∞(patch::PatchPoisson)
 
-Compute L∞ norm of residual.
-Uses GPU-safe reduction that transfers to CPU to avoid scalar indexing
-with CartesianIndices views on CuArray.
+Compute L∞ norm of residual (GPU-compatible via maximum).
 """
 function patch_L∞(patch::PatchPoisson{T}) where T
     R = inside(patch)
-    return _safe_maximum(abs, @view patch.r[R])
+    return maximum(abs, @view patch.r[R])
 end
 
 """
@@ -310,46 +307,46 @@ function patch_pcg!(patch::PatchPoisson{T}; it::Int=6) where T
     # z = M⁻¹r (Jacobi preconditioner), ϵ = z (search direction)
     @loop (z[I] = r[I] * iD[I]; ϵ[I] = z[I]) over I ∈ R
 
-    # ρ = r·z (GPU-compatible dot product)
+    # rho = r·z (GPU-compatible dot product)
     r_inside = @view r[R]
     z_inside = @view z[R]
-    ρ = sum(r_inside .* z_inside)
-    abs(ρ) < 10eps(T) && return
+    rho = sum(r_inside .* z_inside)
+    abs(rho) < 10eps(T) && return
 
     for iter in 1:it
         # z = A*ϵ (reusing z array)
         @loop z[I] = ϵ[I]*D[I] + ϵ[I-δ(1,I)]*L[I,1] + ϵ[I+δ(1,I)]*L[I+δ(1,I),1] +
                      ϵ[I-δ(2,I)]*L[I,2] + ϵ[I+δ(2,I)]*L[I+δ(2,I),2] over I ∈ R
 
-        # α = ρ / (z·ϵ)
+        # alpha = rho / (z·ϵ)
         ϵ_inside = @view ϵ[R]
         z_inside = @view z[R]
-        σ = sum(z_inside .* ϵ_inside)  # σ = ϵᵀAϵ
-        abs(σ) < 10eps(T) && return
-        α = ρ / σ
-        (!isfinite(α) || abs(α) < T(1e-2) || abs(α) > T(1e2)) && return
+        zϵ = sum(z_inside .* ϵ_inside)
+        abs(zϵ) < 10eps(T) && return
+        alpha = rho / zϵ
+        (!isfinite(alpha) || abs(alpha) < 1e-2 || abs(alpha) > 1e2) && return
 
-        # x += α*ϵ, r -= α*z
-        @loop (x[I] = x[I] + α * ϵ[I]; r[I] = r[I] - α * z[I]) over I ∈ R
+        # x += alpha*ϵ, r -= alpha*z
+        @loop (x[I] = x[I] + alpha * ϵ[I]; r[I] = r[I] - alpha * z[I]) over I ∈ R
 
         iter == it && return
 
         # z = M⁻¹r
         @loop z[I] = r[I] * iD[I] over I ∈ R
 
-        # ρ₂ = r·z
+        # rho2 = r·z
         r_inside = @view r[R]
         z_inside = @view z[R]
-        ρ₂ = sum(r_inside .* z_inside)
-        abs(ρ₂) < 10eps(T) && return
+        rho2 = sum(r_inside .* z_inside)
+        abs(rho2) < 10eps(T) && return
 
-        # β = ρ₂/ρ
-        β = ρ₂ / ρ
+        # beta = rho2/rho
+        beta = rho2 / rho
 
-        # ϵ = z + β*ϵ
-        @loop ϵ[I] = z[I] + β * ϵ[I] over I ∈ R
+        # ϵ = z + beta*ϵ
+        @loop ϵ[I] = z[I] + beta * ϵ[I] over I ∈ R
 
-        ρ = ρ₂
+        rho = rho2
     end
 end
 
@@ -380,12 +377,35 @@ function patch_solver!(patch::PatchPoisson{T}; tol::T=T(1e-4), itmx::Int=100) wh
     push!(patch.n, Int16(np))
 end
 
+# Helper for bilinear interpolation from coarse pressure (GPU-compatible)
+@inline function _bilinear_interp_p(p_coarse::AbstractArray{T}, fi::Int, fj::Int,
+                                     ai::Int, aj::Int, ratio::Int,
+                                     nc_i::Int, nc_j::Int) where T
+    inv_ratio = one(T) / ratio
+    x_coarse = (T(fi) - T(1.5)) * inv_ratio + ai
+    z_coarse = (T(fj) - T(1.5)) * inv_ratio + aj
+
+    ic = clamp(floor(Int, x_coarse), 1, nc_i - 1)
+    jc = clamp(floor(Int, z_coarse), 1, nc_j - 1)
+
+    wx = clamp(x_coarse - T(ic), zero(T), one(T))
+    wz = clamp(z_coarse - T(jc), zero(T), one(T))
+
+    v00 = p_coarse[ic, jc]
+    v10 = p_coarse[ic+1, jc]
+    v01 = p_coarse[ic, jc+1]
+    v11 = p_coarse[ic+1, jc+1]
+
+    return (1-wx)*(1-wz)*v00 + wx*(1-wz)*v10 + (1-wx)*wz*v01 + wx*wz*v11
+end
+
 """
     set_patch_boundary!(patch, p_coarse, anchor)
 
 Set patch ghost cell values from coarse pressure solution.
 Uses 2D bilinear interpolation for Dirichlet BCs at patch edges.
 Falls back to Neumann BC (zero gradient) at domain boundaries.
+GPU-compatible via @loop.
 
 The fine grid has cells 1..nx+2 where:
 - Cell 1 is the left ghost
@@ -404,87 +424,38 @@ function set_patch_boundary!(patch::PatchPoisson{T},
     ai, aj = anchor
     nx, nz = patch.fine_dims
     nc_i, nc_j = size(p_coarse, 1), size(p_coarse, 2)
-
-    # Helper for bilinear interpolation at a specific fine cell position
-    # The fine cell center is at (fi - 0.5) in 1-indexed fine coordinates
-    # Mapping to coarse: coarse_pos = (fi - 1) / ratio + ai - 1 + 0.5
-    # Simplified: coarse_pos = (fi - 1) / ratio + ai - 0.5
-    function bilinear_interp_at(fi::Int, fj::Int)
-        # Fine cell center in coarse coordinates (relative to ai, aj)
-        # Fine cell fi has center at (fi - 1.5) / ratio relative to anchor
-        x_coarse = (fi - T(1.5)) / ratio + ai
-        z_coarse = (fj - T(1.5)) / ratio + aj
-
-        # Get lower-left coarse cell for interpolation
-        # Cell ic has center at position ic, so floor(x_coarse) gives the cell
-        # whose center is at or below x_coarse
-        ic = floor(Int, x_coarse)
-        jc = floor(Int, z_coarse)
-
-        # Clamp to valid range (leaving room for +1 access)
-        ic = clamp(ic, 1, nc_i - 1)
-        jc = clamp(jc, 1, nc_j - 1)
-
-        # Interpolation weights (based on cell center positions)
-        # Coarse cell ic has center at ic (in 1-based coordinates)
-        wx = x_coarse - T(ic)
-        wz = z_coarse - T(jc)
-        wx = clamp(wx, zero(T), one(T))
-        wz = clamp(wz, zero(T), one(T))
-
-        # Bilinear interpolation
-        v00 = p_coarse[ic, jc]
-        v10 = p_coarse[ic+1, jc]
-        v01 = p_coarse[ic, jc+1]
-        v11 = p_coarse[ic+1, jc+1]
-
-        return (1-wx)*(1-wz)*v00 + wx*(1-wz)*v10 + (1-wx)*wz*v01 + wx*wz*v11
-    end
+    x = patch.x
 
     # Left boundary (i = 1) - ghost cell to the left of interior
+    R_left = CartesianIndices((1:nz+2,))
     if ai > 2  # Interior interface - use Dirichlet from coarse
-        for fj in 1:nz+2
-            patch.x[1, fj] = bilinear_interp_at(1, fj)
-        end
+        @loop x[1, I[1]] = _bilinear_interp_p(p_coarse, 1, I[1], ai, aj, ratio, nc_i, nc_j) over I ∈ R_left
     else  # Domain boundary - use Neumann BC (zero gradient)
-        for fj in 1:nz+2
-            patch.x[1, fj] = patch.x[2, fj]
-        end
+        @loop x[1, I[1]] = x[2, I[1]] over I ∈ R_left
     end
 
     # Right boundary (i = nx+2) - ghost cell to the right of interior
     right_coarse = ai + patch.coarse_extent[1]
     if right_coarse < nc_i  # Interior interface - use Dirichlet
-        for fj in 1:nz+2
-            patch.x[nx+2, fj] = bilinear_interp_at(nx+2, fj)
-        end
+        @loop x[nx+2, I[1]] = _bilinear_interp_p(p_coarse, nx+2, I[1], ai, aj, ratio, nc_i, nc_j) over I ∈ R_left
     else  # Domain boundary - use Neumann BC
-        for fj in 1:nz+2
-            patch.x[nx+2, fj] = patch.x[nx+1, fj]
-        end
+        @loop x[nx+2, I[1]] = x[nx+1, I[1]] over I ∈ R_left
     end
 
     # Bottom boundary (j = 1) - ghost cell below interior
+    R_bottom = CartesianIndices((1:nx+2,))
     if aj > 2  # Interior interface - use Dirichlet
-        for fi in 1:nx+2
-            patch.x[fi, 1] = bilinear_interp_at(fi, 1)
-        end
+        @loop x[I[1], 1] = _bilinear_interp_p(p_coarse, I[1], 1, ai, aj, ratio, nc_i, nc_j) over I ∈ R_bottom
     else  # Domain boundary - use Neumann BC
-        for fi in 1:nx+2
-            patch.x[fi, 1] = patch.x[fi, 2]
-        end
+        @loop x[I[1], 1] = x[I[1], 2] over I ∈ R_bottom
     end
 
     # Top boundary (j = nz+2) - ghost cell above interior
     top_coarse = aj + patch.coarse_extent[2]
     if top_coarse < nc_j  # Interior interface - use Dirichlet
-        for fi in 1:nx+2
-            patch.x[fi, nz+2] = bilinear_interp_at(fi, nz+2)
-        end
+        @loop x[I[1], nz+2] = _bilinear_interp_p(p_coarse, I[1], nz+2, ai, aj, ratio, nc_i, nc_j) over I ∈ R_bottom
     else  # Domain boundary - use Neumann BC
-        for fi in 1:nx+2
-            patch.x[fi, nz+2] = patch.x[fi, nz+1]
-        end
+        @loop x[I[1], nz+2] = x[I[1], nz+1] over I ∈ R_bottom
     end
 end
 
@@ -550,7 +521,7 @@ Create a PatchPoisson3D solver for a 3D refined patch.
 - `coarse_extent`: Number of coarse cells in (x, y, z)
 - `level`: Refinement level (1, 2, or 3)
 - `μ₀_coarse`: Coarse grid μ₀ coefficient array
-- `T`: Element type (default: Float32)
+- `T`: Element type (Float32 or Float64)
 
 Uses the same "unit spacing" convention as the base Poisson solver.
 The L coefficients are NOT scaled by ratio² - this is consistent with
@@ -560,7 +531,7 @@ function PatchPoisson3D(anchor::NTuple{3,Int},
                         coarse_extent::NTuple{3,Int},
                         level::Int,
                         μ₀_coarse::AbstractArray{Tc},
-                        ::Type{T}=Float32;
+                        ::Type{T}=Float64;
                         mem=Array) where {Tc,T}
     ratio = 2^level
     fine_dims = coarse_extent .* ratio
@@ -571,32 +542,21 @@ function PatchPoisson3D(anchor::NTuple{3,Int},
     # Grid spacing relative to coarse (coarse = 1)
     Δx = one(T) / ratio
 
-    # Create arrays on CPU first for initialization
-    # This avoids scalar indexing on GPU during initialization
-    x_cpu = zeros(T, Ng)
-    z_cpu = zeros(T, Ng)
-    r_cpu = zeros(T, Ng)
-    ϵ_cpu = zeros(T, Ng)
-    D_cpu = zeros(T, Ng)
-    iD_cpu = zeros(T, Ng)
-    L_cpu = ones(T, Ng..., 3)
+    # Create arrays (use mem for GPU support)
+    x = zeros(T, Ng) |> mem
+    z = zeros(T, Ng) |> mem
+    r = zeros(T, Ng) |> mem
+    ϵ = zeros(T, Ng) |> mem
+    D = zeros(T, Ng) |> mem
+    iD = zeros(T, Ng) |> mem
+    L = ones(T, Ng..., 3) |> mem
 
-    # Run CPU-based initialization (uses scalar indexing)
-    # Convert μ₀_coarse to CPU for initialization if needed
-    μ₀_cpu = μ₀_coarse isa Array ? μ₀_coarse : Array(μ₀_coarse)
-    initialize_patch_coefficients_3d!(L_cpu, μ₀_cpu, anchor, coarse_extent, ratio)
+    # Initialize L from coarse μ₀ (interpolated)
+    # Uses unit spacing convention - NO ratio² scaling
+    initialize_patch_coefficients_3d!(L, μ₀_coarse, anchor, coarse_extent, ratio)
 
-    # Compute diagonal on CPU
-    patch_set_diag_3d!(D_cpu, iD_cpu, L_cpu, Ng)
-
-    # Now pipe to GPU (or keep on CPU if mem=Array)
-    x = x_cpu |> mem
-    z = z_cpu |> mem
-    r = r_cpu |> mem
-    ϵ = ϵ_cpu |> mem
-    D = D_cpu |> mem
-    iD = iD_cpu |> mem
-    L = L_cpu |> mem
+    # Compute diagonal
+    patch_set_diag_3d!(D, iD, L, Ng)
 
     PatchPoisson3D{T, typeof(x), typeof(L)}(
         L, D, iD, x, ϵ, r, z, Int16[],
@@ -604,11 +564,50 @@ function PatchPoisson3D(anchor::NTuple{3,Int},
     )
 end
 
+# Helper for trilinear interpolation of coefficients (GPU-compatible)
+@inline function _interp_coeff_3d(μ₀_coarse::AbstractArray, I::CartesianIndex{3},
+                                   ai::Int, aj::Int, ak::Int, ratio::Int, d::Int, ::Type{T},
+                                   nc_i::Int, nc_j::Int, nc_k::Int) where T
+    fi, fj, fk = I.I
+    inv_ratio = one(T) / ratio
+    xf = (T(fi) - T(1.5)) * inv_ratio
+    yf = (T(fj) - T(1.5)) * inv_ratio
+    zf = (T(fk) - T(1.5)) * inv_ratio
+
+    ic = clamp(floor(Int, xf) + ai, 1, nc_i - 1)
+    jc = clamp(floor(Int, yf) + aj, 1, nc_j - 1)
+    kc = clamp(floor(Int, zf) + ak, 1, nc_k - 1)
+    wx = clamp(xf - floor(xf), zero(T), one(T))
+    wy = clamp(yf - floor(yf), zero(T), one(T))
+    wz = clamp(zf - floor(zf), zero(T), one(T))
+
+    if ic >= 1 && ic < nc_i && jc >= 1 && jc < nc_j && kc >= 1 && kc < nc_k
+        v000 = T(μ₀_coarse[ic, jc, kc, d])
+        v100 = T(μ₀_coarse[ic+1, jc, kc, d])
+        v010 = T(μ₀_coarse[ic, jc+1, kc, d])
+        v110 = T(μ₀_coarse[ic+1, jc+1, kc, d])
+        v001 = T(μ₀_coarse[ic, jc, kc+1, d])
+        v101 = T(μ₀_coarse[ic+1, jc, kc+1, d])
+        v011 = T(μ₀_coarse[ic, jc+1, kc+1, d])
+        v111 = T(μ₀_coarse[ic+1, jc+1, kc+1, d])
+
+        c00 = (1-wx)*v000 + wx*v100
+        c10 = (1-wx)*v010 + wx*v110
+        c01 = (1-wx)*v001 + wx*v101
+        c11 = (1-wx)*v011 + wx*v111
+        c0 = (1-wy)*c00 + wy*c10
+        c1 = (1-wy)*c01 + wy*c11
+        return (1-wz)*c0 + wz*c1
+    else
+        return one(T)
+    end
+end
+
 """
     initialize_patch_coefficients_3d!(L, μ₀_coarse, anchor, extent, ratio)
 
 Initialize 3D patch coefficient array L by interpolating from coarse μ₀.
-Uses trilinear interpolation.
+Uses trilinear interpolation. GPU-compatible via @loop.
 """
 function initialize_patch_coefficients_3d!(L::AbstractArray{T},
                                             μ₀_coarse::AbstractArray,
@@ -617,48 +616,22 @@ function initialize_patch_coefficients_3d!(L::AbstractArray{T},
                                             ratio::Int) where T
     ai, aj, ak = anchor
     nx, ny, nz = size(L, 1) - 2, size(L, 2) - 2, size(L, 3) - 2
+    nc_i, nc_j, nc_k = size(μ₀_coarse, 1), size(μ₀_coarse, 2), size(μ₀_coarse, 3)
 
-    for fi in 1:nx+2, fj in 1:ny+2, fk in 1:nz+2
-        # Position in coarse cell units
-        xf = (fi - T(1.5)) / ratio
-        yf = (fj - T(1.5)) / ratio
-        zf = (fk - T(1.5)) / ratio
+    R = CartesianIndices((1:nx+2, 1:ny+2, 1:nz+2))
+    @loop L[I, 1] = _interp_coeff_3d(μ₀_coarse, I, ai, aj, ak, ratio, 1, T, nc_i, nc_j, nc_k) over I ∈ R
+    @loop L[I, 2] = _interp_coeff_3d(μ₀_coarse, I, ai, aj, ak, ratio, 2, T, nc_i, nc_j, nc_k) over I ∈ R
+    @loop L[I, 3] = _interp_coeff_3d(μ₀_coarse, I, ai, aj, ak, ratio, 3, T, nc_i, nc_j, nc_k) over I ∈ R
+end
 
-        # Coarse cell and interpolation weights
-        ic = clamp(floor(Int, xf) + ai, 1, size(μ₀_coarse, 1) - 1)
-        jc = clamp(floor(Int, yf) + aj, 1, size(μ₀_coarse, 2) - 1)
-        kc = clamp(floor(Int, zf) + ak, 1, size(μ₀_coarse, 3) - 1)
-        wx = clamp(xf - floor(xf), zero(T), one(T))
-        wy = clamp(yf - floor(yf), zero(T), one(T))
-        wz = clamp(zf - floor(zf), zero(T), one(T))
-
-        # Trilinear interpolation for each direction
-        for d in 1:3
-            if ic >= 1 && ic < size(μ₀_coarse, 1) &&
-               jc >= 1 && jc < size(μ₀_coarse, 2) &&
-               kc >= 1 && kc < size(μ₀_coarse, 3)
-                v000 = T(μ₀_coarse[ic, jc, kc, d])
-                v100 = T(μ₀_coarse[ic+1, jc, kc, d])
-                v010 = T(μ₀_coarse[ic, jc+1, kc, d])
-                v110 = T(μ₀_coarse[ic+1, jc+1, kc, d])
-                v001 = T(μ₀_coarse[ic, jc, kc+1, d])
-                v101 = T(μ₀_coarse[ic+1, jc, kc+1, d])
-                v011 = T(μ₀_coarse[ic, jc+1, kc+1, d])
-                v111 = T(μ₀_coarse[ic+1, jc+1, kc+1, d])
-
-                # Trilinear interpolation
-                c00 = (1-wx)*v000 + wx*v100
-                c10 = (1-wx)*v010 + wx*v110
-                c01 = (1-wx)*v001 + wx*v101
-                c11 = (1-wx)*v011 + wx*v111
-                c0 = (1-wy)*c00 + wy*c10
-                c1 = (1-wy)*c01 + wy*c11
-                L[fi, fj, fk, d] = (1-wz)*c0 + wz*c1
-            else
-                L[fi, fj, fk, d] = one(T)
-            end
-        end
-    end
+# Helper for computing 3D diagonal entry (GPU-compatible)
+@inline function _patch_diag_entry_3d(L::AbstractArray{T}, I::CartesianIndex{3}) where T
+    i, j, k = I.I
+    s = zero(T)
+    s -= L[i, j, k, 1] + L[i+1, j, k, 1]  # x-direction
+    s -= L[i, j, k, 2] + L[i, j+1, k, 2]  # y-direction
+    s -= L[i, j, k, 3] + L[i, j, k+1, 3]  # z-direction
+    return s
 end
 
 """
@@ -666,17 +639,14 @@ end
 
 Compute diagonal and inverse diagonal for 3D patch Poisson matrix.
 Same formula as base Poisson: D[I] = -Σᵢ(L[I,i] + L[I+δ(i),i])
+GPU-compatible via @loop.
 """
 function patch_set_diag_3d!(D::AbstractArray{T}, iD::AbstractArray{T},
                              L::AbstractArray{T}, Ng::NTuple{3,Int}) where T
-    for k in 2:Ng[3]-1, j in 2:Ng[2]-1, i in 2:Ng[1]-1
-        s = zero(T)
-        s -= L[i, j, k, 1] + L[i+1, j, k, 1]  # x-direction
-        s -= L[i, j, k, 2] + L[i, j+1, k, 2]  # y-direction
-        s -= L[i, j, k, 3] + L[i, j, k+1, 3]  # z-direction
-        D[i, j, k] = s
-        iD[i, j, k] = abs2(s) < 2eps(T) ? zero(T) : inv(s)
-    end
+    R = CartesianIndices((2:Ng[1]-1, 2:Ng[2]-1, 2:Ng[3]-1))
+    @loop (s = _patch_diag_entry_3d(L, I);
+           D[I] = s;
+           iD[I] = abs2(s) < 2eps(T) ? zero(T) : inv(s)) over I ∈ R
 end
 
 """
@@ -770,13 +740,11 @@ end
 """
     patch_L₂_3d(patch::PatchPoisson3D)
 
-Compute L₂ norm of residual for 3D patch.
-Uses GPU-safe reduction that transfers to CPU to avoid scalar indexing
-with CartesianIndices views on CuArray.
+Compute L₂ norm of residual for 3D patch (GPU-compatible).
 """
 function patch_L₂_3d(patch::PatchPoisson3D{T}) where T
     R = inside(patch)
-    return _safe_sum_abs2(@view patch.r[R])
+    return sum(abs2, @view patch.r[R])
 end
 
 """
@@ -793,11 +761,11 @@ function patch_pcg_3d!(patch::PatchPoisson3D{T}; it::Int=6) where T
     # z = M⁻¹r (Jacobi preconditioner), ϵ = z (search direction)
     @loop (z[I] = r[I] * iD[I]; ϵ[I] = z[I]) over I ∈ R
 
-    # ρ = r·z (GPU-compatible dot product)
+    # rho = r·z (GPU-compatible dot product)
     r_inside = @view r[R]
     z_inside = @view z[R]
-    ρ = sum(r_inside .* z_inside)
-    abs(ρ) < 10eps(T) && return
+    rho = sum(r_inside .* z_inside)
+    abs(rho) < 10eps(T) && return
 
     for iter in 1:it
         # z = A*ϵ (reusing z array)
@@ -805,35 +773,35 @@ function patch_pcg_3d!(patch::PatchPoisson3D{T}; it::Int=6) where T
                      ϵ[I-δ(2,I)]*L[I,2] + ϵ[I+δ(2,I)]*L[I+δ(2,I),2] +
                      ϵ[I-δ(3,I)]*L[I,3] + ϵ[I+δ(3,I)]*L[I+δ(3,I),3] over I ∈ R
 
-        # α = ρ / (z·ϵ)
+        # alpha = rho / (z·ϵ)
         ϵ_inside = @view ϵ[R]
         z_inside = @view z[R]
-        σ = sum(z_inside .* ϵ_inside)  # σ = ϵᵀAϵ
-        abs(σ) < 10eps(T) && return
-        α = ρ / σ
-        (!isfinite(α) || abs(α) < T(1e-2) || abs(α) > T(1e2)) && return
+        zϵ = sum(z_inside .* ϵ_inside)
+        abs(zϵ) < 10eps(T) && return
+        alpha = rho / zϵ
+        (!isfinite(alpha) || abs(alpha) < 1e-2 || abs(alpha) > 1e2) && return
 
-        # x += α*ϵ, r -= α*z
-        @loop (x[I] = x[I] + α * ϵ[I]; r[I] = r[I] - α * z[I]) over I ∈ R
+        # x += alpha*ϵ, r -= alpha*z
+        @loop (x[I] = x[I] + alpha * ϵ[I]; r[I] = r[I] - alpha * z[I]) over I ∈ R
 
         iter == it && return
 
         # z = M⁻¹r
         @loop z[I] = r[I] * iD[I] over I ∈ R
 
-        # ρ₂ = r·z
+        # rho2 = r·z
         r_inside = @view r[R]
         z_inside = @view z[R]
-        ρ₂ = sum(r_inside .* z_inside)
-        abs(ρ₂) < 10eps(T) && return
+        rho2 = sum(r_inside .* z_inside)
+        abs(rho2) < 10eps(T) && return
 
-        # β = ρ₂/ρ
-        β = ρ₂ / ρ
+        # beta = rho2/rho
+        beta = rho2 / rho
 
-        # ϵ = z + β*ϵ
-        @loop ϵ[I] = z[I] + β * ϵ[I] over I ∈ R
+        # ϵ = z + beta*ϵ
+        @loop ϵ[I] = z[I] + beta * ϵ[I] over I ∈ R
 
-        ρ = ρ₂
+        rho = rho2
     end
 end
 
@@ -844,12 +812,48 @@ Default smoother for 3D patch (PCG).
 """
 patch_smooth_3d!(patch::PatchPoisson3D) = patch_pcg_3d!(patch)
 
+# Helper for trilinear interpolation from coarse pressure (GPU-compatible)
+@inline function _trilinear_interp_p(p_coarse::AbstractArray{T}, fi::Int, fj::Int, fk::Int,
+                                      ai::Int, aj::Int, ak::Int, ratio::Int,
+                                      nc_i::Int, nc_j::Int, nc_k::Int) where T
+    inv_ratio = one(T) / ratio
+    x_coarse = (T(fi) - T(1.5)) * inv_ratio + ai
+    y_coarse = (T(fj) - T(1.5)) * inv_ratio + aj
+    z_coarse = (T(fk) - T(1.5)) * inv_ratio + ak
+
+    ic = clamp(floor(Int, x_coarse), 1, nc_i - 1)
+    jc = clamp(floor(Int, y_coarse), 1, nc_j - 1)
+    kc = clamp(floor(Int, z_coarse), 1, nc_k - 1)
+
+    wx = clamp(x_coarse - T(ic), zero(T), one(T))
+    wy = clamp(y_coarse - T(jc), zero(T), one(T))
+    wz = clamp(z_coarse - T(kc), zero(T), one(T))
+
+    v000 = p_coarse[ic, jc, kc]
+    v100 = p_coarse[ic+1, jc, kc]
+    v010 = p_coarse[ic, jc+1, kc]
+    v110 = p_coarse[ic+1, jc+1, kc]
+    v001 = p_coarse[ic, jc, kc+1]
+    v101 = p_coarse[ic+1, jc, kc+1]
+    v011 = p_coarse[ic, jc+1, kc+1]
+    v111 = p_coarse[ic+1, jc+1, kc+1]
+
+    c00 = (1-wx)*v000 + wx*v100
+    c10 = (1-wx)*v010 + wx*v110
+    c01 = (1-wx)*v001 + wx*v101
+    c11 = (1-wx)*v011 + wx*v111
+    c0 = (1-wy)*c00 + wy*c10
+    c1 = (1-wy)*c01 + wy*c11
+    return (1-wz)*c0 + wz*c1
+end
+
 """
     set_patch_boundary_3d!(patch, p_coarse, anchor)
 
 Set 3D patch ghost cell values from coarse pressure solution.
 Uses trilinear interpolation for Dirichlet BCs at patch edges.
 Falls back to Neumann BC (zero gradient) at domain boundaries.
+GPU-compatible via @loop.
 """
 function set_patch_boundary_3d!(patch::PatchPoisson3D{T},
                                  p_coarse::AbstractArray{T},
@@ -858,106 +862,54 @@ function set_patch_boundary_3d!(patch::PatchPoisson3D{T},
     ai, aj, ak = anchor
     nx, ny, nz = patch.fine_dims
     nc_i, nc_j, nc_k = size(p_coarse, 1), size(p_coarse, 2), size(p_coarse, 3)
-
-    # Helper for trilinear interpolation
-    function trilinear_interp_at(fi::Int, fj::Int, fk::Int)
-        x_coarse = (fi - T(1.5)) / ratio + ai
-        y_coarse = (fj - T(1.5)) / ratio + aj
-        z_coarse = (fk - T(1.5)) / ratio + ak
-
-        ic = clamp(floor(Int, x_coarse), 1, nc_i - 1)
-        jc = clamp(floor(Int, y_coarse), 1, nc_j - 1)
-        kc = clamp(floor(Int, z_coarse), 1, nc_k - 1)
-
-        wx = clamp(x_coarse - T(ic), zero(T), one(T))
-        wy = clamp(y_coarse - T(jc), zero(T), one(T))
-        wz = clamp(z_coarse - T(kc), zero(T), one(T))
-
-        v000 = p_coarse[ic, jc, kc]
-        v100 = p_coarse[ic+1, jc, kc]
-        v010 = p_coarse[ic, jc+1, kc]
-        v110 = p_coarse[ic+1, jc+1, kc]
-        v001 = p_coarse[ic, jc, kc+1]
-        v101 = p_coarse[ic+1, jc, kc+1]
-        v011 = p_coarse[ic, jc+1, kc+1]
-        v111 = p_coarse[ic+1, jc+1, kc+1]
-
-        c00 = (1-wx)*v000 + wx*v100
-        c10 = (1-wx)*v010 + wx*v110
-        c01 = (1-wx)*v001 + wx*v101
-        c11 = (1-wx)*v011 + wx*v111
-        c0 = (1-wy)*c00 + wy*c10
-        c1 = (1-wy)*c01 + wy*c11
-        return (1-wz)*c0 + wz*c1
-    end
+    x = patch.x
 
     # Left boundary (i = 1)
+    R_yz = CartesianIndices((1:ny+2, 1:nz+2))
     if ai > 2
-        for fj in 1:ny+2, fk in 1:nz+2
-            patch.x[1, fj, fk] = trilinear_interp_at(1, fj, fk)
-        end
+        @loop x[1, I[1], I[2]] = _trilinear_interp_p(p_coarse, 1, I[1], I[2], ai, aj, ak, ratio, nc_i, nc_j, nc_k) over I ∈ R_yz
     else
-        for fj in 1:ny+2, fk in 1:nz+2
-            patch.x[1, fj, fk] = patch.x[2, fj, fk]
-        end
+        @loop x[1, I[1], I[2]] = x[2, I[1], I[2]] over I ∈ R_yz
     end
 
     # Right boundary (i = nx+2)
     right_coarse = ai + patch.coarse_extent[1]
     if right_coarse < nc_i
-        for fj in 1:ny+2, fk in 1:nz+2
-            patch.x[nx+2, fj, fk] = trilinear_interp_at(nx+2, fj, fk)
-        end
+        @loop x[nx+2, I[1], I[2]] = _trilinear_interp_p(p_coarse, nx+2, I[1], I[2], ai, aj, ak, ratio, nc_i, nc_j, nc_k) over I ∈ R_yz
     else
-        for fj in 1:ny+2, fk in 1:nz+2
-            patch.x[nx+2, fj, fk] = patch.x[nx+1, fj, fk]
-        end
+        @loop x[nx+2, I[1], I[2]] = x[nx+1, I[1], I[2]] over I ∈ R_yz
     end
 
     # Front boundary (j = 1)
+    R_xz = CartesianIndices((1:nx+2, 1:nz+2))
     if aj > 2
-        for fi in 1:nx+2, fk in 1:nz+2
-            patch.x[fi, 1, fk] = trilinear_interp_at(fi, 1, fk)
-        end
+        @loop x[I[1], 1, I[2]] = _trilinear_interp_p(p_coarse, I[1], 1, I[2], ai, aj, ak, ratio, nc_i, nc_j, nc_k) over I ∈ R_xz
     else
-        for fi in 1:nx+2, fk in 1:nz+2
-            patch.x[fi, 1, fk] = patch.x[fi, 2, fk]
-        end
+        @loop x[I[1], 1, I[2]] = x[I[1], 2, I[2]] over I ∈ R_xz
     end
 
     # Back boundary (j = ny+2)
     back_coarse = aj + patch.coarse_extent[2]
     if back_coarse < nc_j
-        for fi in 1:nx+2, fk in 1:nz+2
-            patch.x[fi, ny+2, fk] = trilinear_interp_at(fi, ny+2, fk)
-        end
+        @loop x[I[1], ny+2, I[2]] = _trilinear_interp_p(p_coarse, I[1], ny+2, I[2], ai, aj, ak, ratio, nc_i, nc_j, nc_k) over I ∈ R_xz
     else
-        for fi in 1:nx+2, fk in 1:nz+2
-            patch.x[fi, ny+2, fk] = patch.x[fi, ny+1, fk]
-        end
+        @loop x[I[1], ny+2, I[2]] = x[I[1], ny+1, I[2]] over I ∈ R_xz
     end
 
     # Bottom boundary (k = 1)
+    R_xy = CartesianIndices((1:nx+2, 1:ny+2))
     if ak > 2
-        for fi in 1:nx+2, fj in 1:ny+2
-            patch.x[fi, fj, 1] = trilinear_interp_at(fi, fj, 1)
-        end
+        @loop x[I[1], I[2], 1] = _trilinear_interp_p(p_coarse, I[1], I[2], 1, ai, aj, ak, ratio, nc_i, nc_j, nc_k) over I ∈ R_xy
     else
-        for fi in 1:nx+2, fj in 1:ny+2
-            patch.x[fi, fj, 1] = patch.x[fi, fj, 2]
-        end
+        @loop x[I[1], I[2], 1] = x[I[1], I[2], 2] over I ∈ R_xy
     end
 
     # Top boundary (k = nz+2)
     top_coarse = ak + patch.coarse_extent[3]
     if top_coarse < nc_k
-        for fi in 1:nx+2, fj in 1:ny+2
-            patch.x[fi, fj, nz+2] = trilinear_interp_at(fi, fj, nz+2)
-        end
+        @loop x[I[1], I[2], nz+2] = _trilinear_interp_p(p_coarse, I[1], I[2], nz+2, ai, aj, ak, ratio, nc_i, nc_j, nc_k) over I ∈ R_xy
     else
-        for fi in 1:nx+2, fj in 1:ny+2
-            patch.x[fi, fj, nz+2] = patch.x[fi, fj, nz+1]
-        end
+        @loop x[I[1], I[2], nz+2] = x[I[1], I[2], nz+1] over I ∈ R_xy
     end
 end
 
