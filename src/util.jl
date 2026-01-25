@@ -206,7 +206,7 @@ end
 grab!(sym,ex::Symbol) = union!(sym,[ex])          # grab symbol name
 grab!(sym,ex) = nothing
 rep(ex) = ex
-rep(ex::Expr) = ex.head == :. ? Symbol(ex.args[2].value) : ex
+rep(ex::Expr) = ex.head == :. ? Symbol(ex.args[1], "_", ex.args[2].value) : ex
 joinsymtype(sym::Symbol,symT::Symbol) = Expr(:(::), sym, symT)
 joinsymtype(sym,symT) = zip(sym,symT) .|> x->joinsymtype(x...)
 
