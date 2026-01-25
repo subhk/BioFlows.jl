@@ -199,9 +199,15 @@ macro loop(args...)
 end
 function grab!(sym,ex::Expr)
     ex.head == :. && return union!(sym,[ex])      # grab composite name and return
-    start = ex.head==:(call) ? 2 : 1              # don't grab function names
-    foreach(a->grab!(sym,a),ex.args[start:end])   # recurse into args
-    ex.args[start:end] = rep.(ex.args[start:end]) # replace composites in args
+    if ex.head == :(=) && ex.args[1] isa Symbol
+        # Simple assignment (e.g., `s = ...`): skip LHS (it's a local variable)
+        grab!(sym, ex.args[2])
+        ex.args[2] = rep(ex.args[2])
+    else
+        start = ex.head==:(call) ? 2 : 1          # don't grab function names
+        foreach(a->grab!(sym,a),ex.args[start:end])   # recurse into args
+        ex.args[start:end] = rep.(ex.args[start:end]) # replace composites in args
+    end
 end
 grab!(sym,ex::Symbol) = union!(sym,[ex])          # grab symbol name
 grab!(sym,ex) = nothing
