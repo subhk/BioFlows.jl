@@ -197,20 +197,36 @@ macro loop(args...)
         end |> esc
     end
 end
-function grab!(sym,ex::Expr)
+# Collect local variables (symbols assigned to within the expression)
+function collect_locals!(locals::Set{Symbol}, ex::Expr)
+    if ex.head == :(=) && ex.args[1] isa Symbol
+        push!(locals, ex.args[1])
+    end
+    foreach(a -> collect_locals!(locals, a), ex.args)
+end
+collect_locals!(locals::Set{Symbol}, ex) = nothing
+
+# Main grab! entry point: first collect locals, then grab non-local symbols
+function grab!(sym, ex)
+    locals = Set{Symbol}()
+    collect_locals!(locals, ex)
+    _grab!(sym, ex, locals)
+end
+
+function _grab!(sym, ex::Expr, locals::Set{Symbol})
     ex.head == :. && return union!(sym,[ex])      # grab composite name and return
     if ex.head == :(=) && ex.args[1] isa Symbol
-        # Simple assignment (e.g., `s = ...`): skip LHS (it's a local variable)
-        grab!(sym, ex.args[2])
+        # Simple assignment: only process RHS
+        _grab!(sym, ex.args[2], locals)
         ex.args[2] = rep(ex.args[2])
     else
         start = ex.head==:(call) ? 2 : 1          # don't grab function names
-        foreach(a->grab!(sym,a),ex.args[start:end])   # recurse into args
+        foreach(a->_grab!(sym, a, locals), ex.args[start:end])   # recurse into args
         ex.args[start:end] = rep.(ex.args[start:end]) # replace composites in args
     end
 end
-grab!(sym,ex::Symbol) = union!(sym,[ex])          # grab symbol name
-grab!(sym,ex) = nothing
+_grab!(sym, ex::Symbol, locals::Set{Symbol}) = ex ∉ locals && union!(sym,[ex])  # grab non-local symbols
+_grab!(sym, ex, locals::Set{Symbol}) = nothing
 rep(ex) = ex
 rep(ex::Expr) = ex.head == :. ? Symbol(ex.args[1], "_", ex.args[2].value) : ex
 joinsymtype(sym::Symbol,symT::Symbol) = Expr(:(::), sym, symT)
