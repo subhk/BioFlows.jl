@@ -3,7 +3,7 @@ using BioFlows
 using JLD2
 
 # Print threading information
-@info "Running BioFlows tests" threads=Threads.nthreads() cpu_threads=BioFlows.cpu_threads backend=BioFlows.backend
+@info "Running BioFlows tests" threads=Threads.nthreads() backend=BioFlows.backend
 
 @testset "BioFlows example constructors" begin
     include(joinpath(@__DIR__, "..", "examples", "circle_benchmark.jl"))
