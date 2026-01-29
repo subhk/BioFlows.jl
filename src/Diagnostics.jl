@@ -19,29 +19,32 @@ using StaticArrays
 # =============================================================================
 # BioFlows arrays include ghost cells for boundary conditions.
 # These helpers strip ghost cells to return only physical domain values.
+# GPU arrays are explicitly synchronized and transferred to CPU.
 # =============================================================================
 
 # Internal helper to strip ghost layers from BioFlows arrays.
+# For GPU arrays, this ensures synchronization and returns a CPU Array.
 _strip_ghosts(A, spatial_dims) = begin
     ranges = ntuple(i -> i <= spatial_dims && size(A, i) > 2 ? (2:size(A, i)-1) : (1:size(A, i)), ndims(A))
-    copy(view(A, ranges...))
+    # Use to_cpu for explicit GPU→CPU transfer with synchronization
+    to_cpu(view(A, ranges...))
 end
 
 @inline _vorticity2d(I, u) = ∂(2,1,I,u) - ∂(1,2,I,u)
 @inline _vorticity2d(I, u, Δx) = ∂(2,1,I,u)/Δx[1] - ∂(1,2,I,u)/Δx[2]
 
 """
-    vorticity_component(sim, component; strip_ghosts=true, physical=false)
+    vorticity_component(sim, component; strip_ghosts=true, physical=true)
 
 Return the requested vorticity component evaluated at cell centres.
 For 2D simulations use `component=3` to obtain the out-of-plane vorticity.
 
 # Arguments
-- `physical=false`: If true, return physical vorticity in units of 1/s (scaled by Δx).
-                    If false, return unit-spacing vorticity (raw differences).
+- `physical=true`: If true, return physical vorticity in units of 1/s (scaled by Δx).
+                   If false, return unit-spacing vorticity (raw differences).
 """
 function vorticity_component(sim::AbstractSimulation, component::Integer;
-                             strip_ghosts::Bool=true, physical::Bool=false)
+                             strip_ghosts::Bool=true, physical::Bool=true)
     spatial_dims = ndims(sim.flow.p)
     spatial_dims == 2 && component != 3 &&
         throw(ArgumentError("2D vorticity has only component=3 (out-of-plane)."))
@@ -64,15 +67,15 @@ function vorticity_component(sim::AbstractSimulation, component::Integer;
 end
 
 """
-    vorticity_magnitude(sim; strip_ghosts=true, physical=false)
+    vorticity_magnitude(sim; strip_ghosts=true, physical=true)
 
 Compute the vorticity magnitude field for the current simulation state.
 
 # Arguments
-- `physical=false`: If true, return physical vorticity magnitude in units of 1/s (scaled by Δx).
-                    If false, return unit-spacing vorticity magnitude (raw differences).
+- `physical=true`: If true, return physical vorticity magnitude in units of 1/s (scaled by Δx).
+                   If false, return unit-spacing vorticity magnitude (raw differences).
 """
-function vorticity_magnitude(sim::AbstractSimulation; strip_ghosts::Bool=true, physical::Bool=false)
+function vorticity_magnitude(sim::AbstractSimulation; strip_ghosts::Bool=true, physical::Bool=true)
     spatial_dims = ndims(sim.flow.p)
     ω_field = similar(sim.flow.p)
     fill!(ω_field, zero(eltype(ω_field)))
@@ -123,17 +126,17 @@ function cell_center_pressure(sim::AbstractSimulation; strip_ghosts::Bool=true)
 end
 
 """
-    cell_center_vorticity(sim; strip_ghosts=true, physical=false)
+    cell_center_vorticity(sim; strip_ghosts=true, physical=true)
 
 Return the vorticity at cell centres. For 2D simulations this returns a scalar
 field (the `ω₃` component); for 3D it returns the full vector with the last
 dimension indexing components.
 
 # Arguments
-- `physical=false`: If true, return physical vorticity in units of 1/s (scaled by Δx).
-                    If false, return unit-spacing vorticity (raw differences).
+- `physical=true`: If true, return physical vorticity in units of 1/s (scaled by Δx).
+                   If false, return unit-spacing vorticity (raw differences).
 """
-function cell_center_vorticity(sim::AbstractSimulation; strip_ghosts::Bool=true, physical::Bool=false)
+function cell_center_vorticity(sim::AbstractSimulation; strip_ghosts::Bool=true, physical::Bool=true)
     spatial_dims = ndims(sim.flow.p)
     Δx = sim.flow.Δx
     if spatial_dims == 2

@@ -43,24 +43,40 @@ Queries the body geometry to fill the arrays:
 - `flow.μ₁`, First kernel moment scaled by the body normal
 - `flow.V`,  Body velocity
 
-at time `t` using an immersion kernel of size `ϵ`.
+at time `t` using an immersion kernel of size `ϵ` (in grid cells).
+
+The SDF is queried using **physical coordinates** (x = grid_index × Δx), so users
+should define their SDF in physical units (meters). The returned distance is scaled
+back to grid cells for kernel computation.
 
 See Maertens & Weymouth, doi:[10.1016/j.cma.2014.09.007](https://doi.org/10.1016/j.cma.2014.09.007).
 """
 function measure!(a::Flow{N,T},body::AbstractBody;t=zero(T),ϵ=1) where {N,T}
-    a.V .= zero(T); a.μ₀ .= one(T); a.μ₁ .= zero(T); d²=(2+ϵ)^2
+    a.V .= zero(T); a.μ₀ .= one(T); a.μ₁ .= zero(T)
+    Δx = a.Δx
+    h = minimum(Δx)  # Characteristic grid spacing for scaling
+    inv_h = inv(h)   # Scale physical distance to grid cells
+    ϵ_scaled = T(ϵ)  # Kernel width in grid cells
+    d²=(2+ϵ_scaled)^2  # Cutoff in grid cell units
+    d²_phys = d² * h^2  # Cutoff in physical units for fast rejection
     @fastmath @inline function fill!(μ₀,μ₁,V,d,I)
-        d[I] = sdf(body,loc(0,I,T),t,fastd²=d²)
-        if d[I]^2<d²
+        # Query SDF using physical coordinates
+        x_phys = loc_physical(0,I,Δx,T)
+        d_phys = sdf(body,x_phys,t,fastd²=d²_phys)
+        d_cells = d_phys * inv_h  # Convert to grid cell units
+        d[I] = d_cells
+        if d_cells^2<d²
             for i ∈ 1:N
-                dᵢ,nᵢ,Vᵢ = measure(body,loc(i,I,T),t,fastd²=d²)
+                x_face = loc_physical(i,I,Δx,T)
+                dᵢ_phys,nᵢ,Vᵢ = measure(body,x_face,t,fastd²=d²_phys)
+                dᵢ_cells = dᵢ_phys * inv_h  # Convert to grid cells
                 V[I,i] = Vᵢ[i]
-                μ₀[I,i] = BioFlows.μ₀(dᵢ,ϵ)
+                μ₀[I,i] = BioFlows.μ₀(dᵢ_cells,ϵ_scaled)
                 for j ∈ 1:N
-                    μ₁[I,i,j] = BioFlows.μ₁(dᵢ,ϵ)*nᵢ[j]
+                    μ₁[I,i,j] = BioFlows.μ₁(dᵢ_cells,ϵ_scaled)*nᵢ[j]
                 end
             end
-        elseif d[I]<zero(T)
+        elseif d_cells<zero(T)
             for i ∈ 1:N
                 μ₀[I,i] = zero(T)
             end
@@ -109,12 +125,16 @@ Measure only the distance. Defaults to fastd²=0 for quick evaluation.
 sdf(body::AbstractBody,x,t=0;fastd²=0) = measure(body,x,t;fastd²)[1]
 
 """
-    measure_sdf!(a::AbstractArray, body::AbstractBody, t=0; fastd²=0)
+    measure_sdf!(a::AbstractArray, body::AbstractBody, t=0; Δx, fastd²=0)
 
-Uses `sdf(body,x,t)` to fill `a`. Defaults to fastd²=0 for quick evaluation.
+Uses `sdf(body,x,t)` to fill `a` using physical coordinates.
+
+The `Δx` parameter (tuple of grid spacings) is **required** to ensure proper
+coordinate conversion. Physical coordinates are used to query the SDF.
 """
-function measure_sdf!(a::AbstractArray{T},body::AbstractBody,t=zero(T);fastd²=zero(T)) where T
-    @inside a[I] = sdf(body,loc(0,I,T),t;fastd²)
+function measure_sdf!(a::AbstractArray{T},body::AbstractBody,t=zero(T);
+                      Δx,fastd²=zero(T)) where T
+    @inside a[I] = sdf(body,loc_physical(0,I,Δx,T),t;fastd²)
 end
 
 """

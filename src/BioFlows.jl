@@ -49,7 +49,7 @@ end
 
 # Core utilities and macros
 _silent_include("util.jl")
-export L₂,BC!,@inside,inside,δ,apply!,loc,@log,set_backend,backend
+export L₂,BC!,@inside,inside,δ,apply!,loc,loc_physical,interp,interp_physical,@log,set_backend,backend
 
 using Reexport
 @reexport using KernelAbstractions: @kernel,@index,get_backend
@@ -64,7 +64,7 @@ export MultiLevelPoisson
 
 # Flow solver
 _silent_include("Flow.jl")
-export Flow,mom_step!,quick,cds
+export Flow,mom_step!,quick,cds,update_L!
 export compute_face_flux!,apply_fluxes!,conv_diff_fvm!
 
 # Body definitions
@@ -211,15 +211,11 @@ mutable struct Simulation <: AbstractSimulation
         # Use L_char for dimensionless time/forces, default to L[1]
         char_length = isnothing(L_char) ? L[1] : L_char
 
-        # Check for anisotropic grids - not supported
-        Δx = flow.Δx
-        if !all(isapprox.(Δx, Δx[1], rtol=1e-6))
-            error("Anisotropic grids (Δx ≠ Δy) are not supported. " *
-                  "The pressure solver requires uniform grid spacing in all directions. " *
-                  "Got Δx = $Δx. Adjust grid resolution or domain size to ensure Δx = Δy = Δz.")
-        end
+        # Note: Anisotropic grids (Δx ≠ Δy) are now supported.
+        # The pressure solver uses direction-specific L coefficients: L[I,d] = μ₀[I,d]/Δx[d]²
+        # For highly anisotropic grids (aspect ratio > 4), multigrid convergence may be slower.
 
-        new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.μ₀,flow.σ;perdir))
+        new(U,char_length,ϵ,flow,body,MultiLevelPoisson(flow.p,flow.L,flow.σ;perdir))
     end
 end
 
@@ -264,6 +260,7 @@ Measure a dynamic `body` to update the `flow` and `pois` coefficients.
 """
 function measure!(sim::AbstractSimulation,t=sum(sim.flow.Δt))
     measure!(sim.flow,sim.body;t,ϵ=sim.ϵ)
+    update_L!(sim.flow)  # Update L = μ₀/Δx² after body measurement
     update!(sim.pois)
 end
 
@@ -713,7 +710,7 @@ end
 perturb!(amr::AMRSimulation; noise=0.1) = perturb!(amr.sim; noise)
 
 function measure!(amr::AMRSimulation, t=sum(amr.sim.flow.Δt))
-    measure!(amr.sim, t)
+    measure!(amr.sim, t)  # This already calls update_L! and update!(pois)
     # Update composite Poisson after remeasure (coefficients may change)
     update!(amr.composite_pois)
 end
@@ -1132,6 +1129,28 @@ macro gpu_array(T, ex)
     end
 end
 
-export gpu_backend, @gpu_array
+"""
+    gpu_sync!(arr)
+
+Synchronize the GPU backend associated with the given array.
+This ensures all GPU operations on the array have completed before
+reading results back to CPU.
+
+For CPU arrays, this is a no-op. For GPU arrays (CuArray), this
+is overloaded by the BioFlowsCUDAExt extension.
+"""
+gpu_sync!(arr::AbstractArray) = nothing  # No-op for CPU arrays
+
+"""
+    to_cpu(arr)
+
+Convert an array to a CPU Array. For CPU arrays, returns a copy.
+For GPU arrays, synchronizes and transfers to CPU.
+
+This function is overloaded by the BioFlowsCUDAExt extension for CuArrays.
+"""
+to_cpu(arr::AbstractArray) = Array(arr)  # CPU arrays: just copy
+
+export gpu_backend, @gpu_array, gpu_sync!, to_cpu
 
 end # module

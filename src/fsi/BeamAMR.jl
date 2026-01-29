@@ -133,17 +133,20 @@ function compute_beam_refinement_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBo
                                            distance_threshold::Real=3.0) where {N,T}
     # Compute on CPU (beam data is CPU-based, regridding is infrequent)
     indicator_cpu = zeros(T, size(flow.p))
-    threshold = T(distance_threshold)
+    threshold_cells = T(distance_threshold)  # Threshold in grid cells
+    Δx = flow.Δx
+    h = minimum(Δx)  # Characteristic grid spacing
 
     # Update beam SDF with current state
     update!(beam_sdf)
 
-    # Compute indicator on CPU
+    # Compute indicator on CPU using physical coordinates
     R = inside(flow.p)
     for I in R
-        x = loc(0, I, T)
-        d = beam_sdf(x, zero(T))
-        indicator_cpu[I] = abs(d) < threshold ? one(T) : zero(T)
+        x = loc_physical(0, I, Δx, T)  # Physical coordinates
+        d_phys = beam_sdf(x, zero(T))  # Distance in physical units
+        d_cells = d_phys / h           # Convert to grid cells
+        indicator_cpu[I] = abs(d_cells) < threshold_cells ? one(T) : zero(T)
     end
 
     # Copy to GPU if flow arrays are on GPU
@@ -181,8 +184,10 @@ function compute_beam_motion_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBodySD
                                        distance_threshold::Real=5.0) where {N,T}
     # Compute on CPU (beam data is CPU-based)
     indicator_cpu = zeros(T, size(flow.p))
-    threshold = T(distance_threshold)
+    threshold_cells = T(distance_threshold)  # Threshold in grid cells
     motion_thresh = T(motion_threshold)
+    Δx = flow.Δx
+    h = minimum(Δx)  # Characteristic grid spacing
 
     # Update beam SDF
     update!(beam_sdf)
@@ -202,13 +207,17 @@ function compute_beam_motion_indicator(flow::Flow{N,T}, beam_sdf::FlexibleBodySD
     end
 
     # Mark region around both old and new positions (computed on CPU)
+    # Uses physical coordinates for SDF query
     R = inside(flow.p)
     for I in R
-        x = loc(0, I, T)
-        # Distance to current and previous beam positions
-        d_new = abs(_beam_sdf_with_displacement(beam_sdf, x, beam_sdf.w_current))
-        d_old = abs(_beam_sdf_with_displacement(beam_sdf, x, last_displacement))
-        indicator_cpu[I] = (d_new < threshold || d_old < threshold) ? one(T) : zero(T)
+        x = loc_physical(0, I, Δx, T)  # Physical coordinates
+        # Distance to current and previous beam positions (physical units)
+        d_new_phys = abs(_beam_sdf_with_displacement(beam_sdf, x, beam_sdf.w_current))
+        d_old_phys = abs(_beam_sdf_with_displacement(beam_sdf, x, last_displacement))
+        # Convert to grid cells for threshold comparison
+        d_new = d_new_phys / h
+        d_old = d_old_phys / h
+        indicator_cpu[I] = (d_new < threshold_cells || d_old < threshold_cells) ? one(T) : zero(T)
     end
 
     # Copy to GPU if flow arrays are on GPU
@@ -483,21 +492,29 @@ end
 
 """
     count_refined_cells_near_beam(refined_grid, beam_sdf::FlexibleBodySDF;
-                                   distance=3.0)
+                                   distance=3.0, Δx)
 
 Count how many refined cells are within a given distance of the beam.
 Useful for monitoring AMR performance.
+
+# Arguments
+- `refined_grid`: The RefinedGrid tracking refined cells
+- `beam_sdf`: FlexibleBodySDF representing the beam
+- `distance`: Distance threshold in grid cells
+- `Δx`: Grid spacing tuple (required). Uses physical coordinates for SDF query.
 """
 function count_refined_cells_near_beam(refined_grid, beam_sdf::FlexibleBodySDF{T};
-                                       distance::Real=3.0) where T
+                                       distance::Real=3.0, Δx) where T
     update!(beam_sdf)
     count = 0
+    h = minimum(Δx)
 
     if hasfield(typeof(refined_grid), :refined_cells_2d)
         for (cell, level) in refined_grid.refined_cells_2d
             I = CartesianIndex(cell)
-            x = loc(0, I, T)
-            d = abs(beam_sdf(x, zero(T)))
+            x = loc_physical(0, I, Δx, T)
+            d_phys = abs(beam_sdf(x, zero(T)))
+            d = d_phys / h  # Convert to grid cells
             if d < T(distance)
                 count += 1
             end

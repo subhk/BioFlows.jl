@@ -50,8 +50,9 @@
 # DIVERGENCE AND BDIM OPERATORS
 # =============================================================================
 
-# Velocity divergence: ∇·u = Σ ∂u_i/∂x_i (unit spacing, Δx=1)
-# Used to compute pressure source term in projection step
+# Velocity divergence with unit spacing: div_unit(u) = Σ (u[I+1,i] - u[I,i])
+# Physical divergence: ∇·u = div_unit(u) / Δx
+# Used in project!(): RHS = (ρ/Δx) * div_unit(u) = ρ * ∇·u
 @fastmath @inline function div(I::CartesianIndex{m},u) where {m}
     init=zero(eltype(u))
     for i in 1:m
@@ -72,10 +73,17 @@ end
 
 # BDIM first-moment correction: μ₁·∇f (directional derivative weighted by μ₁)
 # Part of the immersed boundary forcing that smoothly transitions flow at body surface
-@fastmath @inline function μddn(I::CartesianIndex{np1},μ,f) where np1
+#
+# For anisotropic grids: μ₁ is stored in grid cell units (scaled by h = min(Δx)).
+# The gradient must be scaled by h/Δx[j] to maintain consistency:
+#   physical_gradient = (f[I+δj] - f[I-δj]) / (2*Δx[j])
+#   grid_cell_gradient = physical_gradient * h = (f[I+δj] - f[I-δj]) * h / (2*Δx[j])
+@fastmath @inline function μddn(I::CartesianIndex{np1},μ,f,Δx) where np1
+    h = minimum(Δx)
     s = zero(eltype(f))
     for j ∈ 1:np1-1
-        s+= @inbounds μ[I,j]*(f[I+δ(j,I)]-f[I-δ(j,I)])
+        # Scale gradient for anisotropic grids: h/Δx[j] factor converts to grid cell units
+        s += @inbounds μ[I,j]*(f[I+δ(j,I)]-f[I-δ(j,I)]) * h / Δx[j]
     end
     return 0.5s
 end
@@ -261,15 +269,18 @@ function conv_diff_fvm!(r,u,F_conv,F_diff,λ::F;ν=0.1,Δx=(1,1),perdir=()) wher
 end
 
 """
-    accelerate!(r,t,g,U)
+    accelerate!(r,t,g,U,Δx)
 
 Accounts for applied and reference-frame acceleration using `rᵢ += g(i,x,t)+dU(i,x,t)/dt`
+where `x` is the physical coordinate (in meters) at face `i` of each cell.
+
+User-defined acceleration functions `g(i,x,t)` receive physical coordinates.
 """
-accelerate!(r,t,::Nothing,::Union{Nothing,Tuple}) = nothing
-accelerate!(r,t,f::Function) = @loop r[Ii] += f(last(Ii),loc(Ii,eltype(r)),t) over Ii ∈ CartesianIndices(r)
-accelerate!(r,t,g::Function,::Union{Nothing,Tuple}) = accelerate!(r,t,g)
-accelerate!(r,t,::Nothing,U::Function) = accelerate!(r,t,(i,x,t)->ForwardDiff.derivative(τ->U(i,x,τ),t))
-accelerate!(r,t,g::Function,U::Function) = accelerate!(r,t,(i,x,t)->g(i,x,t)+ForwardDiff.derivative(τ->U(i,x,τ),t))
+accelerate!(r,t,::Nothing,::Union{Nothing,Tuple},Δx) = nothing
+accelerate!(r,t,f::Function,Δx) = @loop r[Ii] += f(last(Ii),loc_physical(Ii,Δx,eltype(r)),t) over Ii ∈ CartesianIndices(r)
+accelerate!(r,t,g::Function,::Union{Nothing,Tuple},Δx) = accelerate!(r,t,g,Δx)
+accelerate!(r,t,::Nothing,U::Function,Δx) = accelerate!(r,t,(i,x,t)->ForwardDiff.derivative(τ->U(i,x,τ),t),Δx)
+accelerate!(r,t,g::Function,U::Function,Δx) = accelerate!(r,t,(i,x,t)->g(i,x,t)+ForwardDiff.derivative(τ->U(i,x,τ),t),Δx)
 """
     Flow{D::Int, T::Float, Sf<:AbstractArray{T,D}, Vf<:AbstractArray{T,D+1}, Tf<:AbstractArray{T,D+2}}
 
@@ -296,8 +307,10 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
     σ :: Sf # divergence scalar (work array)
     # BDIM fields
     V :: Vf # body velocity vector (m/s)
-    μ₀:: Vf # zeroth-moment vector (dimensionless)
+    μ₀:: Vf # zeroth-moment vector (dimensionless, 0=solid, 1=fluid)
     μ₁:: Tf # first-moment tensor field (dimensionless)
+    # Poisson solver coefficients (physical units, supports anisotropic grids)
+    L :: Vf # Laplacian face coefficients: L[I,d] = μ₀[I,d]/Δx[d]² (1/m²)
     # FVM flux storage (optional)
     F_conv :: Union{Tf, Nothing} # convective flux tensor F[I,j,i] = flux of u_i through face j
     F_diff :: Union{Tf, Nothing} # diffusive flux tensor
@@ -359,12 +372,22 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
         Nd = (Ng..., D)
         isnothing(uλ) && (uλ = ic_function(inletBC))
         u = Array{T}(undef, Nd...) |> f
-        isa(uλ, Function) ? apply!(uλ, u) : apply!((i,x)->uλ[i], u)
-        BC!(u,inletBC,outletBC,perdir); exitBC!(u,u,0.)
+        # Apply initial condition with physical coordinates
+        isa(uλ, Function) ? apply!(uλ, u; Δx) : apply!((i,x)->uλ[i], u; Δx)
+        BC!(u,inletBC,outletBC,perdir;Δx); exitBC!(u,u,0.)
         u⁰ = copy(u)
         fv, p, σ = zeros(T, Nd) |> f, zeros(T, Ng) |> f, zeros(T, Ng) |> f
         V, μ₀, μ₁ = zeros(T, Nd) |> f, ones(T, Nd) |> f, zeros(T, Ng..., D, D) |> f
         BC!(μ₀,ntuple(zero, D),false,perdir)
+        # Initialize Poisson coefficients with physical grid spacing: L[I,d] = μ₀[I,d]/Δx[d]²
+        # Each direction d has its own scaling for anisotropic grid support
+        Lcoef = similar(μ₀)
+        for d in 1:D
+            inv_Δxd² = inv(Δx[d]^2)
+            for I in CartesianIndices(axes(μ₀)[1:D])
+                Lcoef[I,d] = μ₀[I,d] * inv_Δxd²
+            end
+        end
         # Initialize FVM flux storage if requested
         if store_fluxes
             F_conv = zeros(T, Ng..., D, D) |> f
@@ -375,7 +398,26 @@ struct Flow{D, T, Sf<:AbstractArray{T}, Vf<:AbstractArray{T}, Tf<:AbstractArray{
         end
         # Convert fixed_Δt to correct type if specified
         fixed_dt = isnothing(fixed_Δt) ? nothing : T(fixed_Δt)
-        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,F_conv,F_diff,store_fluxes,inletBC,T[Δt],T(ν),T(ρ),Δx,g,outletBC,perdir,fixed_dt)
+        new{D,T,typeof(p),typeof(u),typeof(μ₁)}(u,u⁰,fv,p,σ,V,μ₀,μ₁,Lcoef,F_conv,F_diff,store_fluxes,inletBC,T[Δt],T(ν),T(ρ),Δx,g,outletBC,perdir,fixed_dt)
+    end
+end
+
+"""
+    update_L!(flow::Flow)
+
+Update Poisson coefficients L from μ₀ with physical grid spacing.
+Call this after measure!() to ensure L reflects the current body geometry.
+
+For anisotropic grids, each direction has its own scaling:
+    L[I,d] = μ₀[I,d] / Δx[d]²
+
+This ensures the discrete Laplacian ∇·(μ₀∇p) is correctly scaled in each direction.
+"""
+function update_L!(a::Flow{D,T}) where {D,T}
+    Δx = a.Δx
+    for d in 1:D
+        inv_Δxd² = inv(Δx[d]^2)
+        @loop a.L[I,d] = a.μ₀[I,d] * inv_Δxd² over I ∈ CartesianIndices(axes(a.L)[1:D])
     end
 end
 
@@ -400,10 +442,12 @@ time(a::Flow) = sum(@view(a.Δt[1:end-1]))
 # =============================================================================
 function BDIM!(a::Flow)
     dt = a.Δt[end]
+    Δx = a.Δx
     # Compute correction field: f = u⁰ + Δt*RHS - V
     @loop a.f[Ii] = a.u⁰[Ii]+dt*a.f[Ii]-a.V[Ii] over Ii in CartesianIndices(a.f)
     # Apply BDIM blending: u += μ₁·∇f + V + μ₀*f
-    @loop a.u[Ii] += μddn(Ii,a.μ₁,a.f)+a.V[Ii]+a.μ₀[Ii]*a.f[Ii] over Ii ∈ inside_u(size(a.p))
+    # μddn uses Δx for proper anisotropic grid scaling
+    @loop a.u[Ii] += μddn(Ii,a.μ₁,a.f,Δx)+a.V[Ii]+a.μ₀[Ii]*a.f[Ii] over Ii ∈ inside_u(size(a.p))
 end
 
 """
@@ -411,41 +455,29 @@ end
 
 Project velocity onto divergence-free space using pressure Poisson equation.
 
-Solves: ∇²p = ρ·∇·u*/Δt
-Updates: u = u* - (Δt/ρ)·∇p
+Solves: ∇·(μ₀∇p) = ρ·∇·u*
+Updates: u = u* - (μ₀/ρ)·∇p
+
+The Poisson solver uses physical grid spacing throughout (supports anisotropic grids):
+- L coefficients: L[I,d] = μ₀[I,d]/Δx[d]² (direction-specific scaling)
+- RHS: z = ρ·∇·u = ρ·Σ_d(∂u_d/∂x_d) (physical divergence)
+- Correction: u[d] -= L[d]·Δx[d]·∂p/ρ = (μ₀/ρ)·∂p/∂x_d (physical gradient)
 
 The pressure field `p` has physical units of Pa (kg/(m·s²)).
-
-The physical grid spacing Δx = L/N is properly incorporated:
-- RHS: ρ * Δx * div_unit(u) balances the unit-spacing Laplacian (which gives Δx² * ∇²p)
-- Correction: u -= L * ∂p / (ρ * Δx[i]) applies physical gradient (∇p = ∂p/Δx)
-
-For isotropic grids (Δx = Δy = Δz = h), the resulting pressure has physical units.
-For anisotropic grids, the minimum grid spacing is used for consistency.
-
-The physical Δx is used throughout:
-- CFL time step computation (Flow.jl CFL function)
-- Convection-diffusion operators (conv_diff! uses physical Δx)
-- Pressure projection (this function)
-- Force computations (Metrics.jl integrates over physical domain)
 """
 function project!(a::Flow{n},b::AbstractPoisson,w=1) where n
     dt = w*a.Δt[end]
     ρ = a.ρ
     Δx = a.Δx
-    # For isotropic grids, use Δx[1]. For anisotropic, use minimum for stability.
-    h = minimum(Δx)
-    # Physical Poisson: ∇²p = ρ * ∇·u
-    # With unit-spacing Laplacian (gives Δx² * ∇²p), RHS must be scaled:
-    # Δ²p = h² * ∇²p = h² * ρ * ∇·u = h * ρ * (h * ∇·u) = h * ρ * div_unit
-    @inside b.z[I] = ρ * h * div(I, a.u)
+    # Physical Poisson: ∇·(L·∇p) = ρ·∇·u where L[d] = μ₀/Δx[d]²
+    # RHS = ρ·∇·u = ρ·Σ_d(∂u_d/∂x_d) using div_aniso for anisotropic grids
+    @inside b.z[I] = ρ * div_aniso(I, a.u, Δx)
     b.x .*= dt  # Scale initial guess for warm start
     solver!(b)
-    # Physical velocity correction: u -= (1/ρ) * ∇p = (1/ρ) * (1/Δx) * ∂p
-    # With unit-spacing difference ∂, physical gradient is ∂p/Δx[i]
+    # Physical velocity correction: u[d] -= (μ₀/ρ)·∂p/∂x_d = (L[d]·Δx[d]²/ρ)·(∂p/Δx[d]) = (L[d]·Δx[d]/ρ)·∂p
     for i ∈ 1:n
-        inv_ρΔx = inv(ρ * Δx[i])
-        @loop a.u[I,i] -= b.L[I,i] * ∂(i, I, b.x) * inv_ρΔx over I ∈ inside(b.x)
+        Δxi_over_ρ = Δx[i] / ρ
+        @loop a.u[I,i] -= b.L[I,i] * ∂(i, I, b.x) * Δxi_over_ρ over I ∈ inside(b.x)
     end
     b.x ./= dt  # Unscale to recover actual pressure
 end
@@ -472,10 +504,10 @@ Uses predictor-corrector time integration with proper Δx scaling.
         conv_diff!(a.f,a.u⁰,a.σ,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
     end
     udf!(a,udf,t₀; kwargs...)
-    accelerate!(a.f,t₀,a.g,a.inletBC)
-    BDIM!(a); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁) # BC MUST be at t₁
+    accelerate!(a.f,t₀,a.g,a.inletBC,a.Δx)
+    BDIM!(a); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁;Δx=a.Δx) # BC MUST be at t₁
     a.outletBC && exitBC!(a.u,a.u⁰,a.Δt[end]) # convective outlet
-    project!(a,b); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
+    project!(a,b); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁;Δx=a.Δx)
     # corrector u → u¹
     @log "c"
     if a.store_fluxes
@@ -484,9 +516,9 @@ Uses predictor-corrector time integration with proper Δx scaling.
         conv_diff!(a.f,a.u,a.σ,λ;ν=a.ν,Δx=a.Δx,perdir=a.perdir)
     end
     udf!(a,udf,t₁; kwargs...)
-    accelerate!(a.f,t₁,a.g,a.inletBC)
-    BDIM!(a); scale_u!(a,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
-    project!(a,b,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁)
+    accelerate!(a.f,t₁,a.g,a.inletBC,a.Δx)
+    BDIM!(a); scale_u!(a,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁;Δx=a.Δx)
+    project!(a,b,0.5); BC!(a.u,a.inletBC,a.outletBC,a.perdir,t₁;Δx=a.Δx)
     # Use fixed time step if specified, otherwise adaptive CFL
     next_dt = isnothing(a.fixed_Δt) ? CFL(a) : a.fixed_Δt
     push!(a.Δt, next_dt)

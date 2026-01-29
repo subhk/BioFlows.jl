@@ -67,3 +67,6 @@ include("test_composite_poisson.jl")
 
 # Include FVM tests
 include("test_fvm.jl")
+
+# Include CUDA GPU tests (skipped if CUDA not available)
+include("test_cuda.jl")

@@ -151,14 +151,28 @@ end
 """
     λ₂(I::CartesianIndex{3},u)
 
-λ₂ is a deformation tensor metric to identify vortex cores.
+λ₂ is a deformation tensor metric to identify vortex cores (unit-spacing version).
 See [https://en.wikipedia.org/wiki/Lambda2_method](https://en.wikipedia.org/wiki/Lambda2_method) and
 Jeong, J., & Hussain, F., doi:[10.1017/S0022112095000462](https://doi.org/10.1017/S0022112095000462)
 
+Note: Returns λ₂ in unit-spacing (Δu)². For physical units (1/s²), use `λ₂(I,u,Δx)`.
 GPU-compatible: uses custom Cardano eigenvalue solver instead of LinearAlgebra.
 """
 @fastmath function λ₂(I::CartesianIndex{3},u)
     J = @SMatrix [∂(i,j,I,u) for i ∈ 1:3, j ∈ 1:3]
+    S,Ω = (J+J')/2,(J-J')/2
+    M = S^2 + Ω^2  # Symmetric matrix
+    eigvals_symmetric_3x3(M)[2]  # Return middle eigenvalue
+end
+
+"""
+    λ₂(I::CartesianIndex{3},u,Δx)
+
+λ₂ vortex identification metric with physical grid spacing.
+Returns λ₂ in physical units (1/s²).
+"""
+@fastmath function λ₂(I::CartesianIndex{3},u,Δx)
+    J = @SMatrix [∂(i,j,I,u)/Δx[j] for i ∈ 1:3, j ∈ 1:3]
     S,Ω = (J+J')/2,(J-J')/2
     M = S^2 + Ω^2  # Symmetric matrix
     eigvals_symmetric_3x3(M)[2]  # Return middle eigenvalue
@@ -235,16 +249,19 @@ Returns vorticity magnitude in physical units (1/s).
 ω_mag(I::CartesianIndex{2},u,Δx) = abs(curl(3,I,u,Δx))
 
 """
-    ω_θ(I::CartesianIndex{3},z,center,u)
+    ω_θ(I::CartesianIndex{3},z,center,u,Δx)
 
 Compute ``𝛚⋅𝛉`` at the center of cell `I` where ``𝛉`` is the azimuth
-direction around vector `z` passing through `center`.
+direction around vector `z` passing through `center` (in physical units).
+Uses physical coordinates and properly scaled vorticity.
 """
-function ω_θ(I::CartesianIndex{3},z,center,u)
-    θ = z × (loc(0,I,eltype(u))-SVector{3}(center))
+function ω_θ(I::CartesianIndex{3},z,center,u,Δx)
+    T = eltype(u)
+    θ = z × (loc_physical(0,I,Δx,T)-SVector{3,T}(center))
     n = norm2(θ)
-    n<=eps(n) ? 0. : θ'*ω(I,u) / n
+    n<=eps(n) ? zero(T) : θ'*ω(I,u,Δx) / n
 end
+
 
 # =============================================================================
 # FORCE COMPUTATION ON IMMERSED BODIES
@@ -259,16 +276,24 @@ end
 # =============================================================================
 
 """
-    nds(body,x,t,ϵ=1)
+    nds(body, x_physical, t, ϵ, h)
 
-BDIM-masked surface normal.
+BDIM-masked surface normal with physical coordinates.
+
+- `x_physical`: Position in physical coordinates (meters)
+- `ϵ`: Kernel width in grid cells
+- `h`: Characteristic grid spacing h = min(Δx) for scaling
+
 Returns n̂ weighted by the kernel K(d/ϵ), which is 1 at the surface and
-decays smoothly to 0 away from the body.
+decays smoothly to 0 away from the body. The distance from SDF (in physical
+units) is scaled to grid cells for kernel evaluation.
 """
-@inline function nds(body,x,t,ϵ=1)
-    d,n,_ = measure(body,x,t,fastd²=ϵ^2)
-    ϵT = oftype(d, ϵ)
-    n*BioFlows.kern(clamp(d/ϵT,-1,1))  # Weight normal by kernel
+@inline function nds(body, x_physical, t, ϵ, h)
+    ϵ_phys = ϵ * h  # Convert kernel width to physical units
+    d_phys, n, _ = measure(body, x_physical, t, fastd²=ϵ_phys^2)
+    d_cells = d_phys / h  # Convert distance to grid cells
+    ϵT = oftype(d_cells, ϵ)
+    n * BioFlows.kern(clamp(d_cells/ϵT, -1, 1))  # Weight normal by kernel
 end
 
 """
@@ -302,23 +327,36 @@ function pressure_force(p,Δx,df,body,t=0; ϵ=1)
     D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
     df .= zero(Tp)
+    h = minimum(Δx)  # Characteristic grid spacing for kernel scaling
     # Pressure has physical units (Pa) from the projection step.
     # Surface element: ds = Δx for 2D (per unit span), Δx² for 3D
     # For isotropic grid: scale = prod(Δx)^((D-1)/D)
     scale = prod(Δx)^((D-1)/D)  # Δx for 2D, Δx² for 3D (isotropic)
     # Compute contribution at each cell: F = -Σ p * n̂ * ds (negative because pressure acts inward)
-    @loop df[I,:] .= -p[I]*nds(body,loc(0,I,Tp),t,ϵ)*scale over I ∈ inside(p)
+    # Use physical coordinates for SDF query
+    @loop df[I,:] .= -p[I]*nds(body,loc_physical(0,I,Δx,Tp),t,ϵ,h)*scale over I ∈ inside(p)
     # Sum over all spatial dimensions to get total force vector
-    sum(To,df,dims=ntuple(i->i,D))[:] |> Array
+    # Use to_cpu for explicit GPU→CPU synchronization
+    to_cpu(sum(To,df,dims=ntuple(i->i,D))[:])
 end
 
 """
     S(I::CartesianIndex,u)
 
-Rate-of-strain tensor.
+Rate-of-strain tensor (unit-spacing version).
+Note: Returns S in unit-spacing (Δu). For physical strain rate (1/s), use `S(I,u,Δx)`.
 """
 S(I::CartesianIndex{2},u) = @SMatrix [0.5*(∂(i,j,I,u)+∂(j,i,I,u)) for i ∈ 1:2, j ∈ 1:2]
 S(I::CartesianIndex{3},u) = @SMatrix [0.5*(∂(i,j,I,u)+∂(j,i,I,u)) for i ∈ 1:3, j ∈ 1:3]
+
+"""
+    S(I::CartesianIndex,u,Δx)
+
+Rate-of-strain tensor with physical grid spacing.
+Returns S in physical units (1/s).
+"""
+S(I::CartesianIndex{2},u,Δx) = @SMatrix [0.5*(∂(i,j,I,u)/Δx[j]+∂(j,i,I,u)/Δx[i]) for i ∈ 1:2, j ∈ 1:2]
+S(I::CartesianIndex{3},u,Δx) = @SMatrix [0.5*(∂(i,j,I,u)/Δx[j]+∂(j,i,I,u)/Δx[i]) for i ∈ 1:3, j ∈ 1:3]
 """
    viscous_force(sim::Simulation)
 
@@ -343,16 +381,17 @@ function viscous_force(u,ν,ρ,Δx,df,body,t=0; ϵ=1)
     D = ndims(u) - 1  # Spatial dimensions (u has extra dimension for components)
     Tu = eltype(u); To = promote_type(Float64,Tu)
     μ = ρ * ν  # dynamic viscosity (Pa·s)
+    h = minimum(Δx)  # Characteristic grid spacing for kernel scaling
     df .= zero(Tu)
-    # The stored strain rate S uses unit-spacing derivatives: S_unit = S_physical * Δx
-    # Physical strain rate: S_physical = S_unit / Δx
+    # Physical strain rate S(I,u,Δx) in units of 1/s
     # Surface element: ds = Δx for 2D, Δx² for 3D
-    # Combined: (S_unit / Δx) * ds = S_unit for 2D, S_unit * Δx for 3D
-    # For isotropic grid: scale = Δx^(D-2) = 1 for 2D, Δx for 3D
-    scale = prod(Δx)^((D-2)/D)  # 1 for 2D, Δx for 3D (isotropic)
+    # For isotropic grid: scale = Δx^(D-1) = Δx for 2D, Δx² for 3D
+    scale = prod(Δx)^((D-1)/D)  # Δx for 2D, Δx² for 3D (isotropic)
     # F = +∮ 2μS·n̂ ds (viscous traction on body from fluid)
-    @loop df[I,:] .= 2μ*S(I,u)*nds(body,loc(0,I,Tu),t,ϵ)*scale over I ∈ inside_u(u)
-    sum(To,df,dims=ntuple(i->i,D))[:] |> Array
+    # Use physical coordinates and physical strain rate
+    @loop df[I,:] .= 2μ*S(I,u,Δx)*nds(body,loc_physical(0,I,Δx,Tu),t,ϵ,h)*scale over I ∈ inside_u(u)
+    # Use to_cpu for explicit GPU→CPU synchronization
+    to_cpu(sum(To,df,dims=ntuple(i->i,D))[:])
 end
 
 """
@@ -379,33 +418,37 @@ pressure_moment(x₀,sim) = pressure_moment(x₀,sim.flow,sim.body; ϵ=_sim_kern
 pressure_moment(x₀,flow,body; ϵ=1) = pressure_moment(x₀,flow.p,flow.Δx,flow.f,body,time(flow); ϵ)
 
 # Helper for 2D moment computation (avoids local variables in @loop)
-@inline function _moment_2d(I, p, body, x₀, t, ϵ, scale, ::Type{Tp}) where Tp
-    x = loc(0, I, Tp)
-    n = nds(body, x, t, ϵ)
+# Uses physical coordinates for both position (moment arm) and SDF query
+@inline function _moment_2d(I, p, body, x₀, t, ϵ, h, Δx, scale, ::Type{Tp}) where Tp
+    x = loc_physical(0, I, Δx, Tp)  # Physical coordinates
+    n = nds(body, x, t, ϵ, h)        # Normal from physical position
     -p[I] * ((x[1]-x₀[1]) * n[2] - (x[2]-x₀[2]) * n[1]) * scale
 end
 
 # Helper for 3D moment computation (avoids local variables in @loop)
-@inline function _moment_3d(I, p, body, x₀, t, ϵ, scale, ::Type{Tp}) where Tp
-    x = loc(0, I, Tp)
-    n = nds(body, x, t, ϵ)
+@inline function _moment_3d(I, p, body, x₀, t, ϵ, h, Δx, scale, ::Type{Tp}) where Tp
+    x = loc_physical(0, I, Δx, Tp)  # Physical coordinates
+    n = nds(body, x, t, ϵ, h)        # Normal from physical position
     -p[I] * cross(x - x₀, n) * scale
 end
 
 function pressure_moment(x₀,p,Δx,df,body,t=0; ϵ=1)
     D = ndims(p)
     Tp = eltype(p); To = promote_type(Float64,Tp)
+    h = minimum(Δx)  # Characteristic grid spacing for kernel scaling
     df .= zero(Tp)
     # Surface element: ds = Δx for 2D, Δx² for 3D
-    # For moment, we also multiply by lever arm which has units of Δx
-    # Combined: ds * arm = Δx² for 2D, Δx³ for 3D
-    scale = prod(Δx)
+    # Moment arm (x - x₀) is now in physical units, so no extra scaling needed
+    # Combined: ds = Δx for 2D, Δx² for 3D
+    scale = prod(Δx)^((D-1)/D)  # Same as pressure_force
     if D == 2
-        @loop df[I,1] = _moment_2d(I, p, body, x₀, t, ϵ, scale, Tp) over I ∈ inside(p)
-        sum(To,df,dims=ntuple(i->i,D))[:] |> Array |> first
+        @loop df[I,1] = _moment_2d(I, p, body, x₀, t, ϵ, h, Δx, scale, Tp) over I ∈ inside(p)
+        # Use to_cpu for explicit GPU→CPU synchronization
+        first(to_cpu(sum(To,df,dims=ntuple(i->i,D))[:]))
     else
-        @loop df[I,:] .= _moment_3d(I, p, body, x₀, t, ϵ, scale, Tp) over I ∈ inside(p)
-        sum(To,df,dims=ntuple(i->i,D))[:] |> Array
+        @loop df[I,:] .= _moment_3d(I, p, body, x₀, t, ϵ, h, Δx, scale, Tp) over I ∈ inside(p)
+        # Use to_cpu for explicit GPU→CPU synchronization
+        to_cpu(sum(To,df,dims=ntuple(i->i,D))[:])
     end
 end
 

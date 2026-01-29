@@ -236,22 +236,62 @@ using StaticArrays
 """
     loc(i,I) = loc(Ii)
 
-Location in space of the cell at CartesianIndex `I` at face `i`.
-Using `i=0` returns the cell center s.t. `loc = I`.
+Location in space of the cell at CartesianIndex `I` at face `i` in **grid cell units**.
+Using `i=0` returns the cell center s.t. `loc ≈ I - 1.5`.
+
+Note: This returns coordinates in grid index space (0, 1, 2, ...), not physical coordinates.
+For physical coordinates, use `loc_physical(i, I, Δx)`.
 """
 @inline loc(i,I::CartesianIndex{N},T=Float32) where N = SVector{N,T}(I.I .- 1.5 .- 0.5 .* δ(i,I).I)
 @inline loc(Ii::CartesianIndex,T=Float32) = loc(last(Ii),Base.front(Ii),T)
+
+"""
+    loc_physical(i, I, Δx, T=Float32)
+
+Location in **physical coordinates** of the cell at CartesianIndex `I` at face `i`.
+Converts grid indices to physical coordinates using grid spacing Δx.
+
+Physical coordinate: x_physical = (grid_index - 1.5) * Δx
+
+For anisotropic grids, `Δx` should be a tuple/vector of grid spacings.
+For isotropic grids, `Δx` can be a scalar.
+"""
+@inline function loc_physical(i,I::CartesianIndex{N},Δx::NTuple{N},T=Float32) where N
+    grid_loc = SVector{N,T}(I.I .- 1.5 .- 0.5 .* δ(i,I).I)
+    SVector{N,T}(ntuple(d -> grid_loc[d] * Δx[d], N))
+end
+@inline loc_physical(i,I::CartesianIndex{N},Δx::Real,T=Float32) where N = loc(i,I,T) .* T(Δx)
+# Combined index version: loc_physical(Ii, Δx, T) extracts face index from last dimension
+@inline loc_physical(Ii::CartesianIndex,Δx,T=Float32) = loc_physical(last(Ii),Base.front(Ii),Δx,T)
 Base.last(I::CartesianIndex) = last(I.I)
 Base.front(I::CartesianIndex) = CI(Base.front(I.I))
 """
-    apply!(f, c)
+    apply!(f, c; Δx=nothing)
 
 Apply a vector function `f(i,x)` to the faces of a uniform staggered array `c` or
 a function `f(x)` to the center of a uniform array `c`.
+
+If `Δx` is provided (as a tuple of grid spacings), the function receives physical
+coordinates (in meters). Otherwise, it receives grid cell coordinates (legacy behavior).
+
+# Examples
+```julia
+# With physical coordinates (recommended)
+apply!(u; Δx=(0.01, 0.01)) do i, x
+    i == 1 ? sin(2π * x[1]) : 0.0  # x is in meters
+end
+
+# Legacy: grid cell coordinates
+apply!(u) do i, x
+    i == 1 ? sin(2π * x[1] / N) : 0.0  # x is grid index
+end
+```
 """
-apply!(f,c) = hasmethod(f,Tuple{Int,CartesianIndex}) ? applyV!(f,c) : applyS!(f,c)
-applyV!(f,c) = @loop c[Ii] = f(last(Ii),loc(Ii,eltype(c))) over Ii ∈ CartesianIndices(c)
-applyS!(f,c) = @loop c[I] = f(loc(0,I,eltype(c))) over I ∈ CartesianIndices(c)
+apply!(f,c;Δx=nothing) = hasmethod(f,Tuple{Int,CartesianIndex}) ? applyV!(f,c,Δx) : applyS!(f,c,Δx)
+applyV!(f,c,::Nothing) = @loop c[Ii] = f(last(Ii),loc(Ii,eltype(c))) over Ii ∈ CartesianIndices(c)
+applyV!(f,c,Δx) = @loop c[Ii] = f(last(Ii),loc_physical(Ii,Δx,eltype(c))) over Ii ∈ CartesianIndices(c)
+applyS!(f,c,::Nothing) = @loop c[I] = f(loc(0,I,eltype(c))) over I ∈ CartesianIndices(c)
+applyS!(f,c,Δx) = @loop c[I] = f(loc_physical(0,I,Δx,eltype(c))) over I ∈ CartesianIndices(c)
 """
     slice(dims,i,j,low=1)
 
@@ -280,10 +320,18 @@ Apply boundary conditions to the ghost cells of a _vector_ field. A Dirichlet
 condition `a[I,i]=A[i]` is applied to the vector component _normal_ to the domain
 boundary. For example `aₓ(x)=Aₓ ∀ x ∈ minmax(X)`. A zero Neumann condition
 is applied to the tangential components.
+
+When `Δx` is provided as a keyword argument, coordinates are converted to physical
+units using `loc_physical()`. Otherwise, grid cell coordinates are used (legacy behavior).
 """
-BC!(a,U,saveoutlet=false,perdir=(),t=0) = BC!(a,(i,x,t)->U[i],saveoutlet,perdir,t)
-function BC!(a,inletBC::Function,saveoutlet=false,perdir=(),t=0)
+# Coordinate helper - dispatches based on Δx
+@inline _bc_loc(i,I,::Nothing,T) = loc(i,I,T)
+@inline _bc_loc(i,I,Δx,T) = loc_physical(i,I,Δx,T)
+
+BC!(a,U,saveoutlet=false,perdir=(),t=0;Δx=nothing) = BC!(a,(i,x,t)->U[i],saveoutlet,perdir,t;Δx)
+function BC!(a,inletBC::Function,saveoutlet=false,perdir=(),t=0;Δx=nothing)
     N,n = size_u(a)
+    T = eltype(a)
     for i ∈ 1:n, j ∈ 1:n  # i = velocity component, j = boundary direction
         if j in perdir
             # PERIODIC: Copy from opposite boundary
@@ -292,14 +340,14 @@ function BC!(a,inletBC::Function,saveoutlet=false,perdir=(),t=0)
         else
             if i==j  # NORMAL component: Dirichlet BC
                 for s ∈ (1,2)  # Both ghost layers at inlet
-                    @loop a[I,i] = inletBC(i,loc(i,I),t) over I ∈ slice(N,s,j)
+                    @loop a[I,i] = inletBC(i,_bc_loc(i,I,Δx,T),t) over I ∈ slice(N,s,j)
                 end
                 # Outlet: apply BC unless saveoutlet and x-direction
-                (!saveoutlet || i>1) && (@loop a[I,i] = inletBC(i,loc(i,I),t) over I ∈ slice(N,N[j],j))
+                (!saveoutlet || i>1) && (@loop a[I,i] = inletBC(i,_bc_loc(i,I,Δx,T),t) over I ∈ slice(N,N[j],j))
             else  # TANGENTIAL component: Neumann BC (zero gradient)
                 # u_ghost = u_BC + (u_interior - u_BC) = u_interior
-                @loop a[I,i] = inletBC(i,loc(i,I),t)+a[I+δ(j,I),i]-inletBC(i,loc(i,I+δ(j,I)),t) over I ∈ slice(N,1,j)
-                @loop a[I,i] = inletBC(i,loc(i,I),t)+a[I-δ(j,I),i]-inletBC(i,loc(i,I-δ(j,I)),t) over I ∈ slice(N,N[j],j)
+                @loop a[I,i] = inletBC(i,_bc_loc(i,I,Δx,T),t)+a[I+δ(j,I),i]-inletBC(i,_bc_loc(i,I+δ(j,I),Δx,T),t) over I ∈ slice(N,1,j)
+                @loop a[I,i] = inletBC(i,_bc_loc(i,I,Δx,T),t)+a[I-δ(j,I),i]-inletBC(i,_bc_loc(i,I-δ(j,I),Δx,T),t) over I ∈ slice(N,N[j],j)
             end
         end
     end
@@ -356,6 +404,23 @@ function interp(x::SVector{D,T}, varr::AbstractArray{T}) where {D,T}
 end
 
 """
+    interp_physical(x_phys::SVector, arr::AbstractArray, Δx)
+
+Linear interpolation from array `arr` at **physical coordinate** `x_phys`.
+Converts physical coordinates to grid cell coordinates using `Δx`.
+"""
+function interp_physical(x_phys::SVector{D,T}, arr::AbstractArray{T,D}, Δx) where {D,T}
+    # Convert physical coordinates to grid cell coordinates
+    x_grid = SVector{D,T}(x_phys[i] / Δx[i] for i in 1:D)
+    interp(x_grid, arr)
+end
+function interp_physical(x_phys::SVector{D,T}, varr::AbstractArray{T}, Δx) where {D,T}
+    # Convert physical coordinates to grid cell coordinates
+    x_grid = SVector{D,T}(x_phys[i] / Δx[i] for i in 1:D)
+    interp(x_grid, varr)
+end
+
+"""
     sgs!(flow, t; νₜ, S, Cs, Δ)
 
 Implements a user-defined function `udf` to model subgrid-scale LES stresses based on the Boussinesq approximation
@@ -378,10 +443,15 @@ and passed into `sim_step!` as a keyword argument together with the varibles tha
 """
 function sgs!(flow, t; νₜ, S, Cs, Δ)
     N,n = size_u(flow.u)
-    @loop S[I,:,:] .= BioFlows.S(I,flow.u) over I ∈ inside(flow.σ)
+    Δx = flow.Δx
+    # Compute physical strain rate S for correct turbulent viscosity
+    @loop S[I,:,:] .= BioFlows.S(I,flow.u,Δx) over I ∈ inside(flow.σ)
     for i ∈ 1:n, j ∈ 1:n
+        inv_Δxj = inv(Δx[j])  # Physical gradient scaling
         BioFlows.@loop (
-            flow.σ[I] = -νₜ(I;S,Cs,Δ)*∂(j,CI(I,i),flow.u);
+            # SGS stress divergence: ∂τ_ij/∂x_j with physical gradient
+            # νₜ computed from physical S, gradient scaled by 1/Δx_j
+            flow.σ[I] = -νₜ(I;S,Cs,Δ)*∂(j,CI(I,i),flow.u)*inv_Δxj;
             flow.f[I,i] += flow.σ[I];
         ) over I ∈ inside_u(N,j)
         BioFlows.@loop flow.f[I-δ(j,I),i] -= flow.σ[I] over I ∈ BioFlows.inside_u(N,j)

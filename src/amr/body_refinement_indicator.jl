@@ -6,10 +6,12 @@ Used by the AMR system to determine which cells need refinement.
 """
 
 # Helper function for body proximity indicator
-@inline function _body_indicator_value(body::AbstractBody, I::CartesianIndex, T::Type, threshold, t)
-    x = loc(0, I, T)
-    d = sdf(body, x, T(t))
-    abs(d) < threshold ? one(T) : zero(T)
+# Uses physical coordinates to query SDF and scales distance to grid cells
+@inline function _body_indicator_value(body::AbstractBody, I::CartesianIndex, Δx, T::Type, threshold_cells, h, t)
+    x = loc_physical(0, I, Δx, T)  # Physical coordinates for SDF query
+    d_phys = sdf(body, x, T(t))    # Distance in physical units
+    d_cells = d_phys / h           # Convert to grid cells for threshold comparison
+    abs(d_cells) < threshold_cells ? one(T) : zero(T)
 end
 
 """
@@ -36,10 +38,12 @@ function compute_body_refinement_indicator(flow::Flow{N,T}, body::AbstractBody;
     fill!(indicator, zero(T))
     threshold = T(distance_threshold)
     tt = T(t)
+    Δx = flow.Δx
+    h = minimum(Δx)  # Characteristic grid spacing for scaling
 
     # Iterate over interior cells (GPU-compatible via @loop)
     R = inside(flow.p)
-    @loop indicator[I] = _body_indicator_value(body, I, T, threshold, tt) over I ∈ R
+    @loop indicator[I] = _body_indicator_value(body, I, Δx, T, threshold, h, tt) over I ∈ R
 
     return indicator
 end

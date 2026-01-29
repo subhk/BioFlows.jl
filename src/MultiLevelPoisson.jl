@@ -15,8 +15,9 @@
 #   Level 2:          N/4 × M/4 cells
 #   ...continues until grid is too small
 #
-# Note: The solver uses unit spacing internally (Δx=1). For anisotropic grids,
-# the scaling is handled externally in project!().
+# The L coefficients include physical grid spacing with direction-specific scaling:
+#   L[I,d] = μ₀[I,d] / Δx[d]²  (supports anisotropic grids)
+# For highly anisotropic grids (aspect ratio > 4), convergence may be slower.
 # =============================================================================
 
 # =============================================================================
@@ -31,25 +32,31 @@
 # For prolongation: copy coarse value to 2^D fine cells
 @inline down(I::CartesianIndex) = CI((I+2oneunit(I)).I .÷2)
 
-# Restrict scalar field: scaled sum fine values to coarse (full weighting)
-# R: fine -> coarse, sums 4 fine cells (2D) or 8 fine cells (3D) with scaling
+# Restrict scalar field: full weighting (average of 2^N fine cells)
+# R: fine -> coarse, averages 4 fine cells (2D) or 8 fine cells (3D)
+# This is standard full-weighting restriction for cell-centered multigrid.
 @fastmath @inline function restrict(I::CartesianIndex,b::AbstractArray{T,N}) where {T,N}
     s = zero(T)
     for J ∈ up(I)
      s += @inbounds(b[J])
     end
-    scale = N <= 2 ? one(T) : inv(T(2)^(N-2))  # 1 for 2D, 1/2 for 3D
+    # Full weighting: average over 2^N fine cells
+    # 2D: 4 cells → scale = 1/4, 3D: 8 cells → scale = 1/8
+    scale = inv(T(2)^N)
     return s * scale
 end
 
-# Restrict coefficient field L: average face values (half weighting in 2D)
-# Used to build coarse grid operator from fine grid coefficients
+# Restrict coefficient field L: average face values
+# Used to build coarse grid operator from fine grid coefficients.
+# Each coarse face averages 2^(N-1) fine faces (2 in 2D, 4 in 3D).
 @fastmath @inline function restrictL(I::CartesianIndex,i,b::AbstractArray{T,N}) where {T,N}
     s = zero(T)
     for J ∈ up(I,i)
      s += @inbounds(b[J,i])
     end
-    scale = inv(T(2)^(N-2))  # 1 for 2D, 1/2 for 3D (averages face values)
+    # Average over 2^(N-1) fine faces
+    # 2D: 2 faces → scale = 1/2, 3D: 4 faces → scale = 1/4
+    scale = inv(T(2)^(N-1))
     return s * scale
 end
 
@@ -88,8 +95,8 @@ prolongate!(a,b) = @inside a[I] = b[down(I)]
 Composite type used to solve the pressure Poisson equation with a [geometric multigrid](https://en.wikipedia.org/wiki/Multigrid_method) method.
 The only variable is `levels`, a vector of nested `Poisson` systems.
 
-Note: The solver uses unit spacing internally (Δx=1). For anisotropic grids,
-the scaling is handled externally in project!().
+The L coefficients include physical grid spacing with direction-specific scaling
+(L[I,d] = μ₀[I,d]/Δx[d]²), supporting anisotropic grids where Δx ≠ Δy ≠ Δz.
 """
 struct MultiLevelPoisson{T,S<:AbstractArray{T},V<:AbstractArray{T},N} <: AbstractPoisson{T,S,V}
     x::S

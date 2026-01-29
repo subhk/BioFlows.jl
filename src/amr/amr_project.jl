@@ -264,31 +264,31 @@ function amr_mom_step!(flow::Flow{D,T}, cp::CompositePoisson{T};
     conv_diff!(flow.f, flow.u⁰, flow.σ, λ; ν=flow.ν, Δx=flow.Δx, perdir=flow.perdir)
 
     # Apply body acceleration (gravity, etc.)
-    accelerate!(flow.f, t₀, flow.g, flow.inletBC)
+    accelerate!(flow.f, t₀, flow.g, flow.inletBC, flow.Δx)
 
     # Apply BDIM (body info is in flow.μ₀ and flow.V)
     BDIM!(flow)
-    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
+    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁; Δx=flow.Δx)
 
     # Apply convective outlet BC if enabled
     flow.outletBC && exitBC!(flow.u, flow.u⁰, flow.Δt[end])
 
     # Project to divergence-free
     amr_project!(flow, cp)
-    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
+    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁; Δx=flow.Δx)
 
     # Corrector step - compute forcing from predicted u
     conv_diff!(flow.f, flow.u, flow.σ, λ; ν=flow.ν, Δx=flow.Δx, perdir=flow.perdir)
 
     # Apply body acceleration
-    accelerate!(flow.f, t₁, flow.g, flow.inletBC)
+    accelerate!(flow.f, t₁, flow.g, flow.inletBC, flow.Δx)
 
     BDIM!(flow)
     scale_u!(flow, T(0.5))  # Average predictor and corrector
-    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
+    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁; Δx=flow.Δx)
 
     amr_project!(flow, cp, 0.5)
-    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁)
+    BC!(flow.u, flow.inletBC, flow.outletBC, flow.perdir, t₁; Δx=flow.Δx)
 
     # Update time step - use amr_cfl to account for refined patches
     push!(flow.Δt, amr_cfl(flow, cp))

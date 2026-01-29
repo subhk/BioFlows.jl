@@ -6,13 +6,15 @@
 # equations.
 #
 # The pressure Poisson equation is:
-#     ∇·(β∇p) = σ    where β = L (variable coefficient from BDIM)
+#     ∇·(L∇p) = σ    where L = μ₀/Δx² (physical Laplacian coefficient)
 #
 # Discretized on a staggered grid, this becomes:
 #     Ax = z
 #
-# Note: The solver uses unit spacing internally (Δx=1). For anisotropic grids,
-# the scaling is handled externally in project!().
+# The L coefficients include physical grid spacing so the solver operates
+# with proper dimensional scaling. For anisotropic grids (Δx ≠ Δy ≠ Δz):
+#   L[I,d] = μ₀[I,d] / Δx[d]²  (direction-specific scaling)
+# L is updated when the body geometry changes via update_L!().
 # =============================================================================
 
 """
