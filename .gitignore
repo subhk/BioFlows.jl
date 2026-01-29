@@ -44,6 +44,6 @@ JuliaLocalPreferences.toml
 .vscode/
 .idea/
 
-# Temporary test files
-test_*.jl
-plot*.jl
+# Temporary test/plot files in root directory (not in test/ folder)
+/test_*.jl
+/plot*.jl
