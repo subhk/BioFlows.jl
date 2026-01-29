@@ -12,9 +12,9 @@ using BioFlows
 cuda_available = false
 try
     using CUDA
-    cuda_available = CUDA.functional()
+    global cuda_available = CUDA.functional()
 catch
-    cuda_available = false
+    global cuda_available = false
 end
 
 @testset "CUDA GPU Support" begin
@@ -169,7 +169,8 @@ end
                 @test true  # If we get here, no scalar indexing occurred
             catch e
                 if e isa CUDA.ScalarIndexingException
-                    @test false "Scalar indexing detected: $e"
+                    @error "Scalar indexing detected" exception=e
+                    @test false
                 else
                     rethrow(e)
                 end
