@@ -1,13 +1,15 @@
 name: ci-gpu-NVIDIA
 
+# GPU tests only run on manual dispatch until a self-hosted GPU runner is configured
+# To enable automatic runs, uncomment push/pull_request triggers below
 on:
-  push:
-    branches:
-      - main
-    tags: ['*']
-  pull_request:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
+  #   tags: ['*']
+  # pull_request:
+  #   branches:
+  #     - main
   workflow_dispatch:
     inputs:
       julia-version:
