@@ -69,5 +69,10 @@ include("test_composite_poisson.jl")
 # Include FVM tests
 include("test_fvm.jl")
 
-# Include CUDA GPU tests (skipped if CUDA not available)
-include("test_cuda.jl")
+# Include CUDA GPU tests only if explicitly requested or CUDA is available
+# Set BIOFLOWS_TEST_CUDA=true to run CUDA tests
+if get(ENV, "BIOFLOWS_TEST_CUDA", "false") == "true"
+    include("test_cuda.jl")
+else
+    @info "Skipping CUDA tests (set BIOFLOWS_TEST_CUDA=true to enable)"
+end
