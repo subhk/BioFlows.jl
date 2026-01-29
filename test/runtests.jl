@@ -13,11 +13,12 @@ using JLD2
     @test sim_time(circle) > 0
 
     include(joinpath(@__DIR__, "..", "examples", "flow_past_cylinder_2d.jl"))
-    cyl, _ = flow_past_cylinder_2d_sim(; nx=48, nz=48, ν=0.003f0)
+    # Use Lx=Lz for uniform cell spacing with nx=nz
+    cyl, _ = flow_past_cylinder_2d_sim(; nx=48, nz=48, Lx=4f0, Lz=4f0, ν=0.003f0)
     sim_step!(cyl; remeasure=false)
     history = NamedTuple[]
     record_force!(history, cyl)
-    stats = summarize_force_history(history; discard=0)
+    stats = summarize_force_history(history; discard=0.0)
     @test !isnan(stats.drag_mean)
 
     tmp = mktempdir()
