@@ -1,8 +1,13 @@
 name: ci-gpu-NVIDIA
 
 on:
-  issue_comment:
-    types: [created]
+  push:
+    branches:
+      - main
+    tags: ['*']
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       julia-version:
@@ -10,113 +15,21 @@ on:
         required: false
         default: '1.10'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
 jobs:
   cuda-test:
-    # Trigger on PR comments starting with "Test GPU please"
-    if: |
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, 'Test GPU please')
-
+    name: CUDA ${{ matrix.cuda }} - Julia ${{ matrix.julia-version }}
     runs-on: [self-hosted, Linux, X64, cuda]
+    timeout-minutes: 60
 
-    env:
-      GH_JOBNAME: ${{ matrix.jobname }}
-      GH_OS: Linux
     strategy:
       fail-fast: false
       matrix:
-        jobname: [CUDA-Julia-1.10]
         julia-version: ['1.10']
-
-    steps:
-      # Only trigger CI for certain "actors" (those commenting the PR, not the PR originator)
-      - name: Verify actor
-        env:
-          ACTOR_TOKEN: ${{ secrets.TOKENIZER }}${{ github.actor }}${{ secrets.TOKENIZER }}
-          SECRET_ACTORS: ${{ secrets.CI_GPU_ACTORS }}
-        if: contains(env.SECRET_ACTORS, env.ACTOR_TOKEN)
-        id: check
-        run: |
-          echo "triggered=true" >> $GITHUB_OUTPUT
-
-      # Request repo info, required since issue_comment doesn't point at PR commit, but main
-      - name: GitHub API Request
-        if: steps.check.outputs.triggered == 'true'
-        id: request
-        uses: octokit/request-action@v2.x
-        with:
-          route: ${{ github.event.issue.pull_request.url }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Create a separate PR status pointing at GitHub Actions tab URL
-      - name: Create PR status
-        if: steps.check.outputs.triggered == 'true'
-        uses: geekdude/github-status-action-v2@v1.1.10
-        with:
-          authToken: ${{ secrets.GITHUB_TOKEN }}
-          context: "ci-gpu-NVIDIA ${{ matrix.jobname }}"
-          state: "pending"
-          sha: ${{ fromJson(steps.request.outputs.data).head.sha }}
-          target_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-      - name: Get PR information
-        if: steps.check.outputs.triggered == 'true'
-        id: pr_data
-        run: |
-          echo "branch=${{ fromJson(steps.request.outputs.data).head.ref }}" >> $GITHUB_OUTPUT
-          echo "repo_name=${{ fromJson(steps.request.outputs.data).head.repo.full_name }}" >> $GITHUB_OUTPUT
-          echo "repo_clone_url=${{ fromJson(steps.request.outputs.data).head.repo.clone_url }}" >> $GITHUB_OUTPUT
-          echo "repo_ssh_url=${{ fromJson(steps.request.outputs.data).head.repo.ssh_url }}" >> $GITHUB_OUTPUT
-
-      - name: Checkout PR branch
-        if: steps.check.outputs.triggered == 'true'
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ fromJson(steps.request.outputs.data).head.repo.full_name }}
-          ref: ${{ steps.pr_data.outputs.branch }}
-
-      - name: Setup Julia
-        if: steps.check.outputs.triggered == 'true'
-        uses: julia-actions/setup-julia@v2
-        with:
-          version: ${{ matrix.julia-version }}
-
-      - name: Instantiate and add CUDA
-        if: steps.check.outputs.triggered == 'true'
-        run: |
-          julia --project -e '
-            using Pkg
-            Pkg.instantiate()
-            Pkg.add("CUDA")
-          '
-
-      - name: Run CUDA tests
-        if: steps.check.outputs.triggered == 'true'
-        env:
-          BIOFLOWS_TEST_CUDA: "true"
-          JULIA_NUM_THREADS: auto
-        run: |
-          julia --project -e '
-            using Pkg
-            Pkg.test()
-          '
-
-      - name: Report PR status
-        if: always() && steps.check.outputs.triggered == 'true'
-        uses: geekdude/github-status-action-v2@v1.1.10
-        with:
-          authToken: ${{ secrets.GITHUB_TOKEN }}
-          context: "ci-gpu-NVIDIA ${{ matrix.jobname }}"
-          state: ${{ job.status }}
-          sha: ${{ fromJson(steps.request.outputs.data).head.sha }}
-          target_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-  # Alternative: Manual workflow dispatch for CUDA testing
-  cuda-test-manual:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, Linux, X64, cuda]
+        cuda: ['12.x']
 
     steps:
       - uses: actions/checkout@v4
@@ -124,9 +37,11 @@ jobs:
       - name: Setup Julia
         uses: julia-actions/setup-julia@v2
         with:
-          version: ${{ github.event.inputs.julia-version || '1.10' }}
+          version: ${{ matrix.julia-version }}
 
-      - name: Instantiate and add CUDA
+      - uses: julia-actions/cache@v2
+
+      - name: Install dependencies
         run: |
           julia --project -e '
             using Pkg
@@ -134,12 +49,23 @@ jobs:
             Pkg.add("CUDA")
           '
 
-      - name: Run CUDA tests
+      - name: Check CUDA availability
+        run: |
+          julia --project -e '
+            using CUDA
+            @info "CUDA status" functional=CUDA.functional()
+            if CUDA.functional()
+              @info "GPU detected" device=CUDA.device() capability=CUDA.capability(CUDA.device())
+            end
+          '
+
+      - name: Run tests with CUDA
         env:
           BIOFLOWS_TEST_CUDA: "true"
           JULIA_NUM_THREADS: auto
         run: |
-          julia --project -e '
-            using Pkg
-            Pkg.test()
-          '
+          julia --project -e 'using Pkg; Pkg.test()'
+
+      - name: Report GPU memory usage
+        if: always()
+        run: nvidia-smi || true
